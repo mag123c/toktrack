@@ -36,7 +36,7 @@ thiserror = "2"
 anyhow = "1"
 
 # HTTP (for LiteLLM pricing)
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.13", features = ["json"] }
 
 [dev-dependencies]
 # Snapshot testing
