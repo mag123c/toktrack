@@ -1,3 +1,8 @@
+//! Usage types for token tracking
+//!
+//! TODO: Remove allow(dead_code) once types are used by parsers/aggregators
+#![allow(dead_code)]
+
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

@@ -1,3 +1,8 @@
+//! Error types for toktrack
+//!
+//! TODO: Remove allow(dead_code) once error variants are used
+#![allow(dead_code)]
+
 use thiserror::Error;
 
 /// toktrack error types
