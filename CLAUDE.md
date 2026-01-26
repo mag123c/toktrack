@@ -159,6 +159,14 @@ directories = "5"       # Cross-platform paths
 serde = "1"             # Serialization
 ```
 
+## Commit Rules
+
+This project uses AI assistance (Claude). Include co-author in commits:
+
+```
+Co-Authored-By: Claude <noreply@anthropic.com>
+```
+
 ## Contributing
 
 TDD principles enforced:
