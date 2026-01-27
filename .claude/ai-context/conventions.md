@@ -50,6 +50,29 @@ scopes: parser|tui|services|cache|cli
 - Minimize allocations
 - Benchmark vs ccusage
 
+## Paradigm
+
+### Trait-based Polymorphism (OOP)
+```rust
+// Interface for extensibility (planned: OpenCode, Gemini parsers)
+pub trait CLIParser: Send + Sync { ... }
+Box<dyn CLIParser>  // Runtime polymorphism
+```
+
+### Functional Patterns (FP)
+```rust
+// Prefer iterators + combinators
+files.par_iter().flat_map(...).collect()
+HashMap::entry().or_insert_with(...)
+
+// Immutability by default
+let result = ...;  // not mut unless necessary
+```
+
+### YAGNI
+- Abstract only for **planned** extensions (see architecture.md roadmap)
+- No speculative generalization
+
 ## Docs
 - `///` for pub items
 - Include examples
