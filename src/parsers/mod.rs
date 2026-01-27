@@ -86,4 +86,37 @@ mod tests {
         let registry = ParserRegistry::new();
         assert!(registry.get("unknown-parser").is_none());
     }
+
+    #[test]
+    fn test_parse_all_empty_directory() {
+        let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures/nonexistent"));
+        let result = parser.parse_all().unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_parse_all_fixtures_directory() {
+        let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
+        let result = parser.parse_all().unwrap();
+        assert!(!result.is_empty());
+        // claude-sample.jsonl (3) + empty.jsonl (0) + multi/*.jsonl (2) = 5
+        assert_eq!(result.len(), 5);
+    }
+
+    #[test]
+    fn test_parse_all_multiple_files() {
+        let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures/multi"));
+        let result = parser.parse_all().unwrap();
+        // 2 files × 1 entry each = 2 entries
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_all_with_empty_file() {
+        // tests/fixtures has claude-sample.jsonl (3), empty.jsonl (0), multi/*.jsonl (2)
+        let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
+        let result = parser.parse_all().unwrap();
+        // empty.jsonl contributes 0 entries, total = 5
+        assert_eq!(result.len(), 5);
+    }
 }
