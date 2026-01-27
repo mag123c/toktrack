@@ -13,13 +13,11 @@ use ratatui::{
 };
 
 use crate::parsers::{CLIParser, ClaudeCodeParser};
-use crate::services::Aggregator;
+use crate::services::{Aggregator, PricingService};
 use crate::types::TotalSummary;
 
 use super::widgets::{
-    overview::{
-        compute_month_summary, compute_week_summary, Overview, OverviewData, PeriodSummary,
-    },
+    overview::{Overview, OverviewData},
     spinner::{LoadingStage, Spinner},
     tabs::Tab,
 };
@@ -40,9 +38,6 @@ pub enum AppState {
 /// Loaded application data
 pub struct AppData {
     pub total: TotalSummary,
-    pub today_tokens: u64,
-    pub week_summary: PeriodSummary,
-    pub month_summary: PeriodSummary,
     pub daily_tokens: Vec<(NaiveDate, u64)>,
 }
 
@@ -85,13 +80,25 @@ impl App {
             }
         };
 
+        // Calculate costs using PricingService (graceful fallback if unavailable)
+        let pricing = PricingService::new().ok();
+        let entries: Vec<_> = entries
+            .into_iter()
+            .map(|mut entry| {
+                if entry.cost_usd.is_none() {
+                    if let Some(ref pricing) = pricing {
+                        entry.cost_usd = Some(pricing.calculate_cost(&entry));
+                    }
+                }
+                entry
+            })
+            .collect();
+
         // Update stage to Aggregating
         self.state = AppState::Loading {
             spinner_frame: 0,
             stage: LoadingStage::Aggregating,
         };
-
-        let today = Local::now().date_naive();
 
         // Get total summary
         let total = Aggregator::total(&entries);
@@ -99,40 +106,23 @@ impl App {
         // Get daily summaries
         let daily_summaries = Aggregator::daily(&entries);
 
-        // Convert to daily tokens for heatmap
+        // Convert to daily tokens for heatmap (all tokens including cache)
         let daily_tokens: Vec<(NaiveDate, u64)> = daily_summaries
-            .iter()
-            .map(|d| (d.date, d.total_input_tokens + d.total_output_tokens))
-            .collect();
-
-        // Get today's tokens
-        let today_tokens = daily_summaries
-            .iter()
-            .find(|d| d.date == today)
-            .map(|d| d.total_input_tokens + d.total_output_tokens)
-            .unwrap_or(0);
-
-        // Get week and month summaries
-        let daily_for_period: Vec<(NaiveDate, u64, u64, u64)> = daily_summaries
             .iter()
             .map(|d| {
                 (
                     d.date,
-                    d.total_input_tokens + d.total_output_tokens,
-                    d.total_input_tokens,
-                    d.total_output_tokens,
+                    d.total_input_tokens
+                        + d.total_output_tokens
+                        + d.total_cache_read_tokens
+                        + d.total_cache_creation_tokens,
                 )
             })
             .collect();
-        let week_summary = compute_week_summary(&daily_for_period, today);
-        let month_summary = compute_month_summary(&daily_for_period, today);
 
         self.state = AppState::Ready {
             data: Box::new(AppData {
                 total,
-                today_tokens,
-                week_summary,
-                month_summary,
                 daily_tokens,
             }),
         };
@@ -203,9 +193,6 @@ impl Widget for &App {
                 let today = Local::now().date_naive();
                 let overview_data = OverviewData {
                     total: data.total.clone(),
-                    today_tokens: data.today_tokens,
-                    week_summary: data.week_summary.clone(),
-                    month_summary: data.month_summary.clone(),
                     daily_tokens: data.daily_tokens.clone(),
                 };
                 let overview = Overview::new(&overview_data, today).with_tab(self.current_tab);
