@@ -3,6 +3,8 @@
 use crate::types::{Result, ToktrackError, UsageEntry};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use super::CLIParser;
@@ -104,26 +106,28 @@ impl CLIParser for ClaudeCodeParser {
     }
 
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>> {
-        let mut content = std::fs::read(path).map_err(ToktrackError::Io)?;
+        let file = File::open(path).map_err(ToktrackError::Io)?;
+        let reader = BufReader::new(file);
         let mut entries = Vec::new();
-        let mut start = 0;
 
-        for i in 0..content.len() {
-            if content[i] == b'\n' {
-                if start < i {
-                    if let Some(entry) = self.parse_line(&mut content[start..i]) {
-                        entries.push(entry);
-                    }
-                }
-                start = i + 1;
+        // Stream line-by-line to avoid loading entire file into memory
+        for line_result in reader.lines() {
+            let line = match line_result {
+                Ok(l) => l,
+                Err(_) => continue, // Skip lines with read errors
+            };
+
+            if line.is_empty() {
+                continue;
             }
-        }
-        // Handle last line without trailing newline
-        if start < content.len() {
-            if let Some(entry) = self.parse_line(&mut content[start..]) {
+
+            // Convert to mutable bytes for simd-json
+            let mut line_bytes = line.into_bytes();
+            if let Some(entry) = self.parse_line(&mut line_bytes) {
                 entries.push(entry);
             }
         }
+
         Ok(entries)
     }
 }

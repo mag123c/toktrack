@@ -37,14 +37,14 @@ impl HeatmapIntensity {
     }
 
     /// Convert intensity to 3-character cell (2 blocks + 1 space for gap)
+    /// Uses distinct block characters for colorblind accessibility
     pub fn to_cell_str(self) -> &'static str {
-        // Using "██ " (2 full blocks + space) for 2x2 blocks with gaps
         match self {
-            Self::None => "██ ",
-            Self::Low => "██ ",
-            Self::Medium => "██ ",
-            Self::High => "██ ",
-            Self::Max => "██ ",
+            Self::None => "░░ ",   // Light shade - empty/no usage
+            Self::Low => "▒▒ ",    // Medium shade - low usage
+            Self::Medium => "▓▓ ", // Dark shade - medium usage
+            Self::High => "██ ",   // Full block - high usage
+            Self::Max => "▀▀ ",    // Upper half block - max usage (distinct pattern)
         }
     }
 
@@ -426,12 +426,12 @@ mod tests {
 
     #[test]
     fn test_intensity_to_cell_str() {
-        // All intensities use "██ " (2 blocks + space) for gaps; color distinguishes them
-        assert_eq!(HeatmapIntensity::None.to_cell_str(), "██ ");
-        assert_eq!(HeatmapIntensity::Low.to_cell_str(), "██ ");
-        assert_eq!(HeatmapIntensity::Medium.to_cell_str(), "██ ");
+        // Each intensity uses distinct block characters for colorblind accessibility
+        assert_eq!(HeatmapIntensity::None.to_cell_str(), "░░ ");
+        assert_eq!(HeatmapIntensity::Low.to_cell_str(), "▒▒ ");
+        assert_eq!(HeatmapIntensity::Medium.to_cell_str(), "▓▓ ");
         assert_eq!(HeatmapIntensity::High.to_cell_str(), "██ ");
-        assert_eq!(HeatmapIntensity::Max.to_cell_str(), "██ ");
+        assert_eq!(HeatmapIntensity::Max.to_cell_str(), "▀▀ ");
     }
 
     #[test]

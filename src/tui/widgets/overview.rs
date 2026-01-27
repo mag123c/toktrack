@@ -169,20 +169,27 @@ impl Overview<'_> {
     }
 
     fn render_heatmap_section(&self, area: Rect, buf: &mut Buffer) {
-        // Heatmap takes 15 rows (grid with borders) + 1 row month labels + 1 blank + 1 row legend = 18 rows
+        // Layout constants for heatmap section
+        const HEATMAP_GRID_ROWS: u16 = 15; // 7 weekdays * 2 (content + separator) + 1 top border
+        const MONTH_LABEL_ROWS: u16 = 1;
+        const BLANK_ROWS: u16 = 1;
+        const LEGEND_ROWS: u16 = 1;
+        const LEGEND_Y_OFFSET: u16 = HEATMAP_GRID_ROWS + MONTH_LABEL_ROWS + BLANK_ROWS;
+        const REQUIRED_HEIGHT: u16 = LEGEND_Y_OFFSET + LEGEND_ROWS;
+
         let weeks = Heatmap::weeks_for_width(area.width);
         let heatmap = Heatmap::new(&self.data.daily_tokens, self.today, weeks);
         heatmap.render(area, buf);
 
         // Legend on last row - aligned to heatmap grid right edge (with 1 blank row gap)
-        if area.height >= 18 {
+        if area.height >= REQUIRED_HEIGHT {
             // Calculate actual heatmap width: label (4) + 1 (left border) + weeks * cell_width (3)
             let heatmap_width = 4 + 1 + (weeks as u16 * 3);
             let legend_area = Rect {
                 x: area.x,
-                y: area.y + 17, // 15 rows for grid + 1 row for month labels + 1 blank
+                y: area.y + LEGEND_Y_OFFSET,
                 width: heatmap_width.min(area.width),
-                height: 1,
+                height: LEGEND_ROWS,
             };
             Legend::new().render(legend_area, buf);
         }

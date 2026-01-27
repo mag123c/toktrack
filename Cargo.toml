@@ -39,6 +39,9 @@ anyhow = "1"
 # HTTP (for LiteLLM pricing)
 reqwest = { version = "0.12", features = ["json", "blocking"] }
 
+# File locking (for cache race condition prevention)
+fs2 = "0.4"
+
 [dev-dependencies]
 # Snapshot testing
 insta = { version = "1.41", features = ["json"] }

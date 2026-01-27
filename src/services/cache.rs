@@ -7,9 +7,11 @@ use crate::services::Aggregator;
 use crate::types::{DailySummary, Result, ToktrackError, UsageEntry};
 use chrono::{Local, NaiveDate};
 use directories::BaseDirs;
+use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fs;
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Write};
 use std::path::PathBuf;
 
 /// Cached daily summary data for a CLI
@@ -114,24 +116,48 @@ impl DailySummaryCacheService {
     }
 
     /// Load cached summaries for past dates (excludes today)
+    /// Uses shared (read) file lock to prevent concurrent write corruption
     fn load_past_summaries(&self, cli: &str, today: NaiveDate) -> Result<Vec<DailySummary>> {
         let path = self.cache_path(cli);
         if !path.exists() {
             return Ok(Vec::new());
         }
 
-        let content = match fs::read_to_string(&path) {
-            Ok(c) => c,
-            Err(_) => return Ok(Vec::new()),
-        };
-
-        let cache: DailySummaryCache = match serde_json::from_str(&content) {
-            Ok(c) => c,
-            Err(_) => {
-                // Corrupted cache, start fresh
+        // Open file with shared lock for reading
+        let file = match File::open(&path) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("Failed to open cache file {:?}: {}", path, e);
                 return Ok(Vec::new());
             }
         };
+
+        // Acquire shared (read) lock - allows multiple readers
+        if let Err(e) = file.lock_shared() {
+            eprintln!("Failed to acquire read lock on {:?}: {}", path, e);
+            return Ok(Vec::new());
+        }
+
+        let mut content = String::new();
+        let mut reader = std::io::BufReader::new(&file);
+        if let Err(e) = reader.read_to_string(&mut content) {
+            eprintln!("Failed to read cache file {:?}: {}", path, e);
+            let _ = file.unlock();
+            return Ok(Vec::new());
+        }
+
+        let cache: DailySummaryCache = match serde_json::from_str(&content) {
+            Ok(c) => c,
+            Err(e) => {
+                // Corrupted cache, log and start fresh
+                eprintln!("Corrupted cache file {:?}: {}", path, e);
+                let _ = file.unlock();
+                return Ok(Vec::new());
+            }
+        };
+
+        // Release lock (automatically released on drop, but explicit is clearer)
+        let _ = file.unlock();
 
         // Filter to past dates only
         Ok(cache
@@ -142,6 +168,7 @@ impl DailySummaryCacheService {
     }
 
     /// Save summaries to cache
+    /// Uses exclusive (write) file lock to prevent concurrent access corruption
     fn save_cache(&self, cli: &str, summaries: &[DailySummary]) -> Result<()> {
         fs::create_dir_all(&self.cache_dir)?;
 
@@ -155,7 +182,29 @@ impl DailySummaryCacheService {
             .map_err(|e| ToktrackError::Cache(format!("Serialization failed: {}", e)))?;
 
         let path = self.cache_path(cli);
-        fs::write(&path, content)?;
+
+        // Open file with exclusive lock for writing
+        let file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&path)?;
+
+        // Acquire exclusive (write) lock - blocks until acquired
+        file.lock_exclusive()
+            .map_err(|e| ToktrackError::Cache(format!("Failed to acquire write lock: {}", e)))?;
+
+        let mut writer = std::io::BufWriter::new(&file);
+        writer
+            .write_all(content.as_bytes())
+            .map_err(|e| ToktrackError::Cache(format!("Failed to write cache: {}", e)))?;
+        writer
+            .flush()
+            .map_err(|e| ToktrackError::Cache(format!("Failed to flush cache: {}", e)))?;
+
+        // Release lock (automatically released on drop, but explicit is clearer)
+        let _ = file.unlock();
+
         Ok(())
     }
 }

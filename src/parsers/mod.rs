@@ -33,7 +33,13 @@ pub trait CLIParser: Send + Sync {
 
         let all_entries: Vec<UsageEntry> = files
             .par_iter()
-            .flat_map(|f| self.parse_file(f).unwrap_or_default())
+            .flat_map(|f| match self.parse_file(f) {
+                Ok(entries) => entries,
+                Err(e) => {
+                    eprintln!("[toktrack] Warning: Failed to parse {:?}: {}", f, e);
+                    Vec::new()
+                }
+            })
             .collect();
 
         // Deduplicate by message_id:request_id (same as ccusage)

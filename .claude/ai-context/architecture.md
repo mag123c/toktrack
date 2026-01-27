@@ -16,8 +16,8 @@ TUI[ratatui] → CLI[clap] → Services → Parsers[trait] → Cache
 | Widget | Purpose |
 |--------|---------|
 | `app.rs` | AppState enum, Tab state, event loop |
-| `widgets/spinner.rs` | Loading animation |
-| `widgets/heatmap.rs` | 52-week heatmap (2x2 blocks, 14 rows, responsive) |
+| `widgets/spinner.rs` | Loading animation (dots/braille) |
+| `widgets/heatmap.rs` | 52-week heatmap (2x2 blocks, 14 rows, responsive, colorblind-accessible) |
 | `widgets/overview.rs` | Overview layout (hero stat, sub-stats, keybindings) |
 | `widgets/legend.rs` | Heatmap intensity legend |
 | `widgets/tabs.rs` | Tab enum, TabBar widget |
@@ -67,8 +67,8 @@ cache/
 
 ## Deps
 ```toml
-simd-json, ratatui, crossterm, clap, rayon, chrono, directories, serde
-dev: insta, criterion
+simd-json, ratatui, crossterm, clap, rayon, chrono, directories, serde, reqwest, tokio, fs2
+dev: insta, criterion, tempfile
 ```
 
 ## Dev Workflow

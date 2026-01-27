@@ -28,12 +28,17 @@ Location: `#[cfg(test)]` in same file
 Fixtures: `tests/fixtures/`
 
 ## Error
+Use `ToktrackError` consistently across all modules. Do NOT use `anyhow` in library code.
 ```rust
 #[derive(thiserror::Error)]
 enum ToktrackError {
     #[error("parse: {0}")] Parse(String),
     #[error("io: {0}")] Io(#[from] std::io::Error),
+    #[error("cache: {0}")] Cache(String),
+    #[error("pricing: {0}")] Pricing(String),
+    #[error("config: {0}")] Config(String),
 }
+type Result<T> = std::result::Result<T, ToktrackError>;
 ```
 
 ## Commits
