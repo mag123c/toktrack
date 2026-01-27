@@ -40,6 +40,13 @@ trait CLIParser: Send + Sync {
 5. Render TUI / Output JSON
 ```
 
+## Parser Optimizations
+| Technique | Description |
+|-----------|-------------|
+| Zero-copy serde | `&'a str` borrowed strings, no intermediate String allocation |
+| In-place buffer | `&mut [u8]` passed directly to simd-json |
+| SIMD parsing | simd-json with AVX2/NEON acceleration |
+
 ## Cache (~/.toktrack/)
 ```
 cache/
