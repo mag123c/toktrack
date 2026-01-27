@@ -36,25 +36,25 @@ impl HeatmapIntensity {
         }
     }
 
-    /// Convert intensity to 2-character cell string for improved readability
+    /// Convert intensity to single-character cell (GitHub style)
     pub fn to_cell_str(self) -> &'static str {
         match self {
-            Self::None => "▫▫",
-            Self::Low => "░░",
-            Self::Medium => "▒▒",
-            Self::High => "▓▓",
-            Self::Max => "██",
+            Self::None => "▪", // Small filled square (dark gray - empty cell)
+            Self::Low => "▪",  // Same glyph, color distinguishes
+            Self::Medium => "▪",
+            Self::High => "▪",
+            Self::Max => "▪",
         }
     }
 
-    /// Get color for this intensity
+    /// Get color for this intensity (GitHub-style green gradient)
     pub fn color(self) -> Color {
         match self {
-            Self::None => Color::DarkGray,
-            Self::Low => Color::Green,
-            Self::Medium => Color::Yellow,
-            Self::High => Color::Rgb(255, 165, 0), // Orange
-            Self::Max => Color::Red,
+            Self::None => Color::Rgb(33, 38, 45), // #21262d (empty cell - dark gray)
+            Self::Low => Color::Rgb(14, 68, 41),  // #0e4429 (light green)
+            Self::Medium => Color::Rgb(0, 109, 50), // #006d32 (medium green)
+            Self::High => Color::Rgb(38, 166, 65), // #26a641 (bright green)
+            Self::Max => Color::Rgb(57, 211, 83), // #39d353 (brightest green)
         }
     }
 }
@@ -183,10 +183,10 @@ impl Heatmap {
     }
 
     /// Compute weeks to show based on terminal width
-    /// Returns (weeks, cell_width) for responsive layout
+    /// Returns weeks count for responsive layout (1-char cells)
     pub fn weeks_for_width(width: u16) -> usize {
         let label_width = 4; // "Mon " prefix
-        let cell_width = 2; // 2-char cells
+        let cell_width = 1; // 1-char cells (GitHub style)
         let available = width.saturating_sub(label_width);
         let max_weeks = (available / cell_width) as usize;
 
@@ -214,7 +214,7 @@ const DISPLAY_ROWS: [(usize, &str); 7] = [
 impl Widget for Heatmap {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let label_width = 4u16; // "Mon " prefix
-        let cell_width = 2u16;
+        let cell_width = 1u16; // 1-char cells (GitHub style)
         let start_x = area.x + label_width;
 
         // Render 4 rows (Mon, Wed, Fri, Sun)
@@ -227,22 +227,26 @@ impl Widget for Heatmap {
             // Draw weekday label
             buf.set_string(area.x, y, *label, Style::default().fg(Color::DarkGray));
 
-            // Draw heatmap cells (2-char each)
+            // Draw heatmap cells (1-char each, GitHub style)
             let row = &self.grid[*grid_row_idx];
             for (col_idx, cell) in row.iter().enumerate() {
                 if col_idx >= self.weeks_to_show {
                     break;
                 }
                 let x = start_x + (col_idx as u16 * cell_width);
-                if x + cell_width > area.x + area.width {
+                if x >= area.x + area.width {
                     break;
                 }
 
-                if let Some(cell) = cell {
-                    let cell_str = cell.intensity.to_cell_str();
-                    let style = Style::default().fg(cell.intensity.color());
-                    buf.set_string(x, y, cell_str, style);
-                }
+                let cell_str = if let Some(cell) = cell {
+                    cell.intensity.to_cell_str()
+                } else {
+                    // Future date cells also shown as empty
+                    HeatmapIntensity::None.to_cell_str()
+                };
+                let intensity = cell.map(|c| c.intensity).unwrap_or(HeatmapIntensity::None);
+                let style = Style::default().fg(intensity.color());
+                buf.set_string(x, y, cell_str, style);
             }
         }
 
@@ -310,20 +314,22 @@ mod tests {
 
     #[test]
     fn test_intensity_to_cell_str() {
-        assert_eq!(HeatmapIntensity::None.to_cell_str(), "▫▫");
-        assert_eq!(HeatmapIntensity::Low.to_cell_str(), "░░");
-        assert_eq!(HeatmapIntensity::Medium.to_cell_str(), "▒▒");
-        assert_eq!(HeatmapIntensity::High.to_cell_str(), "▓▓");
-        assert_eq!(HeatmapIntensity::Max.to_cell_str(), "██");
+        // All intensities use the same glyph; color distinguishes them (GitHub style)
+        assert_eq!(HeatmapIntensity::None.to_cell_str(), "▪");
+        assert_eq!(HeatmapIntensity::Low.to_cell_str(), "▪");
+        assert_eq!(HeatmapIntensity::Medium.to_cell_str(), "▪");
+        assert_eq!(HeatmapIntensity::High.to_cell_str(), "▪");
+        assert_eq!(HeatmapIntensity::Max.to_cell_str(), "▪");
     }
 
     #[test]
     fn test_intensity_color() {
-        assert_eq!(HeatmapIntensity::None.color(), Color::DarkGray);
-        assert_eq!(HeatmapIntensity::Low.color(), Color::Green);
-        assert_eq!(HeatmapIntensity::Medium.color(), Color::Yellow);
-        assert_eq!(HeatmapIntensity::High.color(), Color::Rgb(255, 165, 0));
-        assert_eq!(HeatmapIntensity::Max.color(), Color::Red);
+        // GitHub-style green gradient
+        assert_eq!(HeatmapIntensity::None.color(), Color::Rgb(33, 38, 45)); // empty cell
+        assert_eq!(HeatmapIntensity::Low.color(), Color::Rgb(14, 68, 41)); // light green
+        assert_eq!(HeatmapIntensity::Medium.color(), Color::Rgb(0, 109, 50)); // medium green
+        assert_eq!(HeatmapIntensity::High.color(), Color::Rgb(38, 166, 65)); // bright green
+        assert_eq!(HeatmapIntensity::Max.color(), Color::Rgb(57, 211, 83)); // brightest green
     }
 
     // ========== calculate_percentiles tests ==========
@@ -471,27 +477,27 @@ mod tests {
 
     #[test]
     fn test_weeks_for_width_wide() {
-        // 52 weeks needs: label 4 + 52*2 = 108
-        // So width >= 108 -> 52 weeks
-        assert_eq!(Heatmap::weeks_for_width(108), 52);
+        // 52 weeks needs: label 4 + 52*1 = 56 (1-char cells)
+        // So width >= 56 -> 52 weeks
+        assert_eq!(Heatmap::weeks_for_width(56), 52);
+        assert_eq!(Heatmap::weeks_for_width(80), 52);
         assert_eq!(Heatmap::weeks_for_width(120), 52);
-        assert_eq!(Heatmap::weeks_for_width(200), 52);
     }
 
     #[test]
     fn test_weeks_for_width_medium() {
-        // 26 weeks needs: label 4 + 26*2 = 56
-        // So width 56-107 -> 26 weeks
-        assert_eq!(Heatmap::weeks_for_width(56), 26);
-        assert_eq!(Heatmap::weeks_for_width(80), 26);
-        assert_eq!(Heatmap::weeks_for_width(107), 26);
+        // 26 weeks needs: label 4 + 26*1 = 30
+        // So width 30-55 -> 26 weeks
+        assert_eq!(Heatmap::weeks_for_width(30), 26);
+        assert_eq!(Heatmap::weeks_for_width(40), 26);
+        assert_eq!(Heatmap::weeks_for_width(55), 26);
     }
 
     #[test]
     fn test_weeks_for_width_narrow() {
-        // 13 weeks needs: label 4 + 13*2 = 30
-        // So width < 56 -> 13 weeks
-        assert_eq!(Heatmap::weeks_for_width(30), 13);
-        assert_eq!(Heatmap::weeks_for_width(55), 13);
+        // 13 weeks needs: label 4 + 13*1 = 17
+        // So width < 30 -> 13 weeks
+        assert_eq!(Heatmap::weeks_for_width(17), 13);
+        assert_eq!(Heatmap::weeks_for_width(29), 13);
     }
 }

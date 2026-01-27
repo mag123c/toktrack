@@ -79,6 +79,9 @@ pub struct OverviewData {
     pub daily_tokens: Vec<(NaiveDate, u64)>,
 }
 
+/// Maximum content width for Overview (keeps layout clean on wide terminals)
+const MAX_CONTENT_WIDTH: u16 = 80;
+
 /// Overview widget combining all elements
 pub struct Overview<'a> {
     data: &'a OverviewData,
@@ -103,13 +106,23 @@ impl<'a> Overview<'a> {
 
 impl Widget for Overview<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        // Apply max width constraint and center the content
+        let content_width = area.width.min(MAX_CONTENT_WIDTH);
+        let x_offset = (area.width.saturating_sub(content_width)) / 2;
+        let centered_area = Rect {
+            x: area.x + x_offset,
+            y: area.y,
+            width: content_width,
+            height: area.height,
+        };
+
         // New layout:
         // - Tabs (1 line)
         // - Separator (1 line)
         // - Hero stat (3 lines: number + "tokens" + blank)
         // - Sub-stats (1 line)
         // - Blank line (1 line)
-        // - Heatmap (4 rows) + month labels (1 row) + legend (1 row)
+        // - Heatmap (7 rows) + month labels (1 row) + legend (1 row)
         // - Separator (1 line)
         // - Keybindings (1 line)
         let chunks = Layout::vertical([
@@ -122,7 +135,7 @@ impl Widget for Overview<'_> {
             Constraint::Length(1), // Separator
             Constraint::Length(1), // Keybindings
         ])
-        .split(area);
+        .split(centered_area);
 
         // Render tabs
         self.render_tabs(chunks[0], buf);

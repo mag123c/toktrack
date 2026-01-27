@@ -19,8 +19,8 @@ impl Legend {
 
     /// Returns the minimum width needed to render the legend
     pub fn min_width() -> u16 {
-        // "Less ░░ ▒▒ ▓▓ ██ More" = 23 chars
-        23
+        // "Less ▪ ▪ ▪ ▪ More" = 17 chars (1-char cells with spaces)
+        17
     }
 }
 
@@ -54,11 +54,11 @@ impl Widget for Legend {
         buf.set_string(x, y, "Less ", Style::default().fg(Color::DarkGray));
         x += 5;
 
-        // Intensity cells
+        // Intensity cells (1-char each)
         for intensity in intensities {
             let style = Style::default().fg(intensity.color());
             buf.set_string(x, y, intensity.to_cell_str(), style);
-            x += 2;
+            x += 1; // 1-char cell
 
             // Space between cells except last
             if intensity != HeatmapIntensity::Max {
@@ -78,8 +78,8 @@ mod tests {
 
     #[test]
     fn test_legend_min_width() {
-        // "Less ░░ ▒▒ ▓▓ ██ More" = 23 chars
-        assert_eq!(Legend::min_width(), 23);
+        // "Less ▪ ▪ ▪ ▪ More" = 17 chars (1-char cells)
+        assert_eq!(Legend::min_width(), 17);
     }
 
     #[test]
