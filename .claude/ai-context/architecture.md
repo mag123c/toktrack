@@ -17,7 +17,7 @@ TUI[ratatui] → CLI[clap] → Services → Parsers[trait] → Cache
 |--------|---------|
 | `app.rs` | AppState enum, Tab state, event loop |
 | `widgets/spinner.rs` | Loading animation |
-| `widgets/heatmap.rs` | 52-week heatmap (4-row, 2-char cells, responsive) |
+| `widgets/heatmap.rs` | 52-week heatmap (2x2 blocks, 14 rows, responsive) |
 | `widgets/overview.rs` | Overview layout (hero stat, sub-stats, keybindings) |
 | `widgets/legend.rs` | Heatmap intensity legend |
 | `widgets/tabs.rs` | Tab enum, TabBar widget |
