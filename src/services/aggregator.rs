@@ -31,10 +31,18 @@ impl Aggregator {
                 models: HashMap::new(),
             });
 
-            summary.total_input_tokens += entry.input_tokens;
-            summary.total_output_tokens += entry.output_tokens;
-            summary.total_cache_read_tokens += entry.cache_read_tokens;
-            summary.total_cache_creation_tokens += entry.cache_creation_tokens;
+            summary.total_input_tokens = summary
+                .total_input_tokens
+                .saturating_add(entry.input_tokens);
+            summary.total_output_tokens = summary
+                .total_output_tokens
+                .saturating_add(entry.output_tokens);
+            summary.total_cache_read_tokens = summary
+                .total_cache_read_tokens
+                .saturating_add(entry.cache_read_tokens);
+            summary.total_cache_creation_tokens = summary
+                .total_cache_creation_tokens
+                .saturating_add(entry.cache_creation_tokens);
             summary.total_cost_usd += cost;
 
             // Update model breakdown
@@ -73,12 +81,20 @@ impl Aggregator {
         let mut summary = TotalSummary::default();
 
         for entry in entries {
-            summary.total_input_tokens += entry.input_tokens;
-            summary.total_output_tokens += entry.output_tokens;
-            summary.total_cache_read_tokens += entry.cache_read_tokens;
-            summary.total_cache_creation_tokens += entry.cache_creation_tokens;
+            summary.total_input_tokens = summary
+                .total_input_tokens
+                .saturating_add(entry.input_tokens);
+            summary.total_output_tokens = summary
+                .total_output_tokens
+                .saturating_add(entry.output_tokens);
+            summary.total_cache_read_tokens = summary
+                .total_cache_read_tokens
+                .saturating_add(entry.cache_read_tokens);
+            summary.total_cache_creation_tokens = summary
+                .total_cache_creation_tokens
+                .saturating_add(entry.cache_creation_tokens);
             summary.total_cost_usd += entry.cost_usd.unwrap_or(0.0);
-            summary.entry_count += 1;
+            summary.entry_count = summary.entry_count.saturating_add(1);
 
             dates.insert(entry.timestamp.date_naive());
         }

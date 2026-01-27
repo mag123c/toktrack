@@ -192,10 +192,10 @@ impl Widget for &App {
             AppState::Ready { data } => {
                 let today = Local::now().date_naive();
                 let overview_data = OverviewData {
-                    total: data.total.clone(),
-                    daily_tokens: data.daily_tokens.clone(),
+                    total: &data.total,
+                    daily_tokens: &data.daily_tokens,
                 };
-                let overview = Overview::new(&overview_data, today).with_tab(self.current_tab);
+                let overview = Overview::new(overview_data, today).with_tab(self.current_tab);
                 overview.render(area, buf);
             }
             AppState::Error { message } => {

@@ -124,12 +124,15 @@ pub fn build_grid(
 ) -> Vec<Vec<Option<HeatmapCell>>> {
     use chrono::{Datelike, Duration};
 
-    // Create a lookup map
-    let token_map: std::collections::HashMap<NaiveDate, u64> =
-        daily_tokens.iter().copied().collect();
+    // Single iteration: build both token_map and all_values together
+    let mut token_map = std::collections::HashMap::with_capacity(daily_tokens.len());
+    let mut all_values = Vec::with_capacity(daily_tokens.len());
+    for &(date, tokens) in daily_tokens {
+        token_map.insert(date, tokens);
+        all_values.push(tokens);
+    }
 
     // Calculate percentiles for intensity mapping
-    let all_values: Vec<u64> = daily_tokens.iter().map(|(_, t)| *t).collect();
     let percentiles = calculate_percentiles(&all_values);
 
     // Find the start of the current week (Monday)
@@ -221,14 +224,20 @@ impl Heatmap {
     fn render_top_border(&self, area: Rect, buf: &mut Buffer, weeks: usize) {
         let start_x = area.x + LABEL_WIDTH;
         let y = area.y;
+        let max_x = area.x + area.width;
         let border_style = Style::default().fg(Color::DarkGray);
 
         // Left corner
-        buf.set_string(start_x, y, BOX_TOP_LEFT, border_style);
+        if start_x < max_x {
+            buf.set_string(start_x, y, BOX_TOP_LEFT, border_style);
+        }
 
         // Horizontal segments with T-down connectors
         for col in 0..weeks {
             let x = start_x + 1 + (col as u16 * CELL_WIDTH);
+            if x + 2 >= max_x {
+                break;
+            }
             buf.set_string(x, y, BOX_HORIZONTAL, border_style);
             buf.set_string(x + 1, y, BOX_HORIZONTAL, border_style);
 
@@ -250,13 +259,16 @@ impl Heatmap {
         label: &str,
     ) {
         let start_x = area.x + LABEL_WIDTH;
+        let max_x = area.x + area.width;
         let border_style = Style::default().fg(Color::DarkGray);
 
         // Draw weekday label
         buf.set_string(area.x, y, label, Style::default().fg(Color::DarkGray));
 
         // Left border
-        buf.set_string(start_x, y, BOX_VERTICAL, border_style);
+        if start_x < max_x {
+            buf.set_string(start_x, y, BOX_VERTICAL, border_style);
+        }
 
         // Cells with right borders
         let row = &self.grid[day_idx];
@@ -265,6 +277,9 @@ impl Heatmap {
                 break;
             }
             let x = start_x + 1 + (col_idx as u16 * CELL_WIDTH);
+            if x + 2 >= max_x {
+                break;
+            }
 
             // Cell content (2 chars)
             if let Some(cell) = cell {
@@ -280,14 +295,20 @@ impl Heatmap {
     /// Render a separator row: ├──┼──┼──┤
     fn render_separator_row(&self, area: Rect, buf: &mut Buffer, y: u16, weeks: usize) {
         let start_x = area.x + LABEL_WIDTH;
+        let max_x = area.x + area.width;
         let border_style = Style::default().fg(Color::DarkGray);
 
         // Left T-right
-        buf.set_string(start_x, y, BOX_T_RIGHT, border_style);
+        if start_x < max_x {
+            buf.set_string(start_x, y, BOX_T_RIGHT, border_style);
+        }
 
         // Horizontal segments with cross connectors
         for col in 0..weeks {
             let x = start_x + 1 + (col as u16 * CELL_WIDTH);
+            if x + 2 >= max_x {
+                break;
+            }
             buf.set_string(x, y, BOX_HORIZONTAL, border_style);
             buf.set_string(x + 1, y, BOX_HORIZONTAL, border_style);
 
@@ -302,14 +323,20 @@ impl Heatmap {
     /// Render the bottom border row: └──┴──┴──┘
     fn render_bottom_border(&self, area: Rect, buf: &mut Buffer, y: u16, weeks: usize) {
         let start_x = area.x + LABEL_WIDTH;
+        let max_x = area.x + area.width;
         let border_style = Style::default().fg(Color::DarkGray);
 
         // Left corner
-        buf.set_string(start_x, y, BOX_BOTTOM_LEFT, border_style);
+        if start_x < max_x {
+            buf.set_string(start_x, y, BOX_BOTTOM_LEFT, border_style);
+        }
 
         // Horizontal segments with T-up connectors
         for col in 0..weeks {
             let x = start_x + 1 + (col as u16 * CELL_WIDTH);
+            if x + 2 >= max_x {
+                break;
+            }
             buf.set_string(x, y, BOX_HORIZONTAL, border_style);
             buf.set_string(x + 1, y, BOX_HORIZONTAL, border_style);
 

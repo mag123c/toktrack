@@ -77,12 +77,16 @@ pub struct ModelUsage {
 
 impl ModelUsage {
     pub fn add(&mut self, entry: &UsageEntry, cost: f64) {
-        self.input_tokens += entry.input_tokens;
-        self.output_tokens += entry.output_tokens;
-        self.cache_read_tokens += entry.cache_read_tokens;
-        self.cache_creation_tokens += entry.cache_creation_tokens;
+        self.input_tokens = self.input_tokens.saturating_add(entry.input_tokens);
+        self.output_tokens = self.output_tokens.saturating_add(entry.output_tokens);
+        self.cache_read_tokens = self
+            .cache_read_tokens
+            .saturating_add(entry.cache_read_tokens);
+        self.cache_creation_tokens = self
+            .cache_creation_tokens
+            .saturating_add(entry.cache_creation_tokens);
         self.cost_usd += cost;
-        self.count += 1;
+        self.count = self.count.saturating_add(1);
     }
 }
 

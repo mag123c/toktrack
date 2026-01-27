@@ -15,30 +15,32 @@ use super::tabs::{Tab, TabBar};
 use crate::types::TotalSummary;
 
 /// Format a number with thousand separators (e.g., 1234567 -> "1,234,567")
+/// Optimized: no Vec<char> allocation since digits are ASCII
 pub fn format_number(n: u64) -> String {
     if n == 0 {
         return "0".to_string();
     }
 
     let s = n.to_string();
-    let mut result = String::with_capacity(s.len() + s.len() / 3);
-    let chars: Vec<char> = s.chars().collect();
+    let len = s.len();
+    let mut result = String::with_capacity(len + len / 3);
 
-    for (i, ch) in chars.iter().enumerate() {
-        if i > 0 && (chars.len() - i).is_multiple_of(3) {
+    // Digits are ASCII, so byte indexing is safe
+    for (i, ch) in s.bytes().enumerate() {
+        if i > 0 && (len - i).is_multiple_of(3) {
             result.push(',');
         }
-        result.push(*ch);
+        result.push(ch as char);
     }
 
     result
 }
 
-/// Data for the overview display
-#[derive(Debug, Clone)]
-pub struct OverviewData {
-    pub total: TotalSummary,
-    pub daily_tokens: Vec<(NaiveDate, u64)>,
+/// Data for the overview display (references to avoid cloning)
+#[derive(Debug)]
+pub struct OverviewData<'a> {
+    pub total: &'a TotalSummary,
+    pub daily_tokens: &'a [(NaiveDate, u64)],
 }
 
 /// Maximum content width for Overview (keeps layout clean on wide terminals)
@@ -47,13 +49,13 @@ const MAX_CONTENT_WIDTH: u16 = 170;
 
 /// Overview widget combining all elements
 pub struct Overview<'a> {
-    data: &'a OverviewData,
+    data: OverviewData<'a>,
     today: NaiveDate,
     selected_tab: Tab,
 }
 
 impl<'a> Overview<'a> {
-    pub fn new(data: &'a OverviewData, today: NaiveDate) -> Self {
+    pub fn new(data: OverviewData<'a>, today: NaiveDate) -> Self {
         Self {
             data,
             today,
@@ -178,7 +180,7 @@ impl Overview<'_> {
         const REQUIRED_HEIGHT: u16 = LEGEND_Y_OFFSET + LEGEND_ROWS;
 
         let weeks = Heatmap::weeks_for_width(area.width);
-        let heatmap = Heatmap::new(&self.data.daily_tokens, self.today, weeks);
+        let heatmap = Heatmap::new(self.data.daily_tokens, self.today, weeks);
         heatmap.render(area, buf);
 
         // Legend on last row - aligned to heatmap grid right edge (with 1 blank row gap)

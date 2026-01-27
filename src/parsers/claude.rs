@@ -68,9 +68,16 @@ impl ClaudeCodeParser {
         let message = data.message.as_ref()?;
         let usage = message.usage.as_ref()?;
 
-        let timestamp = DateTime::parse_from_rfc3339(data.timestamp)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now());
+        let timestamp = match DateTime::parse_from_rfc3339(data.timestamp) {
+            Ok(dt) => dt.with_timezone(&Utc),
+            Err(_) => {
+                eprintln!(
+                    "[toktrack] Warning: Invalid timestamp '{}', using current time",
+                    data.timestamp
+                );
+                Utc::now()
+            }
+        };
 
         Some(UsageEntry {
             timestamp,
