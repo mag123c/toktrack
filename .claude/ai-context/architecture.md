@@ -20,6 +20,7 @@ trait CLIParser: Send + Sync {
     fn data_dir(&self) -> PathBuf;
     fn file_pattern(&self) -> &str;  // e.g., "**/*.jsonl"
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>>;
+    fn parse_all(&self) -> Result<Vec<UsageEntry>>;  // rayon parallel
 }
 ```
 
@@ -40,11 +41,19 @@ trait CLIParser: Send + Sync {
 5. Render TUI / Output JSON
 ```
 
+## Parser Optimizations
+| Technique | Description | Throughput |
+|-----------|-------------|------------|
+| Zero-copy serde | `&'a str` borrowed, no String alloc | ~1.0 GiB/s |
+| In-place buffer | `&mut [u8]` to simd-json | |
+| SIMD parsing | simd-json AVX2/NEON | |
+| rayon parallel | `parse_all()` file-level parallel | ~2.0 GiB/s |
+
 ## Cache (~/.toktrack/)
 ```
 cache/
-├── claude/      # Backup to prevent 30-day deletion
-└── pricing.json # LiteLLM 1h TTL
+├── {cli}_daily.json  # DailySummary cache (past dates immutable)
+└── pricing.json      # LiteLLM 1h TTL
 ```
 
 ## Deps

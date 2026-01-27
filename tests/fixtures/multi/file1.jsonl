@@ -1,0 +1,1 @@
+{"type":"assistant","timestamp":"2026-01-16T10:00:00.000Z","sessionId":"multi-001","requestId":"req-m1","message":{"model":"claude-sonnet-4-20250514","id":"msg-m1","usage":{"input_tokens":200,"output_tokens":100}}}

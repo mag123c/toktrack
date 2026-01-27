@@ -1,6 +1,7 @@
 ---
 name: verify
 description: Self-healing verification loop (test → clippy → fmt)
+required_context: []
 ---
 
 # Verify

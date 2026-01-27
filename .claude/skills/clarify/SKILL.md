@@ -1,6 +1,8 @@
 ---
 name: clarify
 description: Clarify requirements → auto Plan Mode
+required_context:
+  - .claude/ai-context/architecture.md
 ---
 
 # Clarify

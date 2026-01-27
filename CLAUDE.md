@@ -25,6 +25,7 @@ cargo build --release
 **Session start**: Run `/next` to see current progress and next task.
 
 **Auto-transition rules**:
+- **Plan provided directly** → skip clarify/plan, start with `/implement` skill immediately
 - After plan approval → immediately run `/implement` skill
 - After implement completes → auto-call `/verify`
 - After verify passes → auto-call `/review`
@@ -48,8 +49,6 @@ cargo bench     # Benchmarks
 
 ```
 {type}({scope}): {description}
-
-Co-Authored-By: Claude <noreply@anthropic.com>
 ```
 
 types: `feat|fix|refactor|docs|test|chore|perf`

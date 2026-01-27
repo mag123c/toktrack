@@ -9,19 +9,19 @@ use super::CLIParser;
 
 /// Claude Code JSONL line structure (assistant messages with usage)
 #[derive(Deserialize)]
-struct ClaudeJsonLine {
-    timestamp: String,
+struct ClaudeJsonLine<'a> {
+    timestamp: &'a str,
     #[serde(rename = "requestId")]
-    request_id: Option<String>,
-    message: Option<ClaudeMessage>,
+    request_id: Option<&'a str>,
+    message: Option<ClaudeMessage<'a>>,
     #[serde(rename = "costUSD")]
     cost_usd: Option<f64>,
 }
 
 #[derive(Deserialize)]
-struct ClaudeMessage {
-    model: Option<String>,
-    id: Option<String>,
+struct ClaudeMessage<'a> {
+    model: Option<&'a str>,
+    id: Option<&'a str>,
     usage: Option<ClaudeUsage>,
 }
 
@@ -54,39 +54,32 @@ impl ClaudeCodeParser {
         Self { data_dir }
     }
 
-    /// Parse a single JSONL line
-    fn parse_line(&self, line: &[u8]) -> Option<UsageEntry> {
+    /// Parse a single JSONL line (zero-copy with borrowed strings)
+    fn parse_line(&self, line: &mut [u8]) -> Option<UsageEntry> {
         if line.is_empty() {
             return None;
         }
 
-        // simd-json requires mutable buffer
-        let mut line_copy = line.to_vec();
-        let parsed: std::result::Result<ClaudeJsonLine, _> = simd_json::from_slice(&mut line_copy);
-
-        let data = match parsed {
-            Ok(d) => d,
-            Err(_) => return None,
-        };
+        let data: ClaudeJsonLine = simd_json::from_slice(line).ok()?;
 
         // Only process lines with message and usage data
         let message = data.message.as_ref()?;
         let usage = message.usage.as_ref()?;
 
-        let timestamp = DateTime::parse_from_rfc3339(&data.timestamp)
+        let timestamp = DateTime::parse_from_rfc3339(data.timestamp)
             .map(|dt| dt.with_timezone(&Utc))
             .unwrap_or_else(|_| Utc::now());
 
         Some(UsageEntry {
             timestamp,
-            model: message.model.clone(),
+            model: message.model.map(String::from),
             input_tokens: usage.input_tokens,
             output_tokens: usage.output_tokens,
             cache_read_tokens: usage.cache_read_input_tokens.unwrap_or(0),
             cache_creation_tokens: usage.cache_creation_input_tokens.unwrap_or(0),
             cost_usd: data.cost_usd,
-            message_id: message.id.clone(),
-            request_id: data.request_id.clone(),
+            message_id: message.id.map(String::from),
+            request_id: data.request_id.map(String::from),
         })
     }
 }
@@ -111,12 +104,26 @@ impl CLIParser for ClaudeCodeParser {
     }
 
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>> {
-        let content = std::fs::read(path).map_err(ToktrackError::Io)?;
-        let entries: Vec<UsageEntry> = content
-            .split(|&b| b == b'\n')
-            .filter_map(|line| self.parse_line(line))
-            .collect();
+        let mut content = std::fs::read(path).map_err(ToktrackError::Io)?;
+        let mut entries = Vec::new();
+        let mut start = 0;
 
+        for i in 0..content.len() {
+            if content[i] == b'\n' {
+                if start < i {
+                    if let Some(entry) = self.parse_line(&mut content[start..i]) {
+                        entries.push(entry);
+                    }
+                }
+                start = i + 1;
+            }
+        }
+        // Handle last line without trailing newline
+        if start < content.len() {
+            if let Some(entry) = self.parse_line(&mut content[start..]) {
+                entries.push(entry);
+            }
+        }
         Ok(entries)
     }
 }

@@ -6,6 +6,7 @@ mod claude;
 pub use claude::ClaudeCodeParser;
 
 use crate::types::{Result, UsageEntry};
+use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 
 /// Trait for parsing usage data from AI CLI tools
@@ -21,6 +22,19 @@ pub trait CLIParser: Send + Sync {
 
     /// Parse a single file and return usage entries
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>>;
+
+    /// Parse all files in parallel using rayon
+    fn parse_all(&self) -> Result<Vec<UsageEntry>> {
+        let pattern = self.data_dir().join(self.file_pattern());
+        let files: Vec<PathBuf> = glob::glob(&pattern.to_string_lossy())
+            .map(|paths| paths.filter_map(|e| e.ok()).collect())
+            .unwrap_or_default();
+
+        Ok(files
+            .par_iter()
+            .flat_map(|f| self.parse_file(f).unwrap_or_default())
+            .collect())
+    }
 }
 
 /// Registry of available parsers
@@ -71,5 +85,38 @@ mod tests {
     fn test_registry_get_unknown() {
         let registry = ParserRegistry::new();
         assert!(registry.get("unknown-parser").is_none());
+    }
+
+    #[test]
+    fn test_parse_all_empty_directory() {
+        let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures/nonexistent"));
+        let result = parser.parse_all().unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_parse_all_fixtures_directory() {
+        let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
+        let result = parser.parse_all().unwrap();
+        assert!(!result.is_empty());
+        // claude-sample.jsonl (3) + empty.jsonl (0) + multi/*.jsonl (2) = 5
+        assert_eq!(result.len(), 5);
+    }
+
+    #[test]
+    fn test_parse_all_multiple_files() {
+        let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures/multi"));
+        let result = parser.parse_all().unwrap();
+        // 2 files × 1 entry each = 2 entries
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_all_with_empty_file() {
+        // tests/fixtures has claude-sample.jsonl (3), empty.jsonl (0), multi/*.jsonl (2)
+        let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
+        let result = parser.parse_all().unwrap();
+        // empty.jsonl contributes 0 entries, total = 5
+        assert_eq!(result.len(), 5);
     }
 }
