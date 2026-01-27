@@ -39,7 +39,7 @@ impl HeatmapIntensity {
     /// Convert intensity to 2-character cell string for improved readability
     pub fn to_cell_str(self) -> &'static str {
         match self {
-            Self::None => "  ",
+            Self::None => "▫▫",
             Self::Low => "░░",
             Self::Medium => "▒▒",
             Self::High => "▓▓",
@@ -200,8 +200,16 @@ impl Heatmap {
     }
 }
 
-/// Rows to display in the heatmap (Mon, Wed, Fri, Sun = indices 0, 2, 4, 6)
-const DISPLAY_ROWS: [(usize, &str); 4] = [(0, "Mon"), (2, "Wed"), (4, "Fri"), (6, "Sun")];
+/// Rows to display in the heatmap (all 7 days: Mon-Sun)
+const DISPLAY_ROWS: [(usize, &str); 7] = [
+    (0, "Mon"),
+    (1, "Tue"),
+    (2, "Wed"),
+    (3, "Thu"),
+    (4, "Fri"),
+    (5, "Sat"),
+    (6, "Sun"),
+];
 
 impl Widget for Heatmap {
     fn render(self, area: Rect, buf: &mut Buffer) {
@@ -238,8 +246,8 @@ impl Widget for Heatmap {
             }
         }
 
-        // Render month labels below the heatmap
-        let month_label_y = area.y + 4;
+        // Render month labels below the heatmap (after 7 rows)
+        let month_label_y = area.y + 7;
         if month_label_y < area.y + area.height && !self.grid[0].is_empty() {
             self.render_month_labels(area, buf, start_x, month_label_y, cell_width);
         }
@@ -302,7 +310,7 @@ mod tests {
 
     #[test]
     fn test_intensity_to_cell_str() {
-        assert_eq!(HeatmapIntensity::None.to_cell_str(), "  ");
+        assert_eq!(HeatmapIntensity::None.to_cell_str(), "▫▫");
         assert_eq!(HeatmapIntensity::Low.to_cell_str(), "░░");
         assert_eq!(HeatmapIntensity::Medium.to_cell_str(), "▒▒");
         assert_eq!(HeatmapIntensity::High.to_cell_str(), "▓▓");

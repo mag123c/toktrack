@@ -118,7 +118,7 @@ impl Widget for Overview<'_> {
             Constraint::Length(3), // Hero stat
             Constraint::Length(1), // Sub-stats
             Constraint::Length(1), // Blank
-            Constraint::Min(6),    // Heatmap (4 rows) + month labels + legend
+            Constraint::Min(9),    // Heatmap (7 rows) + month labels + legend
             Constraint::Length(1), // Separator
             Constraint::Length(1), // Keybindings
         ])
@@ -200,16 +200,16 @@ impl Overview<'_> {
     }
 
     fn render_heatmap_section(&self, area: Rect, buf: &mut Buffer) {
-        // Heatmap takes 4 rows (Mon/Wed/Fri/Sun) + 1 row month labels + 1 row legend = 6 rows
+        // Heatmap takes 7 rows (Mon-Sun) + 1 row month labels + 1 row legend = 9 rows
         let weeks = Heatmap::weeks_for_width(area.width);
         let heatmap = Heatmap::new(&self.data.daily_tokens, self.today, weeks);
         heatmap.render(area, buf);
 
         // Legend on last row of heatmap area
-        if area.height >= 6 {
+        if area.height >= 9 {
             let legend_area = Rect {
                 x: area.x,
-                y: area.y + 5,
+                y: area.y + 8,
                 width: area.width,
                 height: 1,
             };
