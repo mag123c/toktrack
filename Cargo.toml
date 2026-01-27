@@ -45,6 +45,9 @@ insta = { version = "1.41", features = ["json"] }
 # Benchmarking
 criterion = { version = "0.5", features = ["html_reports"] }
 
+# Glob patterns for benchmark file discovery
+glob = "0.3"
+
 # Temp files for tests
 tempfile = "3"
 
