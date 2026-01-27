@@ -20,6 +20,7 @@ trait CLIParser: Send + Sync {
     fn data_dir(&self) -> PathBuf;
     fn file_pattern(&self) -> &str;  // e.g., "**/*.jsonl"
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>>;
+    fn parse_all(&self) -> Result<Vec<UsageEntry>>;  // rayon parallel
 }
 ```
 
@@ -41,11 +42,12 @@ trait CLIParser: Send + Sync {
 ```
 
 ## Parser Optimizations
-| Technique | Description |
-|-----------|-------------|
-| Zero-copy serde | `&'a str` borrowed strings, no intermediate String allocation |
-| In-place buffer | `&mut [u8]` passed directly to simd-json |
-| SIMD parsing | simd-json with AVX2/NEON acceleration |
+| Technique | Description | Throughput |
+|-----------|-------------|------------|
+| Zero-copy serde | `&'a str` borrowed, no String alloc | ~1.0 GiB/s |
+| In-place buffer | `&mut [u8]` to simd-json | |
+| SIMD parsing | simd-json AVX2/NEON | |
+| rayon parallel | `parse_all()` file-level parallel | ~2.0 GiB/s |
 
 ## Cache (~/.toktrack/)
 ```

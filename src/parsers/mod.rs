@@ -6,6 +6,7 @@ mod claude;
 pub use claude::ClaudeCodeParser;
 
 use crate::types::{Result, UsageEntry};
+use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 
 /// Trait for parsing usage data from AI CLI tools
@@ -21,6 +22,19 @@ pub trait CLIParser: Send + Sync {
 
     /// Parse a single file and return usage entries
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>>;
+
+    /// Parse all files in parallel using rayon
+    fn parse_all(&self) -> Result<Vec<UsageEntry>> {
+        let pattern = self.data_dir().join(self.file_pattern());
+        let files: Vec<PathBuf> = glob::glob(&pattern.to_string_lossy())
+            .map(|paths| paths.filter_map(|e| e.ok()).collect())
+            .unwrap_or_default();
+
+        Ok(files
+            .par_iter()
+            .flat_map(|f| self.parse_file(f).unwrap_or_default())
+            .collect())
+    }
 }
 
 /// Registry of available parsers

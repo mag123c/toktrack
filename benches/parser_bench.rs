@@ -135,6 +135,12 @@ fn bench_parse_all_files(c: &mut Criterion) {
         });
     });
 
+    group.bench_function("parse_all_files_parallel", |b| {
+        b.iter(|| {
+            let _ = parser.parse_all();
+        });
+    });
+
     group.finish();
 }
 
