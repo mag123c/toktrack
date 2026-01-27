@@ -36,15 +36,15 @@ impl HeatmapIntensity {
         }
     }
 
-    /// Convert intensity to 2-character cell (2x2 square block)
+    /// Convert intensity to 3-character cell (2 blocks + 1 space for gap)
     pub fn to_cell_str(self) -> &'static str {
-        // Using "██" (2 full blocks) for true 2x2 square appearance
+        // Using "██ " (2 full blocks + space) for 2x2 blocks with gaps
         match self {
-            Self::None => "██",
-            Self::Low => "██",
-            Self::Medium => "██",
-            Self::High => "██",
-            Self::Max => "██",
+            Self::None => "██ ",
+            Self::Low => "██ ",
+            Self::Medium => "██ ",
+            Self::High => "██ ",
+            Self::Max => "██ ",
         }
     }
 
@@ -169,9 +169,9 @@ pub fn build_grid(
     grid
 }
 
-/// Cell dimensions for 2x2 block rendering
-const CELL_HEIGHT: u16 = 2;
-const CELL_WIDTH: u16 = 2;
+/// Cell dimensions for square-like blocks (terminal chars are ~2:1 height:width)
+const CELL_HEIGHT: u16 = 1; // 1 row (looks square due to terminal font)
+const CELL_WIDTH: u16 = 3; // 2 chars + 1 space for gap
 
 /// Heatmap widget for ratatui
 pub struct Heatmap {
@@ -220,18 +220,17 @@ impl Widget for Heatmap {
         let label_width = 4u16; // "Mon " prefix
         let start_x = area.x + label_width;
 
-        // Render 7 rows with 2-row height each (2x2 blocks)
+        // Render 7 rows (1 row per weekday, square-like cells due to terminal font ratio)
         for (display_idx, (grid_row_idx, label)) in DISPLAY_ROWS.iter().enumerate() {
-            let y_base = area.y + (display_idx as u16 * CELL_HEIGHT);
-            if y_base >= area.y + area.height {
+            let y = area.y + (display_idx as u16 * CELL_HEIGHT);
+            if y >= area.y + area.height {
                 break;
             }
 
-            // Draw weekday label on first row only
-            buf.set_string(area.x, y_base, *label, Style::default().fg(Color::DarkGray));
+            // Draw weekday label
+            buf.set_string(area.x, y, *label, Style::default().fg(Color::DarkGray));
 
-            // Draw heatmap cells (2x2 blocks, GitHub style)
-            // Skip None cells (future dates) for jagged edge effect
+            // Draw heatmap cells (GitHub style with gaps)
             let row = &self.grid[*grid_row_idx];
             for (col_idx, cell) in row.iter().enumerate() {
                 if col_idx >= self.weeks_to_show {
@@ -245,18 +244,13 @@ impl Widget for Heatmap {
                 // Only render cells that exist (skip future dates for jagged edge)
                 if let Some(cell) = cell {
                     let style = Style::default().fg(cell.intensity.color());
-                    // Render 2x2 block: row 1
-                    buf.set_string(x, y_base, cell.intensity.to_cell_str(), style);
-                    // Render 2x2 block: row 2
-                    if y_base + 1 < area.y + area.height {
-                        buf.set_string(x, y_base + 1, cell.intensity.to_cell_str(), style);
-                    }
+                    buf.set_string(x, y, cell.intensity.to_cell_str(), style);
                 }
             }
         }
 
-        // Render month labels below the heatmap (after 7 days × 2 rows = 14 rows)
-        let month_label_y = area.y + 14;
+        // Render month labels below the heatmap (after 7 rows)
+        let month_label_y = area.y + 7;
         if month_label_y < area.y + area.height && !self.grid[0].is_empty() {
             self.render_month_labels(area, buf, start_x, month_label_y, CELL_WIDTH);
         }
@@ -319,12 +313,12 @@ mod tests {
 
     #[test]
     fn test_intensity_to_cell_str() {
-        // All intensities use "██" (2 blocks) for 2x2 square; color distinguishes them
-        assert_eq!(HeatmapIntensity::None.to_cell_str(), "██");
-        assert_eq!(HeatmapIntensity::Low.to_cell_str(), "██");
-        assert_eq!(HeatmapIntensity::Medium.to_cell_str(), "██");
-        assert_eq!(HeatmapIntensity::High.to_cell_str(), "██");
-        assert_eq!(HeatmapIntensity::Max.to_cell_str(), "██");
+        // All intensities use "██ " (2 blocks + space) for gaps; color distinguishes them
+        assert_eq!(HeatmapIntensity::None.to_cell_str(), "██ ");
+        assert_eq!(HeatmapIntensity::Low.to_cell_str(), "██ ");
+        assert_eq!(HeatmapIntensity::Medium.to_cell_str(), "██ ");
+        assert_eq!(HeatmapIntensity::High.to_cell_str(), "██ ");
+        assert_eq!(HeatmapIntensity::Max.to_cell_str(), "██ ");
     }
 
     #[test]
@@ -482,27 +476,37 @@ mod tests {
 
     #[test]
     fn test_weeks_for_width_wide() {
-        // 52 weeks needs: label 4 + 52*2 = 108 (2-char cells)
-        // So width >= 108 -> 52 weeks
-        assert_eq!(Heatmap::weeks_for_width(108), 52);
-        assert_eq!(Heatmap::weeks_for_width(120), 52);
+        // 52 weeks needs: label 4 + 52*3 = 160 (3-char cells with gap)
+        // So width >= 160 -> 52 weeks
+        assert_eq!(Heatmap::weeks_for_width(160), 52);
+        assert_eq!(Heatmap::weeks_for_width(180), 52);
         assert_eq!(Heatmap::weeks_for_width(200), 52);
     }
 
     #[test]
     fn test_weeks_for_width_medium() {
-        // 26 weeks needs: label 4 + 26*2 = 56
-        // So width 56-107 -> 26 weeks
-        assert_eq!(Heatmap::weeks_for_width(56), 26);
-        assert_eq!(Heatmap::weeks_for_width(80), 26);
-        assert_eq!(Heatmap::weeks_for_width(107), 26);
+        // 26 weeks needs: label 4 + 26*3 = 82
+        // So width 82-159 -> 26 weeks
+        assert_eq!(Heatmap::weeks_for_width(82), 26);
+        assert_eq!(Heatmap::weeks_for_width(120), 26);
+        assert_eq!(Heatmap::weeks_for_width(159), 26);
     }
 
     #[test]
     fn test_weeks_for_width_narrow() {
-        // 13 weeks needs: label 4 + 13*2 = 30
-        // So width < 56 -> 13 weeks
-        assert_eq!(Heatmap::weeks_for_width(30), 13);
-        assert_eq!(Heatmap::weeks_for_width(55), 13);
+        // 13 weeks needs: label 4 + 13*3 = 43
+        // So width < 82 -> 13 weeks
+        assert_eq!(Heatmap::weeks_for_width(43), 13);
+        assert_eq!(Heatmap::weeks_for_width(81), 13);
+    }
+
+    // ========== CELL_HEIGHT/WIDTH tests ==========
+
+    #[test]
+    fn test_cell_dimensions() {
+        // Cell should be 1 row height (square-like due to terminal font)
+        assert_eq!(CELL_HEIGHT, 1);
+        // Cell should be 3 chars wide (2 blocks + 1 space for gap)
+        assert_eq!(CELL_WIDTH, 3);
     }
 }

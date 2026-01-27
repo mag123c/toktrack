@@ -7,6 +7,7 @@ pub use claude::ClaudeCodeParser;
 
 use crate::types::{Result, UsageEntry};
 use rayon::prelude::*;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 /// Trait for parsing usage data from AI CLI tools
@@ -23,17 +24,35 @@ pub trait CLIParser: Send + Sync {
     /// Parse a single file and return usage entries
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>>;
 
-    /// Parse all files in parallel using rayon
+    /// Parse all files in parallel using rayon, with deduplication
     fn parse_all(&self) -> Result<Vec<UsageEntry>> {
         let pattern = self.data_dir().join(self.file_pattern());
         let files: Vec<PathBuf> = glob::glob(&pattern.to_string_lossy())
             .map(|paths| paths.filter_map(|e| e.ok()).collect())
             .unwrap_or_default();
 
-        Ok(files
+        let all_entries: Vec<UsageEntry> = files
             .par_iter()
             .flat_map(|f| self.parse_file(f).unwrap_or_default())
-            .collect())
+            .collect();
+
+        // Deduplicate by message_id:request_id (same as ccusage)
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut deduped: Vec<UsageEntry> = Vec::with_capacity(all_entries.len());
+
+        for entry in all_entries {
+            if let Some(hash) = entry.dedup_hash() {
+                if seen.insert(hash) {
+                    deduped.push(entry);
+                }
+                // Skip duplicate (hash already in set)
+            } else {
+                // No hash (missing message_id or request_id) - keep entry
+                deduped.push(entry);
+            }
+        }
+
+        Ok(deduped)
     }
 }
 

@@ -101,8 +101,8 @@ pub struct OverviewData {
 }
 
 /// Maximum content width for Overview (keeps layout clean on wide terminals)
-/// 52 weeks * 2-char cells + 4 label = 108, so 120 gives some padding
-const MAX_CONTENT_WIDTH: u16 = 120;
+/// 52 weeks * 3-char cells + 4 label = 160, so 170 gives some padding
+const MAX_CONTENT_WIDTH: u16 = 170;
 
 /// Overview widget combining all elements
 pub struct Overview<'a> {
@@ -140,17 +140,17 @@ impl Widget for Overview<'_> {
 
         // Fixed-height layout (no expansion, keybindings stay with content):
         // - Top padding (1) + Tabs (1) + Separator (1) + Hero (3) + Sub-stats (1) + Blank (1)
-        // - Heatmap (16: 7×2 rows + month labels + legend) + Separator (1) + Keybindings (1) = 26 total
+        // - Heatmap (9: 7 rows + month labels + legend) + Separator (1) + Keybindings (1) = 19 total
         let chunks = Layout::vertical([
-            Constraint::Length(1),  // Top padding (NEW)
-            Constraint::Length(1),  // Tabs
-            Constraint::Length(1),  // Separator
-            Constraint::Length(3),  // Hero stat
-            Constraint::Length(1),  // Sub-stats
-            Constraint::Length(1),  // Blank
-            Constraint::Length(16), // Heatmap (7×2=14 rows) + month labels + legend
-            Constraint::Length(1),  // Separator
-            Constraint::Length(1),  // Keybindings
+            Constraint::Length(1), // Top padding
+            Constraint::Length(1), // Tabs
+            Constraint::Length(1), // Separator
+            Constraint::Length(3), // Hero stat
+            Constraint::Length(1), // Sub-stats
+            Constraint::Length(1), // Blank
+            Constraint::Length(9), // Heatmap (7 rows) + month labels + legend
+            Constraint::Length(1), // Separator
+            Constraint::Length(1), // Keybindings
         ])
         .split(centered_area);
 
@@ -193,7 +193,11 @@ impl Overview<'_> {
     }
 
     fn render_hero_stat(&self, area: Rect, buf: &mut Buffer) {
-        let total_tokens = self.data.total.total_input_tokens + self.data.total.total_output_tokens;
+        // Include all token types: input + output + cache_read + cache_creation
+        let total_tokens = self.data.total.total_input_tokens
+            + self.data.total.total_output_tokens
+            + self.data.total.total_cache_read_tokens
+            + self.data.total.total_cache_creation_tokens;
         let formatted = format_number(total_tokens);
 
         // Center the hero number
@@ -239,18 +243,18 @@ impl Overview<'_> {
     }
 
     fn render_heatmap_section(&self, area: Rect, buf: &mut Buffer) {
-        // Heatmap takes 7×2=14 rows (Mon-Sun with 2-row cells) + 1 row month labels + 1 row legend = 16 rows
+        // Heatmap takes 7 rows (Mon-Sun) + 1 row month labels + 1 row legend = 9 rows
         let weeks = Heatmap::weeks_for_width(area.width);
         let heatmap = Heatmap::new(&self.data.daily_tokens, self.today, weeks);
         heatmap.render(area, buf);
 
         // Legend on last row - aligned to heatmap grid right edge
-        if area.height >= 16 {
-            // Calculate actual heatmap width: label (4) + weeks * cell_width (2)
-            let heatmap_width = 4 + (weeks as u16 * 2);
+        if area.height >= 9 {
+            // Calculate actual heatmap width: label (4) + weeks * cell_width (3)
+            let heatmap_width = 4 + (weeks as u16 * 3);
             let legend_area = Rect {
                 x: area.x,
-                y: area.y + 15, // 14 rows for heatmap + 1 row for month labels
+                y: area.y + 8, // 7 rows for heatmap + 1 row for month labels
                 width: heatmap_width.min(area.width),
                 height: 1,
             };
