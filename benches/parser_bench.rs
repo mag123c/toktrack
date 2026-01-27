@@ -4,15 +4,25 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use std::path::{Path, PathBuf};
 use toktrack::parsers::{CLIParser, ClaudeCodeParser};
 
-/// Find the largest JSONL file in a directory recursively
-fn find_largest_jsonl(dir: &Path) -> Option<PathBuf> {
+/// Find all JSONL files in a directory recursively
+fn find_all_jsonl(dir: &Path) -> Vec<PathBuf> {
     let pattern = dir.join("**/*.jsonl");
     let pattern_str = pattern.to_string_lossy();
 
     glob::glob(&pattern_str)
-        .ok()?
-        .filter_map(|entry| entry.ok())
-        .filter(|path| path.is_file())
+        .map(|paths| {
+            paths
+                .filter_map(|entry| entry.ok())
+                .filter(|path| path.is_file())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Find the largest JSONL file in a directory recursively
+fn find_largest_jsonl(dir: &Path) -> Option<PathBuf> {
+    find_all_jsonl(dir)
+        .into_iter()
         .max_by_key(|path| std::fs::metadata(path).map(|m| m.len()).unwrap_or(0))
 }
 
@@ -85,5 +95,53 @@ fn bench_parse_line(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_parse_file, bench_parse_line);
+fn bench_parse_all_files(c: &mut Criterion) {
+    let parser = ClaudeCodeParser::new();
+    let data_dir = parser.data_dir();
+
+    if !data_dir.exists() {
+        eprintln!("Skipping parse_all_files: no real Claude data found");
+        return;
+    }
+
+    let files = find_all_jsonl(&data_dir);
+    if files.is_empty() {
+        eprintln!("Skipping parse_all_files: no JSONL files found");
+        return;
+    }
+
+    let total_size: u64 = files
+        .iter()
+        .filter_map(|p| std::fs::metadata(p).ok())
+        .map(|m| m.len())
+        .sum();
+
+    eprintln!(
+        "Benchmarking {} files, total {} bytes ({:.2} GB)",
+        files.len(),
+        total_size,
+        total_size as f64 / 1_073_741_824.0
+    );
+
+    let mut group = c.benchmark_group("parser");
+    group.throughput(Throughput::Bytes(total_size));
+    group.sample_size(10); // 3GB는 시간이 오래 걸리므로 샘플 수 줄임
+
+    group.bench_function("parse_all_files_sequential", |b| {
+        b.iter(|| {
+            for file in &files {
+                let _ = parser.parse_file(black_box(file));
+            }
+        });
+    });
+
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_parse_file,
+    bench_parse_line,
+    bench_parse_all_files
+);
 criterion_main!(benches);
