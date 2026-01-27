@@ -6,12 +6,19 @@ TUI[ratatui] → CLI[clap] → Services → Parsers[trait] → Cache
 ```
 
 ## Paths
-- `src/tui/` - TUI (app.rs, views/, components/)
+- `src/tui/` - TUI (app.rs, widgets/)
 - `src/cli/` - CLI commands
 - `src/services/` - aggregator, pricing, cache
 - `src/parsers/` - CLIParser trait + impls
-- `src/cache/` - backup + perf cache
 - `src/types/` - UsageEntry, errors
+
+## TUI Widgets
+| Widget | Purpose |
+|--------|---------|
+| `app.rs` | AppState enum, event loop, run() |
+| `widgets/spinner.rs` | Loading animation |
+| `widgets/heatmap.rs` | 52-week heatmap (percentile) |
+| `widgets/overview.rs` | Overview layout + summary |
 
 ## Core Trait
 ```rust

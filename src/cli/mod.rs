@@ -35,10 +35,7 @@ enum Commands {
 impl Cli {
     pub fn run(self) -> anyhow::Result<()> {
         match self.command {
-            None | Some(Commands::Tui) => {
-                println!("TUI not yet implemented. Coming soon!");
-                Ok(())
-            }
+            None | Some(Commands::Tui) => crate::tui::run(),
             Some(Commands::Daily { json }) => {
                 if json {
                     println!("{{\"message\": \"Daily JSON not yet implemented\"}}");
