@@ -9,6 +9,24 @@
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/plan-exit-detector.sh\""
           }
         ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/implement-detector.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/implement-guard.sh\""
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
