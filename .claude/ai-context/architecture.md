@@ -43,8 +43,8 @@ trait CLIParser: Send + Sync {
 ## Cache (~/.toktrack/)
 ```
 cache/
-├── claude/      # Backup to prevent 30-day deletion
-└── pricing.json # LiteLLM 1h TTL
+├── {cli}_daily.json  # DailySummary cache (past dates immutable)
+└── pricing.json      # LiteLLM 1h TTL
 ```
 
 ## Deps
