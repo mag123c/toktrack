@@ -3,13 +3,12 @@
 set -e
 INPUT=$(cat)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
-MARKER="/tmp/toktrack-plan-completed-$SESSION_ID"
+MARKER="/tmp/toktrack-plan-exited-$SESSION_ID"
+IMPLEMENT_MARKER="/tmp/toktrack-implement-started-$SESSION_ID"
 
-# Plan 완료 마커가 없으면 종료
+# Plan 완료 마커가 없거나, 이미 implement 시작했으면 종료
 [ ! -f "$MARKER" ] && exit 0
-
-# 마커 삭제 (한 번만 표시)
-rm -f "$MARKER"
+[ -f "$IMPLEMENT_MARKER" ] && exit 0
 
 cat << 'EOF'
 {
