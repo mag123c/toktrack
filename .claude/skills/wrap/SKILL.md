@@ -1,6 +1,8 @@
 ---
 name: wrap
 description: 세션 종료 - 문서 업데이트, 커밋
+required_context:
+  - .claude/ai-context/architecture.md
 ---
 
 # Wrap

@@ -1,6 +1,8 @@
 ---
 name: next
 description: 세션 시작 - 진행 상태 파악, 다음 작업 제시
+required_context:
+  - .claude/ai-context/architecture.md
 ---
 
 # Next

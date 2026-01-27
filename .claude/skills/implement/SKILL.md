@@ -1,6 +1,9 @@
 ---
 name: implement
 description: TDD implementation (RED→GREEN→REFACTOR) → verify → review
+required_context:
+  - .claude/ai-context/architecture.md
+  - .claude/ai-context/conventions.md
 ---
 
 # Implement

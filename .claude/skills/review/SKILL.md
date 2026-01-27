@@ -1,6 +1,9 @@
 ---
 name: review
 description: 부정적 관점 코드 리뷰 (컨벤션, 품질, 버그, 성능)
+required_context:
+  - .claude/ai-context/architecture.md
+  - .claude/ai-context/conventions.md
 ---
 
 # Review
