@@ -3,13 +3,15 @@
 use chrono::{Duration, NaiveDate};
 use ratatui::{
     buffer::Buffer,
-    layout::{Constraint, Layout, Rect},
-    style::{Color, Style},
+    layout::{Alignment, Constraint, Layout, Rect},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Paragraph, Widget},
 };
 
 use super::heatmap::Heatmap;
+use super::legend::Legend;
+use super::tabs::{Tab, TabBar};
 use crate::types::TotalSummary;
 
 /// Format a number with thousand separators (e.g., 1234567 -> "1,234,567")
@@ -81,86 +83,154 @@ pub struct OverviewData {
 pub struct Overview<'a> {
     data: &'a OverviewData,
     today: NaiveDate,
+    selected_tab: Tab,
 }
 
 impl<'a> Overview<'a> {
     pub fn new(data: &'a OverviewData, today: NaiveDate) -> Self {
-        Self { data, today }
+        Self {
+            data,
+            today,
+            selected_tab: Tab::Overview,
+        }
+    }
+
+    pub fn with_tab(mut self, tab: Tab) -> Self {
+        self.selected_tab = tab;
+        self
     }
 }
 
 impl Widget for Overview<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        // Main layout: header, heatmap, footer
+        // New layout:
+        // - Tabs (1 line)
+        // - Separator (1 line)
+        // - Hero stat (3 lines: number + "tokens" + blank)
+        // - Sub-stats (1 line)
+        // - Blank line (1 line)
+        // - Heatmap (4 rows) + month labels (1 row) + legend (1 row)
+        // - Separator (1 line)
+        // - Keybindings (1 line)
         let chunks = Layout::vertical([
-            Constraint::Length(2), // Header
-            Constraint::Min(7),    // Heatmap (7 rows for weekdays)
-            Constraint::Length(2), // Footer
+            Constraint::Length(1), // Tabs
+            Constraint::Length(1), // Separator
+            Constraint::Length(3), // Hero stat
+            Constraint::Length(1), // Sub-stats
+            Constraint::Length(1), // Blank
+            Constraint::Min(6),    // Heatmap (4 rows) + month labels + legend
+            Constraint::Length(1), // Separator
+            Constraint::Length(1), // Keybindings
         ])
         .split(area);
 
-        // Render header
-        self.render_header(chunks[0], buf);
+        // Render tabs
+        self.render_tabs(chunks[0], buf);
 
-        // Render heatmap
-        self.render_heatmap(chunks[1], buf);
+        // Render separator
+        self.render_separator(chunks[1], buf);
 
-        // Render footer
-        self.render_footer(chunks[2], buf);
+        // Render hero stat
+        self.render_hero_stat(chunks[2], buf);
+
+        // Render sub-stats
+        self.render_sub_stats(chunks[3], buf);
+
+        // Blank line (chunks[4]) - nothing to render
+
+        // Render heatmap with legend
+        self.render_heatmap_section(chunks[5], buf);
+
+        // Render separator
+        self.render_separator(chunks[6], buf);
+
+        // Render keybindings
+        self.render_keybindings(chunks[7], buf);
     }
 }
 
 impl Overview<'_> {
-    fn render_header(&self, area: Rect, buf: &mut Buffer) {
+    fn render_tabs(&self, area: Rect, buf: &mut Buffer) {
+        let tab_bar = TabBar::new(self.selected_tab);
+        tab_bar.render(area, buf);
+    }
+
+    fn render_separator(&self, area: Rect, buf: &mut Buffer) {
+        let line = "─".repeat(area.width as usize);
+        buf.set_string(area.x, area.y, &line, Style::default().fg(Color::DarkGray));
+    }
+
+    fn render_hero_stat(&self, area: Rect, buf: &mut Buffer) {
         let total_tokens = self.data.total.total_input_tokens + self.data.total.total_output_tokens;
-        let cost = self.data.total.total_cost_usd;
+        let formatted = format_number(total_tokens);
 
-        let title = format!(
-            "toktrack - Total: {} tokens (${:.2})",
-            format_number(total_tokens),
-            cost
-        );
+        // Center the hero number
+        let hero = Paragraph::new(vec![
+            Line::from(Span::styled(
+                &formatted,
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(Span::styled("tokens", Style::default().fg(Color::DarkGray))),
+        ])
+        .alignment(Alignment::Center);
 
-        let subtitle = format!(
-            "Input: {}K | Output: {}K | Days: {}",
-            format_number(self.data.total.total_input_tokens / 1000),
-            format_number(self.data.total.total_output_tokens / 1000),
-            self.data.total.day_count
-        );
-
-        let header = Paragraph::new(vec![
-            Line::from(Span::styled(title, Style::default().fg(Color::Cyan))),
-            Line::from(Span::styled(subtitle, Style::default().fg(Color::DarkGray))),
-        ]);
-
-        header.render(area, buf);
+        hero.render(area, buf);
     }
 
-    fn render_heatmap(&self, area: Rect, buf: &mut Buffer) {
-        let heatmap = Heatmap::new(&self.data.daily_tokens, self.today);
-        heatmap.render(area, buf);
-    }
-
-    fn render_footer(&self, area: Rect, buf: &mut Buffer) {
-        let today_str = format!("Today: {} tokens", format_number(self.data.today_tokens));
+    fn render_sub_stats(&self, area: Rect, buf: &mut Buffer) {
+        let today_str = format!("Today: {}", format_number(self.data.today_tokens));
         let week_str = format!(
-            "Week: {} tokens",
+            "Week: {}",
             format_number(self.data.week_summary.total_tokens)
         );
+        let cost_str = format!("Cost: ${:.2}", self.data.total.total_cost_usd);
 
-        let footer = Paragraph::new(vec![
-            Line::from(vec![
-                Span::styled(today_str, Style::default().fg(Color::Green)),
-                Span::raw(" | "),
-                Span::styled(week_str, Style::default().fg(Color::Yellow)),
-            ]),
-            Line::from(Span::styled(
-                "Press 'q' to quit",
-                Style::default().fg(Color::DarkGray),
-            )),
-        ]);
+        let stats = Paragraph::new(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(today_str, Style::default().fg(Color::Green)),
+            Span::raw("      "),
+            Span::styled(week_str, Style::default().fg(Color::Yellow)),
+            Span::raw("      "),
+            Span::styled(cost_str, Style::default().fg(Color::Magenta)),
+        ]));
 
-        footer.render(area, buf);
+        stats.render(area, buf);
+    }
+
+    fn render_heatmap_section(&self, area: Rect, buf: &mut Buffer) {
+        // Heatmap takes 4 rows (Mon/Wed/Fri/Sun) + 1 row month labels + 1 row legend = 6 rows
+        let weeks = Heatmap::weeks_for_width(area.width);
+        let heatmap = Heatmap::new(&self.data.daily_tokens, self.today, weeks);
+        heatmap.render(area, buf);
+
+        // Legend on last row of heatmap area
+        if area.height >= 6 {
+            let legend_area = Rect {
+                x: area.x,
+                y: area.y + 5,
+                width: area.width,
+                height: 1,
+            };
+            Legend::new().render(legend_area, buf);
+        }
+    }
+
+    fn render_keybindings(&self, area: Rect, buf: &mut Buffer) {
+        let bindings = Paragraph::new(Line::from(vec![
+            Span::raw(" "),
+            Span::styled("q", Style::default().fg(Color::Cyan)),
+            Span::styled(": Quit", Style::default().fg(Color::DarkGray)),
+            Span::raw("  "),
+            Span::styled("Tab", Style::default().fg(Color::Cyan)),
+            Span::styled(": Switch view", Style::default().fg(Color::DarkGray)),
+            Span::raw("  "),
+            Span::styled("?", Style::default().fg(Color::Cyan)),
+            Span::styled(": Help", Style::default().fg(Color::DarkGray)),
+        ]));
+
+        bindings.render(area, buf);
     }
 }
 

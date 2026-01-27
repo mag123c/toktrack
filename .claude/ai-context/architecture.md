@@ -15,10 +15,12 @@ TUI[ratatui] → CLI[clap] → Services → Parsers[trait] → Cache
 ## TUI Widgets
 | Widget | Purpose |
 |--------|---------|
-| `app.rs` | AppState enum, event loop, run() |
+| `app.rs` | AppState enum, Tab state, event loop |
 | `widgets/spinner.rs` | Loading animation |
-| `widgets/heatmap.rs` | 52-week heatmap (percentile) |
-| `widgets/overview.rs` | Overview layout + summary |
+| `widgets/heatmap.rs` | 52-week heatmap (4-row, 2-char cells, responsive) |
+| `widgets/overview.rs` | Overview layout (hero stat, sub-stats, keybindings) |
+| `widgets/legend.rs` | Heatmap intensity legend |
+| `widgets/tabs.rs` | Tab enum, TabBar widget |
 
 ## Core Trait
 ```rust

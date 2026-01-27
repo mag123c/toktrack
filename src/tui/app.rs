@@ -19,6 +19,7 @@ use crate::types::TotalSummary;
 use super::widgets::{
     overview::{compute_week_summary, Overview, OverviewData, PeriodSummary},
     spinner::{LoadingStage, Spinner},
+    tabs::Tab,
 };
 
 /// Application state
@@ -46,6 +47,7 @@ pub struct AppData {
 pub struct App {
     state: AppState,
     should_quit: bool,
+    current_tab: Tab,
 }
 
 impl App {
@@ -57,6 +59,7 @@ impl App {
                 stage: LoadingStage::Scanning,
             },
             should_quit: false,
+            current_tab: Tab::default(),
         }
     }
 
@@ -138,6 +141,12 @@ impl App {
                     KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
                         self.should_quit = true;
                     }
+                    KeyCode::Tab => {
+                        self.current_tab = self.current_tab.next();
+                    }
+                    KeyCode::BackTab => {
+                        self.current_tab = self.current_tab.prev();
+                    }
                     _ => {}
                 }
             }
@@ -193,7 +202,7 @@ impl Widget for &App {
                     week_summary: data.week_summary.clone(),
                     daily_tokens: data.daily_tokens.clone(),
                 };
-                let overview = Overview::new(&overview_data, today);
+                let overview = Overview::new(&overview_data, today).with_tab(self.current_tab);
                 overview.render(area, buf);
             }
             AppState::Error { message } => {
@@ -294,5 +303,43 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn test_app_tab_navigation() {
+        let mut app = App::new();
+        assert_eq!(app.current_tab, Tab::Overview);
+
+        // Tab forward
+        let event = Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        app.handle_event(event);
+        assert_eq!(app.current_tab, Tab::Models);
+
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
+        assert_eq!(app.current_tab, Tab::Daily);
+
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
+        assert_eq!(app.current_tab, Tab::Stats);
+
+        // Wrap around
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
+        assert_eq!(app.current_tab, Tab::Overview);
+    }
+
+    #[test]
+    fn test_app_tab_navigation_backward() {
+        let mut app = App::new();
+        assert_eq!(app.current_tab, Tab::Overview);
+
+        // Shift+Tab (BackTab)
+        let event = Event::Key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
+        app.handle_event(event);
+        assert_eq!(app.current_tab, Tab::Stats);
+
+        app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::BackTab,
+            KeyModifiers::SHIFT,
+        )));
+        assert_eq!(app.current_tab, Tab::Daily);
     }
 }

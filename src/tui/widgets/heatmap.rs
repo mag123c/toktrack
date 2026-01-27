@@ -24,7 +24,8 @@ pub enum HeatmapIntensity {
 }
 
 impl HeatmapIntensity {
-    /// Convert intensity to display character
+    /// Convert intensity to display character (legacy, kept for potential future use)
+    #[allow(dead_code)]
     pub fn to_char(self) -> char {
         match self {
             Self::None => ' ',
@@ -32,6 +33,17 @@ impl HeatmapIntensity {
             Self::Medium => '▒',
             Self::High => '▓',
             Self::Max => '█',
+        }
+    }
+
+    /// Convert intensity to 2-character cell string for improved readability
+    pub fn to_cell_str(self) -> &'static str {
+        match self {
+            Self::None => "  ",
+            Self::Low => "░░",
+            Self::Medium => "▒▒",
+            Self::High => "▓▓",
+            Self::Max => "██",
         }
     }
 
@@ -102,11 +114,12 @@ pub struct HeatmapCell {
     pub intensity: HeatmapIntensity,
 }
 
-/// Build a 7x52 grid of heatmap cells (rows = weekdays, cols = weeks)
-/// Fills from today going back 52 weeks
+/// Build a 7xN grid of heatmap cells (rows = weekdays, cols = weeks)
+/// Fills from today going back `weeks_to_show` weeks
 pub fn build_grid(
     daily_tokens: &[(NaiveDate, u64)],
     today: NaiveDate,
+    weeks_to_show: usize,
 ) -> Vec<Vec<Option<HeatmapCell>>> {
     use chrono::{Datelike, Duration};
 
@@ -122,15 +135,14 @@ pub fn build_grid(
     let days_since_monday = today.weekday().num_days_from_monday();
     let week_start = today - Duration::days(days_since_monday as i64);
 
-    // Go back 51 more weeks (52 total)
-    let grid_start = week_start - Duration::weeks(51);
+    // Go back (weeks_to_show - 1) more weeks
+    let grid_start = week_start - Duration::weeks((weeks_to_show - 1) as i64);
 
-    // Build grid: 7 rows (Mon-Sun) x 52 columns (weeks)
-    // Using explicit indexing here for clarity: grid[day_idx][week_idx]
-    let mut grid: Vec<Vec<Option<HeatmapCell>>> = vec![vec![None; 52]; 7];
+    // Build grid: 7 rows (Mon-Sun) x weeks_to_show columns
+    let mut grid: Vec<Vec<Option<HeatmapCell>>> = vec![vec![None; weeks_to_show]; 7];
 
     #[allow(clippy::needless_range_loop)]
-    for week_idx in 0..52 {
+    for week_idx in 0..weeks_to_show {
         for day_idx in 0..7 {
             let date =
                 grid_start + Duration::weeks(week_idx as i64) + Duration::days(day_idx as i64);
@@ -159,49 +171,113 @@ pub fn build_grid(
 /// Heatmap widget for ratatui
 pub struct Heatmap {
     grid: Vec<Vec<Option<HeatmapCell>>>,
+    weeks_to_show: usize,
 }
 
 impl Heatmap {
-    pub fn new(daily_tokens: &[(NaiveDate, u64)], today: NaiveDate) -> Self {
+    pub fn new(daily_tokens: &[(NaiveDate, u64)], today: NaiveDate, weeks_to_show: usize) -> Self {
         Self {
-            grid: build_grid(daily_tokens, today),
+            grid: build_grid(daily_tokens, today, weeks_to_show),
+            weeks_to_show,
+        }
+    }
+
+    /// Compute weeks to show based on terminal width
+    /// Returns (weeks, cell_width) for responsive layout
+    pub fn weeks_for_width(width: u16) -> usize {
+        let label_width = 4; // "Mon " prefix
+        let cell_width = 2; // 2-char cells
+        let available = width.saturating_sub(label_width);
+        let max_weeks = (available / cell_width) as usize;
+
+        if max_weeks >= 52 {
+            52
+        } else if max_weeks >= 26 {
+            26
+        } else {
+            13
         }
     }
 }
 
+/// Rows to display in the heatmap (Mon, Wed, Fri, Sun = indices 0, 2, 4, 6)
+const DISPLAY_ROWS: [(usize, &str); 4] = [(0, "Mon"), (2, "Wed"), (4, "Fri"), (6, "Sun")];
+
 impl Widget for Heatmap {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let weekday_labels = ['M', ' ', 'W', ' ', 'F', ' ', 'S'];
+        let label_width = 4u16; // "Mon " prefix
+        let cell_width = 2u16;
+        let start_x = area.x + label_width;
 
-        for (row_idx, row) in self.grid.iter().enumerate() {
-            if row_idx >= area.height as usize {
+        // Render 4 rows (Mon, Wed, Fri, Sun)
+        for (display_idx, (grid_row_idx, label)) in DISPLAY_ROWS.iter().enumerate() {
+            let y = area.y + display_idx as u16;
+            if y >= area.y + area.height {
                 break;
             }
 
-            let y = area.y + row_idx as u16;
-
             // Draw weekday label
-            if area.width > 2 {
-                buf.set_string(
-                    area.x,
-                    y,
-                    weekday_labels[row_idx].to_string(),
-                    Style::default().fg(Color::DarkGray),
-                );
-            }
+            buf.set_string(area.x, y, *label, Style::default().fg(Color::DarkGray));
 
-            // Draw heatmap cells
-            let start_x = area.x + 2; // After label + space
+            // Draw heatmap cells (2-char each)
+            let row = &self.grid[*grid_row_idx];
             for (col_idx, cell) in row.iter().enumerate() {
-                let x = start_x + col_idx as u16;
-                if x >= area.x + area.width {
+                if col_idx >= self.weeks_to_show {
+                    break;
+                }
+                let x = start_x + (col_idx as u16 * cell_width);
+                if x + cell_width > area.x + area.width {
                     break;
                 }
 
                 if let Some(cell) = cell {
-                    let ch = cell.intensity.to_char();
+                    let cell_str = cell.intensity.to_cell_str();
                     let style = Style::default().fg(cell.intensity.color());
-                    buf.set_string(x, y, ch.to_string(), style);
+                    buf.set_string(x, y, cell_str, style);
+                }
+            }
+        }
+
+        // Render month labels below the heatmap
+        let month_label_y = area.y + 4;
+        if month_label_y < area.y + area.height && !self.grid[0].is_empty() {
+            self.render_month_labels(area, buf, start_x, month_label_y, cell_width);
+        }
+    }
+}
+
+impl Heatmap {
+    /// Render month labels below the heatmap grid
+    fn render_month_labels(
+        &self,
+        area: Rect,
+        buf: &mut Buffer,
+        start_x: u16,
+        y: u16,
+        cell_width: u16,
+    ) {
+        use chrono::Datelike;
+
+        let mut last_month: Option<u32> = None;
+        let month_names = [
+            "", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        ];
+
+        for (col_idx, cell) in self.grid[0].iter().enumerate() {
+            if col_idx >= self.weeks_to_show {
+                break;
+            }
+            let x = start_x + (col_idx as u16 * cell_width);
+            if x + 3 > area.x + area.width {
+                break;
+            }
+
+            if let Some(cell) = cell {
+                let month = cell.date.month();
+                if last_month.is_none_or(|m| m != month) {
+                    let label = month_names[month as usize];
+                    buf.set_string(x, y, label, Style::default().fg(Color::DarkGray));
+                    last_month = Some(month);
                 }
             }
         }
@@ -222,6 +298,15 @@ mod tests {
         assert_eq!(HeatmapIntensity::Medium.to_char(), '▒');
         assert_eq!(HeatmapIntensity::High.to_char(), '▓');
         assert_eq!(HeatmapIntensity::Max.to_char(), '█');
+    }
+
+    #[test]
+    fn test_intensity_to_cell_str() {
+        assert_eq!(HeatmapIntensity::None.to_cell_str(), "  ");
+        assert_eq!(HeatmapIntensity::Low.to_cell_str(), "░░");
+        assert_eq!(HeatmapIntensity::Medium.to_cell_str(), "▒▒");
+        assert_eq!(HeatmapIntensity::High.to_cell_str(), "▓▓");
+        assert_eq!(HeatmapIntensity::Max.to_cell_str(), "██");
     }
 
     #[test]
@@ -300,13 +385,39 @@ mod tests {
         let today = NaiveDate::from_ymd_opt(2024, 6, 15).unwrap(); // Saturday
         let daily_tokens = vec![];
 
-        let grid = build_grid(&daily_tokens, today);
+        let grid = build_grid(&daily_tokens, today, 52);
 
         // Should be 7 rows (weekdays)
         assert_eq!(grid.len(), 7);
         // Each row should have 52 columns (weeks)
         for row in &grid {
             assert_eq!(row.len(), 52);
+        }
+    }
+
+    #[test]
+    fn test_build_grid_26_weeks() {
+        let today = NaiveDate::from_ymd_opt(2024, 6, 15).unwrap();
+        let daily_tokens = vec![];
+
+        let grid = build_grid(&daily_tokens, today, 26);
+
+        assert_eq!(grid.len(), 7);
+        for row in &grid {
+            assert_eq!(row.len(), 26);
+        }
+    }
+
+    #[test]
+    fn test_build_grid_13_weeks() {
+        let today = NaiveDate::from_ymd_opt(2024, 6, 15).unwrap();
+        let daily_tokens = vec![];
+
+        let grid = build_grid(&daily_tokens, today, 13);
+
+        assert_eq!(grid.len(), 7);
+        for row in &grid {
+            assert_eq!(row.len(), 13);
         }
     }
 
@@ -318,7 +429,7 @@ mod tests {
             (NaiveDate::from_ymd_opt(2024, 6, 14).unwrap(), 500),
         ];
 
-        let grid = build_grid(&daily_tokens, today);
+        let grid = build_grid(&daily_tokens, today, 52);
 
         // Find today's cell and verify it has data
         let mut found = false;
@@ -338,7 +449,7 @@ mod tests {
         let today = NaiveDate::from_ymd_opt(2024, 6, 12).unwrap(); // Wednesday
         let daily_tokens = vec![];
 
-        let grid = build_grid(&daily_tokens, today);
+        let grid = build_grid(&daily_tokens, today, 52);
 
         // Future dates (Thu, Fri, Sat, Sun of current week) should be None
         for row in &grid {
@@ -346,5 +457,33 @@ mod tests {
                 assert!(cell.date <= today, "Grid should not contain future dates");
             }
         }
+    }
+
+    // ========== weeks_for_width tests ==========
+
+    #[test]
+    fn test_weeks_for_width_wide() {
+        // 52 weeks needs: label 4 + 52*2 = 108
+        // So width >= 108 -> 52 weeks
+        assert_eq!(Heatmap::weeks_for_width(108), 52);
+        assert_eq!(Heatmap::weeks_for_width(120), 52);
+        assert_eq!(Heatmap::weeks_for_width(200), 52);
+    }
+
+    #[test]
+    fn test_weeks_for_width_medium() {
+        // 26 weeks needs: label 4 + 26*2 = 56
+        // So width 56-107 -> 26 weeks
+        assert_eq!(Heatmap::weeks_for_width(56), 26);
+        assert_eq!(Heatmap::weeks_for_width(80), 26);
+        assert_eq!(Heatmap::weeks_for_width(107), 26);
+    }
+
+    #[test]
+    fn test_weeks_for_width_narrow() {
+        // 13 weeks needs: label 4 + 13*2 = 30
+        // So width < 56 -> 13 weeks
+        assert_eq!(Heatmap::weeks_for_width(30), 13);
+        assert_eq!(Heatmap::weeks_for_width(55), 13);
     }
 }

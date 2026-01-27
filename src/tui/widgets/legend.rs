@@ -1,0 +1,89 @@
+//! Legend widget for heatmap intensity levels
+
+use ratatui::{
+    buffer::Buffer,
+    layout::Rect,
+    style::{Color, Style},
+    widgets::Widget,
+};
+
+use super::heatmap::HeatmapIntensity;
+
+/// Legend widget showing intensity scale
+pub struct Legend;
+
+impl Legend {
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Returns the minimum width needed to render the legend
+    pub fn min_width() -> u16 {
+        // "Less ░░ ▒▒ ▓▓ ██ More" = 23 chars
+        23
+    }
+}
+
+impl Default for Legend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Widget for Legend {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        if area.width < Self::min_width() {
+            return;
+        }
+
+        let intensities = [
+            HeatmapIntensity::Low,
+            HeatmapIntensity::Medium,
+            HeatmapIntensity::High,
+            HeatmapIntensity::Max,
+        ];
+
+        // Right-align the legend
+        let legend_width = Self::min_width();
+        let start_x = area.x + area.width.saturating_sub(legend_width);
+        let y = area.y;
+
+        let mut x = start_x;
+
+        // "Less "
+        buf.set_string(x, y, "Less ", Style::default().fg(Color::DarkGray));
+        x += 5;
+
+        // Intensity cells
+        for intensity in intensities {
+            let style = Style::default().fg(intensity.color());
+            buf.set_string(x, y, intensity.to_cell_str(), style);
+            x += 2;
+
+            // Space between cells except last
+            if intensity != HeatmapIntensity::Max {
+                buf.set_string(x, y, " ", Style::default());
+                x += 1;
+            }
+        }
+
+        // " More"
+        buf.set_string(x, y, " More", Style::default().fg(Color::DarkGray));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_legend_min_width() {
+        // "Less ░░ ▒▒ ▓▓ ██ More" = 23 chars
+        assert_eq!(Legend::min_width(), 23);
+    }
+
+    #[test]
+    fn test_legend_new() {
+        let _legend = Legend::new();
+    }
+}
