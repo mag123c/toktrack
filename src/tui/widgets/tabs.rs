@@ -71,7 +71,24 @@ impl Widget for TabBar {
             return;
         }
 
-        let mut x = area.x + 1; // Start with padding
+        // Calculate total width of all tabs for centering
+        let total_width: u16 = Tab::all()
+            .iter()
+            .map(|tab| {
+                let label = tab.label();
+                let display_len = if *tab == self.selected {
+                    label.len() + 2 // "[label]"
+                } else {
+                    label.len()
+                };
+                display_len as u16 + 2 // + spacing
+            })
+            .sum::<u16>()
+            .saturating_sub(2); // Remove trailing spacing
+
+        // Center the tabs
+        let start_x = area.x + (area.width.saturating_sub(total_width)) / 2;
+        let mut x = start_x;
 
         for tab in Tab::all() {
             let is_selected = *tab == self.selected;

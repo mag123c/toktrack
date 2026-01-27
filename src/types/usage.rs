@@ -37,9 +37,10 @@ pub struct UsageEntry {
 }
 
 impl UsageEntry {
-    /// Total tokens (input + output)
+    /// Total tokens (input + output + cache_read + cache_creation)
+    /// This matches ccusage's calculation which includes all token types
     pub fn total_tokens(&self) -> u64 {
-        self.input_tokens + self.output_tokens
+        self.input_tokens + self.output_tokens + self.cache_read_tokens + self.cache_creation_tokens
     }
 
     /// Create a unique hash for deduplication
@@ -108,13 +109,14 @@ mod tests {
             model: Some("claude-sonnet-4".into()),
             input_tokens: 100,
             output_tokens: 50,
-            cache_read_tokens: 0,
-            cache_creation_tokens: 0,
+            cache_read_tokens: 20,
+            cache_creation_tokens: 10,
             cost_usd: None,
             message_id: None,
             request_id: None,
         };
-        assert_eq!(entry.total_tokens(), 150);
+        // total = input + output + cache_read + cache_creation
+        assert_eq!(entry.total_tokens(), 180);
     }
 
     #[test]

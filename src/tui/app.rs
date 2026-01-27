@@ -17,7 +17,9 @@ use crate::services::Aggregator;
 use crate::types::TotalSummary;
 
 use super::widgets::{
-    overview::{compute_week_summary, Overview, OverviewData, PeriodSummary},
+    overview::{
+        compute_month_summary, compute_week_summary, Overview, OverviewData, PeriodSummary,
+    },
     spinner::{LoadingStage, Spinner},
     tabs::Tab,
 };
@@ -40,6 +42,7 @@ pub struct AppData {
     pub total: TotalSummary,
     pub today_tokens: u64,
     pub week_summary: PeriodSummary,
+    pub month_summary: PeriodSummary,
     pub daily_tokens: Vec<(NaiveDate, u64)>,
 }
 
@@ -109,8 +112,8 @@ impl App {
             .map(|d| d.total_input_tokens + d.total_output_tokens)
             .unwrap_or(0);
 
-        // Get week summary
-        let daily_for_week: Vec<(NaiveDate, u64, u64, u64)> = daily_summaries
+        // Get week and month summaries
+        let daily_for_period: Vec<(NaiveDate, u64, u64, u64)> = daily_summaries
             .iter()
             .map(|d| {
                 (
@@ -121,13 +124,15 @@ impl App {
                 )
             })
             .collect();
-        let week_summary = compute_week_summary(&daily_for_week, today);
+        let week_summary = compute_week_summary(&daily_for_period, today);
+        let month_summary = compute_month_summary(&daily_for_period, today);
 
         self.state = AppState::Ready {
             data: Box::new(AppData {
                 total,
                 today_tokens,
                 week_summary,
+                month_summary,
                 daily_tokens,
             }),
         };
@@ -200,6 +205,7 @@ impl Widget for &App {
                     total: data.total.clone(),
                     today_tokens: data.today_tokens,
                     week_summary: data.week_summary.clone(),
+                    month_summary: data.month_summary.clone(),
                     daily_tokens: data.daily_tokens.clone(),
                 };
                 let overview = Overview::new(&overview_data, today).with_tab(self.current_tab);

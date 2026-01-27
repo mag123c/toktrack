@@ -34,6 +34,17 @@ pub fn format_number(n: u64) -> String {
     result
 }
 
+/// Format a number in compact form with K/M suffix (e.g., 1234567 -> "1.2M")
+pub fn format_compact(n: u64) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.0}K", n as f64 / 1_000.0)
+    } else {
+        n.to_string()
+    }
+}
+
 /// Summary data for a time period
 #[derive(Debug, Clone, Default)]
 pub struct PeriodSummary {
@@ -70,17 +81,28 @@ pub fn compute_week_summary(
     compute_period_summary(daily_summaries, week_start, today)
 }
 
+/// Compute month summary (last 30 days including today)
+pub fn compute_month_summary(
+    daily_summaries: &[(NaiveDate, u64, u64, u64)],
+    today: NaiveDate,
+) -> PeriodSummary {
+    let month_start = today - Duration::days(29);
+    compute_period_summary(daily_summaries, month_start, today)
+}
+
 /// Data for the overview display
 #[derive(Debug, Clone)]
 pub struct OverviewData {
     pub total: TotalSummary,
     pub today_tokens: u64,
     pub week_summary: PeriodSummary,
+    pub month_summary: PeriodSummary,
     pub daily_tokens: Vec<(NaiveDate, u64)>,
 }
 
 /// Maximum content width for Overview (keeps layout clean on wide terminals)
-const MAX_CONTENT_WIDTH: u16 = 80;
+/// 52 weeks * 2-char cells + 4 label = 108, so 120 gives some padding
+const MAX_CONTENT_WIDTH: u16 = 120;
 
 /// Overview widget combining all elements
 pub struct Overview<'a> {
@@ -116,49 +138,46 @@ impl Widget for Overview<'_> {
             height: area.height,
         };
 
-        // New layout:
-        // - Tabs (1 line)
-        // - Separator (1 line)
-        // - Hero stat (3 lines: number + "tokens" + blank)
-        // - Sub-stats (1 line)
-        // - Blank line (1 line)
-        // - Heatmap (7 rows) + month labels (1 row) + legend (1 row)
-        // - Separator (1 line)
-        // - Keybindings (1 line)
+        // Fixed-height layout (no expansion, keybindings stay with content):
+        // - Top padding (1) + Tabs (1) + Separator (1) + Hero (3) + Sub-stats (1) + Blank (1)
+        // - Heatmap (16: 7×2 rows + month labels + legend) + Separator (1) + Keybindings (1) = 26 total
         let chunks = Layout::vertical([
-            Constraint::Length(1), // Tabs
-            Constraint::Length(1), // Separator
-            Constraint::Length(3), // Hero stat
-            Constraint::Length(1), // Sub-stats
-            Constraint::Length(1), // Blank
-            Constraint::Min(9),    // Heatmap (7 rows) + month labels + legend
-            Constraint::Length(1), // Separator
-            Constraint::Length(1), // Keybindings
+            Constraint::Length(1),  // Top padding (NEW)
+            Constraint::Length(1),  // Tabs
+            Constraint::Length(1),  // Separator
+            Constraint::Length(3),  // Hero stat
+            Constraint::Length(1),  // Sub-stats
+            Constraint::Length(1),  // Blank
+            Constraint::Length(16), // Heatmap (7×2=14 rows) + month labels + legend
+            Constraint::Length(1),  // Separator
+            Constraint::Length(1),  // Keybindings
         ])
         .split(centered_area);
 
+        // Top padding (chunks[0]) - nothing to render
+
         // Render tabs
-        self.render_tabs(chunks[0], buf);
+        self.render_tabs(chunks[1], buf);
 
         // Render separator
-        self.render_separator(chunks[1], buf);
+        self.render_separator(chunks[2], buf);
 
         // Render hero stat
-        self.render_hero_stat(chunks[2], buf);
+        self.render_hero_stat(chunks[3], buf);
 
         // Render sub-stats
-        self.render_sub_stats(chunks[3], buf);
+        self.render_sub_stats(chunks[4], buf);
 
-        // Blank line (chunks[4]) - nothing to render
+        // Blank line (chunks[5]) - nothing to render
 
         // Render heatmap with legend
-        self.render_heatmap_section(chunks[5], buf);
+        self.render_heatmap_section(chunks[6], buf);
 
         // Render separator
-        self.render_separator(chunks[6], buf);
+        self.render_separator(chunks[7], buf);
 
         // Render keybindings
-        self.render_keybindings(chunks[7], buf);
+        self.render_keybindings(chunks[8], buf);
     }
 }
 
@@ -193,19 +212,26 @@ impl Overview<'_> {
     }
 
     fn render_sub_stats(&self, area: Rect, buf: &mut Buffer) {
-        let today_str = format!("Today: {}", format_number(self.data.today_tokens));
+        // Format: Today (1d), Week (7d), Month (30d), Cost
+        let today_str = format!("Today: {}", format_compact(self.data.today_tokens));
         let week_str = format!(
             "Week: {}",
-            format_number(self.data.week_summary.total_tokens)
+            format_compact(self.data.week_summary.total_tokens)
+        );
+        let month_str = format!(
+            "Month: {}",
+            format_compact(self.data.month_summary.total_tokens)
         );
         let cost_str = format!("Cost: ${:.2}", self.data.total.total_cost_usd);
 
         let stats = Paragraph::new(Line::from(vec![
             Span::raw(" "),
             Span::styled(today_str, Style::default().fg(Color::Green)),
-            Span::raw("      "),
+            Span::raw("    "),
             Span::styled(week_str, Style::default().fg(Color::Yellow)),
-            Span::raw("      "),
+            Span::raw("    "),
+            Span::styled(month_str, Style::default().fg(Color::Cyan)),
+            Span::raw("    "),
             Span::styled(cost_str, Style::default().fg(Color::Magenta)),
         ]));
 
@@ -213,17 +239,19 @@ impl Overview<'_> {
     }
 
     fn render_heatmap_section(&self, area: Rect, buf: &mut Buffer) {
-        // Heatmap takes 7 rows (Mon-Sun) + 1 row month labels + 1 row legend = 9 rows
+        // Heatmap takes 7×2=14 rows (Mon-Sun with 2-row cells) + 1 row month labels + 1 row legend = 16 rows
         let weeks = Heatmap::weeks_for_width(area.width);
         let heatmap = Heatmap::new(&self.data.daily_tokens, self.today, weeks);
         heatmap.render(area, buf);
 
-        // Legend on last row of heatmap area
-        if area.height >= 9 {
+        // Legend on last row - aligned to heatmap grid right edge
+        if area.height >= 16 {
+            // Calculate actual heatmap width: label (4) + weeks * cell_width (2)
+            let heatmap_width = 4 + (weeks as u16 * 2);
             let legend_area = Rect {
                 x: area.x,
-                y: area.y + 8,
-                width: area.width,
+                y: area.y + 15, // 14 rows for heatmap + 1 row for month labels
+                width: heatmap_width.min(area.width),
                 height: 1,
             };
             Legend::new().render(legend_area, buf);
@@ -232,7 +260,6 @@ impl Overview<'_> {
 
     fn render_keybindings(&self, area: Rect, buf: &mut Buffer) {
         let bindings = Paragraph::new(Line::from(vec![
-            Span::raw(" "),
             Span::styled("q", Style::default().fg(Color::Cyan)),
             Span::styled(": Quit", Style::default().fg(Color::DarkGray)),
             Span::raw("  "),
@@ -241,7 +268,8 @@ impl Overview<'_> {
             Span::raw("  "),
             Span::styled("?", Style::default().fg(Color::Cyan)),
             Span::styled(": Help", Style::default().fg(Color::DarkGray)),
-        ]));
+        ]))
+        .alignment(Alignment::Center);
 
         bindings.render(area, buf);
     }
