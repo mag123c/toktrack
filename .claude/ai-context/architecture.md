@@ -18,6 +18,7 @@ TUI[ratatui] → CLI[clap] → Services → Parsers[trait] → Cache
 trait CLIParser: Send + Sync {
     fn name(&self) -> &str;
     fn data_dir(&self) -> PathBuf;
+    fn file_pattern(&self) -> &str;  // e.g., "**/*.jsonl"
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>>;
 }
 ```
