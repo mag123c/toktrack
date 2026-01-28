@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.9](https://github.com/mag123c/toktrack/compare/v0.1.8...v0.1.9) (2026-01-28)
+
+
+### Bug Fixes
+
+* **ci:** add workflow_dispatch trigger to release workflow ([8429f69](https://github.com/mag123c/toktrack/commit/8429f69b79d39204f7ef0370f9bb5bb63e132455))
+
 ## [0.1.8](https://github.com/mag123c/toktrack/compare/v0.1.7...v0.1.8) (2026-01-28)
 
 
