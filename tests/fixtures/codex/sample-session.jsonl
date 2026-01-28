@@ -1,7 +1,9 @@
-{"type":"turn_context","ts":"2026-01-15T10:00:00Z","model":"o4-mini","conversation_id":"conv-001"}
-{"type":"event_msg","ts":"2026-01-15T10:00:01.500Z","conversation_id":"conv-001","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":150,"output_tokens":75,"cached_input_tokens":25}}}}
-{"type":"event_msg","ts":"2026-01-15T10:01:00Z","conversation_id":"conv-001","payload":{"type":"other_event","info":null}}
-{"type":"turn_context","ts":"2026-01-15T10:02:00Z","model":"gpt-4.1","conversation_id":"conv-002"}
-{"type":"event_msg","ts":"2026-01-15T10:02:01Z","conversation_id":"conv-002","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":500,"output_tokens":200,"cached_input_tokens":100}}}}
-{"type":"user_input","ts":"2026-01-15T10:03:00Z","conversation_id":"conv-002","content":"hello world"}
+{"timestamp":"2026-01-15T10:00:00.000Z","type":"session_meta","payload":{"id":"session-001"}}
+{"timestamp":"2026-01-15T10:00:01.000Z","type":"turn_context","payload":{"model":"o4-mini"}}
+{"timestamp":"2026-01-15T10:00:02.000Z","type":"event_msg","payload":{"type":"token_count","info":null}}
+{"timestamp":"2026-01-15T10:00:03.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":150,"output_tokens":75,"cached_input_tokens":25}}}}
+{"timestamp":"2026-01-15T10:01:00.000Z","type":"event_msg","payload":{"type":"other_event"}}
+{"timestamp":"2026-01-15T10:02:00.000Z","type":"turn_context","payload":{"model":"gpt-4.1"}}
+{"timestamp":"2026-01-15T10:02:01.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":500,"output_tokens":200,"cached_input_tokens":100}}}}
+{"timestamp":"2026-01-15T10:03:00.000Z","type":"response_item","payload":{"type":"message"}}
 invalid json line

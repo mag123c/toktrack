@@ -14,11 +14,7 @@ use super::CLIParser;
 struct CodexJsonLine<'a> {
     #[serde(rename = "type")]
     line_type: &'a str,
-    ts: &'a str,
-    #[serde(default)]
-    conversation_id: Option<&'a str>,
-    #[serde(default)]
-    model: Option<&'a str>,
+    timestamp: &'a str,
     #[serde(default)]
     payload: Option<CodexPayload>,
 }
@@ -27,7 +23,12 @@ struct CodexJsonLine<'a> {
 struct CodexPayload {
     #[serde(rename = "type")]
     payload_type: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
     info: Option<CodexInfo>,
+    #[serde(default)]
+    id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -66,7 +67,12 @@ impl CodexParser {
     }
 
     /// Parse a single JSONL line and return optional UsageEntry with model info
-    fn parse_line(&self, line: &mut [u8], current_model: &Option<String>) -> ParseResult {
+    fn parse_line(
+        &self,
+        line: &mut [u8],
+        current_model: &Option<String>,
+        session_id: &Option<String>,
+    ) -> ParseResult {
         if line.is_empty() {
             return ParseResult::Skip;
         }
@@ -76,10 +82,23 @@ impl CodexParser {
             Err(_) => return ParseResult::Skip,
         };
 
-        // Handle turn_context lines - extract model info
+        let payload = match &data.payload {
+            Some(p) => p,
+            None => return ParseResult::Skip,
+        };
+
+        // Handle turn_context lines - extract model info from payload.model
         if data.line_type == "turn_context" {
-            if let Some(model) = data.model {
-                return ParseResult::Model(model.to_string());
+            if let Some(ref model) = payload.model {
+                return ParseResult::Model(model.clone());
+            }
+            return ParseResult::Skip;
+        }
+
+        // Handle session_meta lines - extract session id
+        if data.line_type == "session_meta" {
+            if let Some(ref id) = payload.id {
+                return ParseResult::SessionId(id.clone());
             }
             return ParseResult::Skip;
         }
@@ -88,11 +107,6 @@ impl CodexParser {
         if data.line_type != "event_msg" {
             return ParseResult::Skip;
         }
-
-        let payload = match &data.payload {
-            Some(p) => p,
-            None => return ParseResult::Skip,
-        };
 
         // Check for token_count type
         let payload_type = match &payload.payload_type {
@@ -114,12 +128,12 @@ impl CodexParser {
             None => return ParseResult::Skip,
         };
 
-        let timestamp = match DateTime::parse_from_rfc3339(data.ts) {
+        let timestamp = match DateTime::parse_from_rfc3339(data.timestamp) {
             Ok(dt) => dt.with_timezone(&Utc),
             Err(_) => {
                 eprintln!(
                     "[toktrack] Warning: Invalid timestamp '{}', using current time",
-                    data.ts
+                    data.timestamp
                 );
                 Utc::now()
             }
@@ -134,7 +148,7 @@ impl CodexParser {
             cache_creation_tokens: 0,
             thinking_tokens: 0,
             cost_usd: None,
-            message_id: data.conversation_id.map(String::from),
+            message_id: session_id.clone(),
             request_id: None,
             source: Some("codex".into()),
         };
@@ -147,6 +161,7 @@ impl CodexParser {
 enum ParseResult {
     Skip,
     Model(String),
+    SessionId(String),
     Entry(UsageEntry),
 }
 
@@ -174,6 +189,7 @@ impl CLIParser for CodexParser {
         let reader = BufReader::new(file);
         let mut entries = Vec::new();
         let mut current_model: Option<String> = None;
+        let mut session_id: Option<String> = None;
 
         for line_result in reader.lines() {
             let line = match line_result {
@@ -186,9 +202,10 @@ impl CLIParser for CodexParser {
             }
 
             let mut line_bytes = line.into_bytes();
-            match self.parse_line(&mut line_bytes, &current_model) {
+            match self.parse_line(&mut line_bytes, &current_model, &session_id) {
                 ParseResult::Skip => {}
                 ParseResult::Model(m) => current_model = Some(m),
+                ParseResult::SessionId(id) => session_id = Some(id),
                 ParseResult::Entry(entry) => entries.push(entry),
             }
         }
@@ -236,7 +253,7 @@ mod tests {
         assert_eq!(first.cache_creation_tokens, 0);
         assert_eq!(first.thinking_tokens, 0);
         assert_eq!(first.source, Some("codex".into()));
-        assert_eq!(first.message_id, Some("conv-001".to_string()));
+        assert_eq!(first.message_id, Some("session-001".to_string()));
     }
 
     #[test]

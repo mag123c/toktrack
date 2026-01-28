@@ -2,7 +2,7 @@
 
 use clap::{Parser, Subcommand};
 
-use crate::parsers::{CLIParser, ClaudeCodeParser};
+use crate::parsers::ParserRegistry;
 use crate::services::{Aggregator, PricingService};
 use crate::types::{DailySummary, StatsData};
 
@@ -45,14 +45,23 @@ impl Cli {
     }
 }
 
-/// Load and process usage data
+/// Load and process usage data from all CLI parsers
 fn load_data() -> anyhow::Result<Vec<DailySummary>> {
-    let parser = ClaudeCodeParser::new();
-    let entries = parser.parse_all()?;
+    let registry = ParserRegistry::new();
+    let mut all_entries = Vec::new();
+
+    for parser in registry.parsers() {
+        match parser.parse_all() {
+            Ok(entries) => all_entries.extend(entries),
+            Err(e) => {
+                eprintln!("[toktrack] Warning: {} failed: {}", parser.name(), e);
+            }
+        }
+    }
 
     // Calculate cost (graceful fallback)
     let pricing = PricingService::new().ok();
-    let entries: Vec<_> = entries
+    let entries: Vec<_> = all_entries
         .into_iter()
         .map(|mut e| {
             if e.cost_usd.is_none() {
