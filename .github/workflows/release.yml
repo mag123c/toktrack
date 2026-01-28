@@ -28,6 +28,10 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact: toktrack-linux-x64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact: toktrack-linux-arm64
+            cross: true
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact: toktrack-win32-x64.exe
@@ -43,7 +47,16 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Build
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build (cross)
+        if: matrix.cross
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Build (cargo)
+        if: ${{ !matrix.cross }}
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Prepare artifact (Unix)
@@ -84,36 +97,36 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # npm publish job (uncomment when npm package is ready)
-  # publish-npm:
-  #   name: Publish to npm
-  #   needs: build
-  #   runs-on: ubuntu-latest
-  #
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #
-  #     - name: Download all artifacts
-  #       uses: actions/download-artifact@v4
-  #       with:
-  #         path: artifacts
-  #
-  #     - name: Setup Node.js
-  #       uses: actions/setup-node@v4
-  #       with:
-  #         node-version: '20'
-  #         registry-url: 'https://registry.npmjs.org'
-  #
-  #     - name: Prepare npm package
-  #       run: |
-  #         mkdir -p npm/bin
-  #         cp artifacts/toktrack-darwin-arm64/toktrack-darwin-arm64 npm/bin/
-  #         cp artifacts/toktrack-darwin-x64/toktrack-darwin-x64 npm/bin/
-  #         cp artifacts/toktrack-linux-x64/toktrack-linux-x64 npm/bin/
-  #         cp artifacts/toktrack-win32-x64.exe/toktrack-win32-x64.exe npm/bin/
-  #         chmod +x npm/bin/*
-  #
-  #     - name: Publish to npm
-  #       run: cd npm && npm publish
-  #       env:
-  #         NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+  publish-npm:
+    name: Publish to npm
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Prepare npm package
+        run: |
+          mkdir -p npm/bin
+          cp artifacts/toktrack-darwin-arm64/toktrack-darwin-arm64 npm/bin/
+          cp artifacts/toktrack-darwin-x64/toktrack-darwin-x64 npm/bin/
+          cp artifacts/toktrack-linux-x64/toktrack-linux-x64 npm/bin/
+          cp artifacts/toktrack-linux-arm64/toktrack-linux-arm64 npm/bin/
+          cp artifacts/toktrack-win32-x64.exe/toktrack-win32-x64.exe npm/bin/
+          chmod +x npm/bin/*
+
+      - name: Publish to npm
+        run: cd npm && npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
