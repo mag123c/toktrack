@@ -38,12 +38,11 @@ trait CLIParser: Send + Sync {
 ```
 
 ## Implementations
-| Version | Parser | Format |
-|---------|--------|--------|
-| MVP | ClaudeCodeParser | JSONL |
-| v1.1 | OpenCodeParser | JSON |
-| v1.2 | CodexParser | JSONL |
-| v1.3 | GeminiParser | JSON |
+| Parser | Format | Data Dir | Status |
+|--------|--------|----------|--------|
+| ClaudeCodeParser | JSONL | ~/.claude/projects/ | ✅ |
+| CodexParser | JSONL | ~/.codex/sessions/ | ✅ |
+| GeminiParser | JSON | ~/.gemini/tmp/*/chats/ | ✅ |
 
 ## Data Flow
 ```

@@ -96,6 +96,10 @@ pub struct UsageEntry {
     /// Cache creation tokens
     pub cache_creation_tokens: u64,
 
+    /// Thinking tokens (for models with extended thinking, e.g., Gemini)
+    #[serde(default)]
+    pub thinking_tokens: u64,
+
     /// Pre-calculated cost in USD (if available)
     pub cost_usd: Option<f64>,
 
@@ -104,14 +108,22 @@ pub struct UsageEntry {
 
     /// Request ID for deduplication
     pub request_id: Option<String>,
+
+    /// Parser source identifier (e.g., "claude", "codex", "gemini")
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 impl UsageEntry {
-    /// Total tokens (input + output + cache_read + cache_creation)
+    /// Total tokens (input + output + cache_read + cache_creation + thinking)
     /// This matches ccusage's calculation which includes all token types
     #[allow(dead_code)] // Part of public API
     pub fn total_tokens(&self) -> u64 {
-        self.input_tokens + self.output_tokens + self.cache_read_tokens + self.cache_creation_tokens
+        self.input_tokens
+            + self.output_tokens
+            + self.cache_read_tokens
+            + self.cache_creation_tokens
+            + self.thinking_tokens
     }
 
     /// Create a unique hash for deduplication
@@ -273,12 +285,33 @@ mod tests {
             output_tokens: 50,
             cache_read_tokens: 20,
             cache_creation_tokens: 10,
+            thinking_tokens: 0,
             cost_usd: None,
             message_id: None,
             request_id: None,
+            source: None,
         };
-        // total = input + output + cache_read + cache_creation
+        // total = input + output + cache_read + cache_creation + thinking
         assert_eq!(entry.total_tokens(), 180);
+    }
+
+    #[test]
+    fn test_usage_entry_total_tokens_with_thinking() {
+        let entry = UsageEntry {
+            timestamp: Utc::now(),
+            model: Some("gemini-2.5-pro".into()),
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_tokens: 20,
+            cache_creation_tokens: 10,
+            thinking_tokens: 30,
+            cost_usd: None,
+            message_id: None,
+            request_id: None,
+            source: Some("gemini".into()),
+        };
+        // total = 100 + 50 + 20 + 10 + 30 = 210
+        assert_eq!(entry.total_tokens(), 210);
     }
 
     #[test]
@@ -290,9 +323,11 @@ mod tests {
             output_tokens: 0,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
+            thinking_tokens: 0,
             cost_usd: None,
             message_id: Some("msg123".into()),
             request_id: Some("req456".into()),
+            source: None,
         };
         assert_eq!(entry.dedup_hash(), Some("msg123:req456".into()));
     }
@@ -306,9 +341,11 @@ mod tests {
             output_tokens: 0,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
+            thinking_tokens: 0,
             cost_usd: None,
             message_id: None,
             request_id: Some("req456".into()),
+            source: None,
         };
         assert_eq!(entry.dedup_hash(), None);
     }
@@ -323,9 +360,11 @@ mod tests {
             output_tokens: 50,
             cache_read_tokens: 20,
             cache_creation_tokens: 10,
+            thinking_tokens: 0,
             cost_usd: None,
             message_id: None,
             request_id: None,
+            source: None,
         };
         usage.add(&entry, 0.01);
 

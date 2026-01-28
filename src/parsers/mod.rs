@@ -1,8 +1,12 @@
 //! Parser traits and implementations for AI CLI tools
 
 mod claude;
+mod codex;
+mod gemini;
 
 pub use claude::ClaudeCodeParser;
+pub use codex::CodexParser;
+pub use gemini::GeminiParser;
 
 use crate::types::{Result, UsageEntry};
 use rayon::prelude::*;
@@ -63,17 +67,19 @@ pub trait CLIParser: Send + Sync {
 }
 
 /// Registry of available parsers
-#[allow(dead_code)] // Reserved for multi-CLI support
 pub struct ParserRegistry {
     parsers: Vec<Box<dyn CLIParser>>,
 }
 
-#[allow(dead_code)] // Reserved for multi-CLI support
 impl ParserRegistry {
     /// Create a new registry with default parsers
     pub fn new() -> Self {
         Self {
-            parsers: vec![Box::new(ClaudeCodeParser::new())],
+            parsers: vec![
+                Box::new(ClaudeCodeParser::new()),
+                Box::new(CodexParser::new()),
+                Box::new(GeminiParser::new()),
+            ],
         }
     }
 
@@ -83,6 +89,7 @@ impl ParserRegistry {
     }
 
     /// Find a parser by name
+    #[allow(dead_code)] // Used in tests and future features
     pub fn get(&self, name: &str) -> Option<&dyn CLIParser> {
         self.parsers
             .iter()
@@ -104,8 +111,10 @@ mod tests {
     #[test]
     fn test_registry_default_parsers() {
         let registry = ParserRegistry::new();
-        assert!(!registry.parsers().is_empty());
+        assert_eq!(registry.parsers().len(), 3);
         assert!(registry.get("claude-code").is_some());
+        assert!(registry.get("codex").is_some());
+        assert!(registry.get("gemini").is_some());
     }
 
     #[test]

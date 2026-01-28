@@ -125,9 +125,11 @@ mod tests {
             output_tokens: output,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
+            thinking_tokens: 0,
             cost_usd: cost,
             message_id: None,
             request_id: None,
+            source: None,
         }
     }
 
@@ -150,9 +152,11 @@ mod tests {
             output_tokens: output,
             cache_read_tokens: cache_read,
             cache_creation_tokens: cache_creation,
+            thinking_tokens: 0,
             cost_usd: cost,
             message_id: None,
             request_id: None,
+            source: None,
         }
     }
 

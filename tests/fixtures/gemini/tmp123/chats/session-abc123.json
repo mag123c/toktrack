@@ -1,0 +1,49 @@
+{
+  "sessionId": "abc123",
+  "model": "gemini-2.5-pro",
+  "createdAt": "2026-01-15T10:00:00Z",
+  "messages": [
+    {
+      "id": "msg-001",
+      "type": "user",
+      "content": "Hello there",
+      "timestamp": "2026-01-15T10:00:00Z"
+    },
+    {
+      "id": "msg-002",
+      "type": "gemini",
+      "content": "Hello! How can I help?",
+      "timestamp": "2026-01-15T10:00:01.500Z",
+      "tokens": {
+        "input": 100,
+        "output": 50,
+        "cached": 20,
+        "thoughts": 30
+      }
+    },
+    {
+      "id": "msg-003",
+      "type": "error",
+      "content": "Rate limit exceeded",
+      "timestamp": "2026-01-15T10:01:00Z"
+    },
+    {
+      "id": "msg-004",
+      "type": "gemini",
+      "content": "Sure, let me help with that.",
+      "timestamp": "2026-01-15T10:02:00Z",
+      "tokens": {
+        "input": 250,
+        "output": 150,
+        "cached": 50,
+        "thoughts": 100
+      }
+    },
+    {
+      "id": "msg-005",
+      "type": "info",
+      "content": "Session started",
+      "timestamp": "2026-01-15T10:03:00Z"
+    }
+  ]
+}

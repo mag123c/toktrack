@@ -87,9 +87,11 @@ impl ClaudeCodeParser {
             output_tokens: usage.output_tokens,
             cache_read_tokens: usage.cache_read_input_tokens.unwrap_or(0),
             cache_creation_tokens: usage.cache_creation_input_tokens.unwrap_or(0),
+            thinking_tokens: 0,
             cost_usd: data.cost_usd,
             message_id: message.id.map(String::from),
             request_id: data.request_id.map(String::from),
+            source: Some("claude".into()),
         })
     }
 }

@@ -1,0 +1,7 @@
+{"type":"turn_context","ts":"2026-01-15T10:00:00Z","model":"o4-mini","conversation_id":"conv-001"}
+{"type":"event_msg","ts":"2026-01-15T10:00:01.500Z","conversation_id":"conv-001","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":150,"output_tokens":75,"cached_input_tokens":25}}}}
+{"type":"event_msg","ts":"2026-01-15T10:01:00Z","conversation_id":"conv-001","payload":{"type":"other_event","info":null}}
+{"type":"turn_context","ts":"2026-01-15T10:02:00Z","model":"gpt-4.1","conversation_id":"conv-002"}
+{"type":"event_msg","ts":"2026-01-15T10:02:01Z","conversation_id":"conv-002","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":500,"output_tokens":200,"cached_input_tokens":100}}}}
+{"type":"user_input","ts":"2026-01-15T10:03:00Z","conversation_id":"conv-002","content":"hello world"}
+invalid json line

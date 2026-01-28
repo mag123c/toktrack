@@ -276,9 +276,11 @@ mod tests {
             output_tokens: output,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
+            thinking_tokens: 0,
             cost_usd: cost,
             message_id: None,
             request_id: None,
+            source: None,
         }
     }
 
@@ -342,9 +344,11 @@ mod tests {
                 output_tokens: 50,
                 cache_read_tokens: 0,
                 cache_creation_tokens: 0,
+                thinking_tokens: 0,
                 cost_usd: Some(0.01),
                 message_id: None,
                 request_id: None,
+                source: None,
             },
             UsageEntry {
                 timestamp: today.and_hms_opt(12, 0, 0).unwrap().and_utc(),
@@ -353,9 +357,11 @@ mod tests {
                 output_tokens: 100,
                 cache_read_tokens: 0,
                 cache_creation_tokens: 0,
+                thinking_tokens: 0,
                 cost_usd: Some(0.02),
                 message_id: None,
                 request_id: None,
+                source: None,
             },
         ];
 
@@ -436,9 +442,11 @@ mod tests {
             output_tokens: 50,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
+            thinking_tokens: 0,
             cost_usd: Some(0.01),
             message_id: None,
             request_id: None,
+            source: None,
         }];
 
         let (result, _warning) = service.load_or_compute("claude-code", &entries).unwrap();
@@ -500,9 +508,11 @@ mod tests {
             output_tokens: 100,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
+            thinking_tokens: 0,
             cost_usd: Some(0.02),
             message_id: None,
             request_id: None,
+            source: None,
         }];
 
         let (result, _warning) = service.load_or_compute("claude-code", &entries).unwrap();

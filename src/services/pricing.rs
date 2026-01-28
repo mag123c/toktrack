@@ -224,9 +224,11 @@ mod tests {
             output_tokens: output,
             cache_read_tokens: cache_read,
             cache_creation_tokens: cache_creation,
+            thinking_tokens: 0,
             cost_usd,
             message_id: None,
             request_id: None,
+            source: None,
         }
     }
 
