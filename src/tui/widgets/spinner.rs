@@ -3,12 +3,16 @@
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     widgets::Widget,
 };
 
 /// Spinner animation frames
 const SPINNER_FRAMES: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+/// App branding
+const APP_NAME: &str = "toktrack";
+const TAGLINE: &str = "Ultra-fast LLM token tracker";
 
 /// Loading stage for display
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,19 +56,40 @@ impl Spinner {
 
 impl Widget for Spinner {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        if area.height == 0 || area.width < 20 {
+        if area.height < 5 || area.width < 35 {
             return;
         }
 
-        let spinner_char = self.current_char();
-        let message = self.stage.message();
-        let text = format!("{} {}", spinner_char, message);
+        // Calculate center Y (4 lines: name, tagline, empty, spinner)
+        let center_y = area.y + area.height / 2;
 
-        // Center vertically and horizontally
-        let y = area.y + area.height / 2;
-        let x = area.x + (area.width.saturating_sub(text.len() as u16)) / 2;
+        // App name (bold, white)
+        let name_y = center_y.saturating_sub(2);
+        let name_x = area.x + (area.width.saturating_sub(APP_NAME.len() as u16)) / 2;
+        buf.set_string(
+            name_x,
+            name_y,
+            APP_NAME,
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        );
 
-        buf.set_string(x, y, &text, Style::default().fg(Color::Cyan));
+        // Tagline (dim gray)
+        let tag_y = name_y + 1;
+        let tag_x = area.x + (area.width.saturating_sub(TAGLINE.len() as u16)) / 2;
+        buf.set_string(tag_x, tag_y, TAGLINE, Style::default().fg(Color::DarkGray));
+
+        // Spinner (cyan) - 1 blank line after tagline
+        let spinner_text = format!("{} {}", self.current_char(), self.stage.message());
+        let spinner_y = tag_y + 2;
+        let spinner_x = area.x + (area.width.saturating_sub(spinner_text.len() as u16)) / 2;
+        buf.set_string(
+            spinner_x,
+            spinner_y,
+            &spinner_text,
+            Style::default().fg(Color::Cyan),
+        );
     }
 }
 
