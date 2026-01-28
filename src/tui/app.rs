@@ -17,6 +17,7 @@ use crate::services::{Aggregator, PricingService};
 use crate::types::TotalSummary;
 
 use super::widgets::{
+    models::{ModelsData, ModelsView},
     overview::{Overview, OverviewData},
     spinner::{LoadingStage, Spinner},
     tabs::Tab,
@@ -39,6 +40,7 @@ pub enum AppState {
 pub struct AppData {
     pub total: TotalSummary,
     pub daily_tokens: Vec<(NaiveDate, u64)>,
+    pub models_data: ModelsData,
 }
 
 /// Main application
@@ -120,10 +122,15 @@ impl App {
             })
             .collect();
 
+        // Get model breakdown for Models view
+        let model_map = Aggregator::by_model(&entries);
+        let models_data = ModelsData::from_model_usage(&model_map);
+
         self.state = AppState::Ready {
             data: Box::new(AppData {
                 total,
                 daily_tokens,
+                models_data,
             }),
         };
     }
@@ -190,13 +197,34 @@ impl Widget for &App {
                 spinner.render(area, buf);
             }
             AppState::Ready { data } => {
-                let today = Local::now().date_naive();
-                let overview_data = OverviewData {
-                    total: &data.total,
-                    daily_tokens: &data.daily_tokens,
-                };
-                let overview = Overview::new(overview_data, today).with_tab(self.current_tab);
-                overview.render(area, buf);
+                match self.current_tab {
+                    Tab::Overview => {
+                        let today = Local::now().date_naive();
+                        let overview_data = OverviewData {
+                            total: &data.total,
+                            daily_tokens: &data.daily_tokens,
+                        };
+                        let overview =
+                            Overview::new(overview_data, today).with_tab(self.current_tab);
+                        overview.render(area, buf);
+                    }
+                    Tab::Models => {
+                        let models_view =
+                            ModelsView::new(&data.models_data).with_tab(self.current_tab);
+                        models_view.render(area, buf);
+                    }
+                    Tab::Daily | Tab::Stats => {
+                        // TODO: Implement Daily and Stats views
+                        let today = Local::now().date_naive();
+                        let overview_data = OverviewData {
+                            total: &data.total,
+                            daily_tokens: &data.daily_tokens,
+                        };
+                        let overview =
+                            Overview::new(overview_data, today).with_tab(self.current_tab);
+                        overview.render(area, buf);
+                    }
+                }
             }
             AppState::Error { message } => {
                 let y = area.y + area.height / 2;
