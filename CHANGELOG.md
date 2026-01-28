@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.10](https://github.com/mag123c/toktrack/compare/v0.1.9...v0.1.10) (2026-01-28)
+
+
+### Bug Fixes
+
+* **ci:** support manual release build for specific tags ([eae4972](https://github.com/mag123c/toktrack/commit/eae4972fb01e319b2b0056c4379647bd4b0bd64f))
+
 ## [0.1.9](https://github.com/mag123c/toktrack/compare/v0.1.8...v0.1.9) (2026-01-28)
 
 
