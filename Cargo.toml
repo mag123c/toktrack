@@ -1,6 +1,6 @@
 [package]
 name = "toktrack"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 description = "Ultra-fast AI CLI token usage tracker"
 license = "MIT"
