@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Ultra-fast AI CLI token usage tracker"
 license = "MIT"
-repository = "https://github.com/jaehojang/toktrack"
+repository = "https://github.com/mag123c/toktrack"
 keywords = ["cli", "token", "usage", "claude", "ai"]
 categories = ["command-line-utilities"]
 

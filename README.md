@@ -4,7 +4,7 @@
 
 Ultra-fast AI CLI token usage tracker. Built with Rust + simd-json + ratatui.
 
-<!-- TODO: Add screenshot -->
+![toktrack overview](image.png)
 
 ## Features
 
@@ -28,10 +28,10 @@ bunx toktrack
 cargo install toktrack
 
 # From source
-cargo install --git https://github.com/jaehojang/toktrack
+cargo install --git https://github.com/mag123c/toktrack
 
 # Direct download
-# → github.com/jaehojang/toktrack/releases
+# → github.com/mag123c/toktrack/releases
 ```
 
 ## Usage

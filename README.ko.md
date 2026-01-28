@@ -4,7 +4,7 @@
 
 Rust로 만든 초고속 AI CLI 토큰 사용량 트래커. simd-json + ratatui 기반.
 
-<!-- TODO: 스크린샷 추가 -->
+![toktrack overview](image.png)
 
 ## 주요 기능
 
@@ -28,10 +28,10 @@ bunx toktrack
 cargo install toktrack
 
 # 소스에서 설치
-cargo install --git https://github.com/jaehojang/toktrack
+cargo install --git https://github.com/mag123c/toktrack
 
 # 직접 다운로드
-# → github.com/jaehojang/toktrack/releases
+# → github.com/mag123c/toktrack/releases
 ```
 
 ## 사용법
