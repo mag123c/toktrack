@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/mag123c/toktrack/compare/toktrack-v0.1.2...toktrack-v0.1.3) (2026-01-28)
+
+
+### Features
+
+* **tui:** improve UI responsiveness and alignment ([53f838f](https://github.com/mag123c/toktrack/commit/53f838fe45171cb376ce69d01ffd02cd91050274))
+
 ## [0.1.2](https://github.com/mag123c/toktrack/compare/toktrack-v0.1.1...toktrack-v0.1.2) (2026-01-28)
 
 
