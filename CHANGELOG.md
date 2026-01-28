@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.11](https://github.com/mag123c/toktrack/compare/v0.1.10...v0.1.11) (2026-01-28)
+
+
+### Documentation
+
+* **docs:** convert AI context to English, remove redundant comments ([53ceb52](https://github.com/mag123c/toktrack/commit/53ceb5270c60cf9137a0f45233040ab3ff20eb8c))
+
 ## [0.1.10](https://github.com/mag123c/toktrack/compare/v0.1.9...v0.1.10) (2026-01-28)
 
 
