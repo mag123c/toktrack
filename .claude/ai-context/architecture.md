@@ -6,12 +6,25 @@ TUI[ratatui] → CLI[clap] → Services → Parsers[trait] → Cache
 ```
 
 ## Paths
-- `src/tui/` - TUI (app.rs, views/, components/)
+- `src/tui/` - TUI (app.rs, widgets/)
 - `src/cli/` - CLI commands
 - `src/services/` - aggregator, pricing, cache
 - `src/parsers/` - CLIParser trait + impls
-- `src/cache/` - backup + perf cache
 - `src/types/` - UsageEntry, errors
+
+## TUI Widgets
+| Widget | Purpose |
+|--------|---------|
+| `app.rs` | AppState enum, Tab state, event loop |
+| `widgets/spinner.rs` | Loading animation (dots/braille) |
+| `widgets/heatmap.rs` | 52-week heatmap (2x2 blocks, 14 rows, responsive, colorblind-accessible) |
+| `widgets/overview.rs` | Overview layout (hero stat, sub-stats, keybindings) |
+| `widgets/models.rs` | Models view (per-model breakdown, cost %, percentage bar) |
+| `widgets/daily.rs` | Daily view (per-day breakdown, sparklines, scroll) |
+| `widgets/help.rs` | Help popup (keyboard shortcuts overlay, `?` toggle) |
+| `widgets/stats.rs` | Stats view (6 cards: total/avg tokens, peak day, costs, active days) |
+| `widgets/legend.rs` | Heatmap intensity legend |
+| `widgets/tabs.rs` | Tab enum, TabBar widget |
 
 ## Core Trait
 ```rust
@@ -58,8 +71,8 @@ cache/
 
 ## Deps
 ```toml
-simd-json, ratatui, crossterm, clap, rayon, chrono, directories, serde
-dev: insta, criterion
+simd-json, ratatui, crossterm, clap, rayon, chrono, directories, serde, reqwest, tokio, fs2
+dev: insta, criterion, tempfile
 ```
 
 ## Dev Workflow

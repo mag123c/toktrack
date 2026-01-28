@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Ultra-fast AI CLI token usage tracker"
 license = "MIT"
-repository = "https://github.com/jaehojang/toktrack"
+repository = "https://github.com/mag123c/toktrack"
 keywords = ["cli", "token", "usage", "claude", "ai"]
 categories = ["command-line-utilities"]
 
@@ -38,6 +38,9 @@ anyhow = "1"
 
 # HTTP (for LiteLLM pricing)
 reqwest = { version = "0.12", features = ["json", "blocking"] }
+
+# File locking (for cache race condition prevention)
+fs2 = "0.4"
 
 [dev-dependencies]
 # Snapshot testing

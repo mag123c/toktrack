@@ -4,8 +4,7 @@
 //! Supports auto mode: uses pre-calculated cost_usd when available,
 //! falls back to token-based calculation otherwise.
 
-use crate::types::UsageEntry;
-use anyhow::{Context, Result};
+use crate::types::{Result, ToktrackError, UsageEntry};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -77,7 +76,7 @@ impl PricingService {
     /// Get the default cache path (~/.toktrack/pricing.json)
     fn default_cache_path() -> Result<PathBuf> {
         let home = directories::UserDirs::new()
-            .context("Failed to get home directory")?
+            .ok_or_else(|| ToktrackError::Pricing("Failed to get home directory".into()))?
             .home_dir()
             .to_path_buf();
         Ok(home.join(".toktrack").join("pricing.json"))
@@ -100,7 +99,8 @@ impl PricingService {
         }
 
         // No cache exists, must fetch
-        let cache = Self::fetch_pricing().context("Failed to fetch pricing data")?;
+        let cache = Self::fetch_pricing()
+            .map_err(|e| ToktrackError::Pricing(format!("Failed to fetch pricing data: {}", e)))?;
         let _ = Self::save_cache(cache_path, &cache);
         Ok(cache)
     }
@@ -108,7 +108,8 @@ impl PricingService {
     /// Load cache from disk
     fn load_cache(cache_path: &PathBuf) -> Result<PricingCache> {
         let content = fs::read_to_string(cache_path)?;
-        let cache: PricingCache = serde_json::from_str(&content)?;
+        let cache: PricingCache = serde_json::from_str(&content)
+            .map_err(|e| ToktrackError::Pricing(format!("Invalid cache format: {}", e)))?;
         Ok(cache)
     }
 
@@ -117,19 +118,27 @@ impl PricingService {
         if let Some(parent) = cache_path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let content = serde_json::to_string_pretty(cache)?;
+        let content = serde_json::to_string_pretty(cache)
+            .map_err(|e| ToktrackError::Pricing(format!("Serialization failed: {}", e)))?;
         fs::write(cache_path, content)?;
         Ok(())
     }
 
     /// Fetch pricing data from LiteLLM
-    fn fetch_pricing() -> Result<PricingCache> {
+    fn fetch_pricing() -> std::result::Result<PricingCache, String> {
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
-            .build()?;
+            .build()
+            .map_err(|e| format!("HTTP client error: {}", e))?;
 
-        let response = client.get(LITELLM_PRICING_URL).send()?;
-        let models: HashMap<String, ModelPricing> = response.json()?;
+        let response = client
+            .get(LITELLM_PRICING_URL)
+            .send()
+            .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+        let models: HashMap<String, ModelPricing> = response
+            .json()
+            .map_err(|e| format!("JSON parse error: {}", e))?;
 
         let fetched_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -180,7 +189,8 @@ impl PricingService {
 
     /// Force refresh pricing data
     pub fn refresh(&mut self) -> Result<()> {
-        let cache = Self::fetch_pricing()?;
+        let cache = Self::fetch_pricing()
+            .map_err(|e| ToktrackError::Pricing(format!("Refresh failed: {}", e)))?;
         let _ = Self::save_cache(&self.cache_path, &cache);
         self.cache = cache;
         Ok(())

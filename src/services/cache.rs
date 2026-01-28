@@ -4,12 +4,14 @@
 //! original JSONL files are deleted.
 
 use crate::services::Aggregator;
-use crate::types::{DailySummary, Result, ToktrackError, UsageEntry};
+use crate::types::{CacheWarning, DailySummary, Result, ToktrackError, UsageEntry};
 use chrono::{Local, NaiveDate};
 use directories::BaseDirs;
+use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fs;
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Write};
 use std::path::PathBuf;
 
 /// Cached daily summary data for a CLI
@@ -56,11 +58,17 @@ impl DailySummaryCacheService {
     /// 3. Compute summaries for those dates
     /// 4. Merge cached + new, deduplicate by date
     /// 5. Save updated cache
-    pub fn load_or_compute(&self, cli: &str, entries: &[UsageEntry]) -> Result<Vec<DailySummary>> {
+    ///
+    /// Returns (summaries, optional_warning) - warning indicates cache issues
+    pub fn load_or_compute(
+        &self,
+        cli: &str,
+        entries: &[UsageEntry],
+    ) -> Result<(Vec<DailySummary>, Option<CacheWarning>)> {
         let today = Local::now().date_naive();
 
         // Step 1: Load cache (past dates only)
-        let cached = self.load_past_summaries(cli, today)?;
+        let (cached, warning) = self.load_past_summaries(cli, today);
         let cached_dates: HashSet<NaiveDate> = cached.iter().map(|s| s.date).collect();
 
         // Step 2: Determine dates to compute
@@ -101,7 +109,7 @@ impl DailySummaryCacheService {
         // Step 6: Save cache
         self.save_cache(cli, &result)?;
 
-        Ok(result)
+        Ok((result, warning))
     }
 
     /// Clear cache for a CLI
@@ -114,34 +122,87 @@ impl DailySummaryCacheService {
     }
 
     /// Load cached summaries for past dates (excludes today)
-    fn load_past_summaries(&self, cli: &str, today: NaiveDate) -> Result<Vec<DailySummary>> {
+    /// Uses shared (read) file lock to prevent concurrent write corruption
+    /// Returns (summaries, optional_warning)
+    fn load_past_summaries(
+        &self,
+        cli: &str,
+        today: NaiveDate,
+    ) -> (Vec<DailySummary>, Option<CacheWarning>) {
         let path = self.cache_path(cli);
         if !path.exists() {
-            return Ok(Vec::new());
+            return (Vec::new(), None);
         }
 
-        let content = match fs::read_to_string(&path) {
-            Ok(c) => c,
-            Err(_) => return Ok(Vec::new()),
-        };
-
-        let cache: DailySummaryCache = match serde_json::from_str(&content) {
-            Ok(c) => c,
-            Err(_) => {
-                // Corrupted cache, start fresh
-                return Ok(Vec::new());
+        // Open file with shared lock for reading
+        let file = match File::open(&path) {
+            Ok(f) => f,
+            Err(e) => {
+                return (
+                    Vec::new(),
+                    Some(CacheWarning::LoadFailed(format!(
+                        "Failed to open cache: {}",
+                        e
+                    ))),
+                );
             }
         };
 
+        // Acquire shared (read) lock - allows multiple readers
+        if let Err(e) = file.lock_shared() {
+            return (
+                Vec::new(),
+                Some(CacheWarning::LoadFailed(format!(
+                    "Failed to acquire read lock: {}",
+                    e
+                ))),
+            );
+        }
+
+        let mut content = String::new();
+        let mut reader = std::io::BufReader::new(&file);
+        if let Err(e) = reader.read_to_string(&mut content) {
+            let _ = file.unlock();
+            return (
+                Vec::new(),
+                Some(CacheWarning::LoadFailed(format!(
+                    "Failed to read cache: {}",
+                    e
+                ))),
+            );
+        }
+
+        let cache: DailySummaryCache = match serde_json::from_str(&content) {
+            Ok(c) => c,
+            Err(e) => {
+                // Corrupted cache - return warning
+                let _ = file.unlock();
+                return (
+                    Vec::new(),
+                    Some(CacheWarning::Corrupted(format!(
+                        "Corrupted cache file: {}",
+                        e
+                    ))),
+                );
+            }
+        };
+
+        // Release lock (automatically released on drop, but explicit is clearer)
+        let _ = file.unlock();
+
         // Filter to past dates only
-        Ok(cache
-            .summaries
-            .into_iter()
-            .filter(|s| s.date < today)
-            .collect())
+        (
+            cache
+                .summaries
+                .into_iter()
+                .filter(|s| s.date < today)
+                .collect(),
+            None,
+        )
     }
 
-    /// Save summaries to cache
+    /// Save summaries to cache using atomic write (temp file + rename)
+    /// This prevents data corruption from concurrent reads during write
     fn save_cache(&self, cli: &str, summaries: &[DailySummary]) -> Result<()> {
         fs::create_dir_all(&self.cache_dir)?;
 
@@ -155,7 +216,39 @@ impl DailySummaryCacheService {
             .map_err(|e| ToktrackError::Cache(format!("Serialization failed: {}", e)))?;
 
         let path = self.cache_path(cli);
-        fs::write(&path, content)?;
+        let temp_path = path.with_extension("json.tmp");
+
+        // Step 1: Write to temp file (no lock needed - unique path per write)
+        {
+            let mut file = File::create(&temp_path)
+                .map_err(|e| ToktrackError::Cache(format!("Failed to create temp file: {}", e)))?;
+            file.write_all(content.as_bytes())
+                .map_err(|e| ToktrackError::Cache(format!("Failed to write temp file: {}", e)))?;
+            file.sync_all()
+                .map_err(|e| ToktrackError::Cache(format!("Failed to sync temp file: {}", e)))?;
+        }
+
+        // Step 2: Lock target file, then atomic rename
+        // Note: truncate(false) since we only need the file descriptor for locking,
+        // the actual content comes from the atomic rename
+        let target = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)?;
+
+        // Acquire exclusive lock BEFORE modifying target
+        target
+            .lock_exclusive()
+            .map_err(|e| ToktrackError::Cache(format!("Failed to acquire write lock: {}", e)))?;
+
+        // Atomic rename (on same filesystem) - replaces target atomically
+        fs::rename(&temp_path, &path)
+            .map_err(|e| ToktrackError::Cache(format!("Failed to rename temp file: {}", e)))?;
+
+        // Release lock
+        let _ = target.unlock();
+
         Ok(())
     }
 }
@@ -204,8 +297,9 @@ mod tests {
             make_entry(2024, 1, 11, Some("claude"), 200, 100, Some(0.02)),
         ];
 
-        let result = service.load_or_compute("claude-code", &entries).unwrap();
+        let (result, warning) = service.load_or_compute("claude-code", &entries).unwrap();
 
+        assert!(warning.is_none());
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].date.to_string(), "2024-01-10");
         assert_eq!(result[1].date.to_string(), "2024-01-11");
@@ -265,9 +359,10 @@ mod tests {
             },
         ];
 
-        let result = service.load_or_compute("claude-code", &entries).unwrap();
+        let (result, warning) = service.load_or_compute("claude-code", &entries).unwrap();
 
-        // Should have 2 summaries
+        // Should have 2 summaries, no warning for valid cache
+        assert!(warning.is_none());
         assert_eq!(result.len(), 2);
 
         // Yesterday should use cached value (999), not entry (100)
@@ -279,7 +374,7 @@ mod tests {
         assert_eq!(today_result.total_input_tokens, 200);
     }
 
-    // Test 3: Corrupted cache falls back to full recomputation
+    // Test 3: Corrupted cache falls back to full recomputation with warning
     #[test]
     fn test_corrupted_cache_falls_back() {
         let (service, _temp) = create_test_service();
@@ -289,8 +384,10 @@ mod tests {
 
         let entries = vec![make_entry(2024, 1, 10, Some("claude"), 100, 50, Some(0.01))];
 
-        let result = service.load_or_compute("claude-code", &entries).unwrap();
+        let (result, warning) = service.load_or_compute("claude-code", &entries).unwrap();
 
+        // Should return warning for corrupted cache
+        assert!(matches!(warning, Some(CacheWarning::Corrupted(_))));
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].total_input_tokens, 100);
     }
@@ -301,7 +398,7 @@ mod tests {
         let (service, _temp) = create_test_service();
         let entries: Vec<UsageEntry> = vec![];
 
-        let result = service.load_or_compute("claude-code", &entries).unwrap();
+        let (result, _warning) = service.load_or_compute("claude-code", &entries).unwrap();
 
         assert!(result.is_empty());
     }
@@ -344,7 +441,7 @@ mod tests {
             request_id: None,
         }];
 
-        let result = service.load_or_compute("claude-code", &entries).unwrap();
+        let (result, _warning) = service.load_or_compute("claude-code", &entries).unwrap();
 
         // Should only have one entry for today with the new value
         assert_eq!(result.len(), 1);
@@ -362,7 +459,7 @@ mod tests {
             make_entry(2024, 1, 15, Some("claude"), 200, 100, Some(0.02)),
         ];
 
-        let result = service.load_or_compute("claude-code", &entries).unwrap();
+        let (result, _warning) = service.load_or_compute("claude-code", &entries).unwrap();
 
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].date.to_string(), "2024-01-10");
@@ -408,7 +505,7 @@ mod tests {
             request_id: None,
         }];
 
-        let result = service.load_or_compute("claude-code", &entries).unwrap();
+        let (result, _warning) = service.load_or_compute("claude-code", &entries).unwrap();
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].total_input_tokens, 200); // New value, not 50

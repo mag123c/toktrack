@@ -1,9 +1,79 @@
 //! Usage types for token tracking
-#![allow(dead_code)]
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+/// Data for the stats view (CLI and TUI)
+#[derive(Debug, Clone, Serialize)]
+pub struct StatsData {
+    /// Total tokens across all days
+    pub total_tokens: u64,
+    /// Daily average tokens
+    pub daily_avg_tokens: u64,
+    /// Peak day (date, tokens)
+    pub peak_day: Option<(NaiveDate, u64)>,
+    /// Total cost in USD
+    pub total_cost: f64,
+    /// Daily average cost
+    pub daily_avg_cost: f64,
+    /// Number of active days
+    pub active_days: u32,
+}
+
+impl StatsData {
+    /// Create StatsData from daily summaries
+    pub fn from_daily_summaries(summaries: &[DailySummary]) -> Self {
+        if summaries.is_empty() {
+            return Self {
+                total_tokens: 0,
+                daily_avg_tokens: 0,
+                peak_day: None,
+                total_cost: 0.0,
+                daily_avg_cost: 0.0,
+                active_days: 0,
+            };
+        }
+
+        let active_days = summaries.len() as u32;
+
+        // Calculate totals
+        let mut total_tokens: u64 = 0;
+        let mut total_cost: f64 = 0.0;
+        let mut peak_day: Option<(NaiveDate, u64)> = None;
+
+        for summary in summaries {
+            let day_tokens = summary.total_input_tokens
+                + summary.total_output_tokens
+                + summary.total_cache_read_tokens
+                + summary.total_cache_creation_tokens;
+
+            total_tokens += day_tokens;
+            total_cost += summary.total_cost_usd;
+
+            // Track peak day
+            match &peak_day {
+                None => peak_day = Some((summary.date, day_tokens)),
+                Some((_, max_tokens)) if day_tokens > *max_tokens => {
+                    peak_day = Some((summary.date, day_tokens));
+                }
+                _ => {}
+            }
+        }
+
+        let daily_avg_tokens = total_tokens / active_days as u64;
+        let daily_avg_cost = total_cost / active_days as f64;
+
+        Self {
+            total_tokens,
+            daily_avg_tokens,
+            peak_day,
+            total_cost,
+            daily_avg_cost,
+            active_days,
+        }
+    }
+}
 
 /// A single usage entry from an AI CLI session
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -37,9 +107,11 @@ pub struct UsageEntry {
 }
 
 impl UsageEntry {
-    /// Total tokens (input + output)
+    /// Total tokens (input + output + cache_read + cache_creation)
+    /// This matches ccusage's calculation which includes all token types
+    #[allow(dead_code)] // Part of public API
     pub fn total_tokens(&self) -> u64 {
-        self.input_tokens + self.output_tokens
+        self.input_tokens + self.output_tokens + self.cache_read_tokens + self.cache_creation_tokens
     }
 
     /// Create a unique hash for deduplication
@@ -76,12 +148,16 @@ pub struct ModelUsage {
 
 impl ModelUsage {
     pub fn add(&mut self, entry: &UsageEntry, cost: f64) {
-        self.input_tokens += entry.input_tokens;
-        self.output_tokens += entry.output_tokens;
-        self.cache_read_tokens += entry.cache_read_tokens;
-        self.cache_creation_tokens += entry.cache_creation_tokens;
+        self.input_tokens = self.input_tokens.saturating_add(entry.input_tokens);
+        self.output_tokens = self.output_tokens.saturating_add(entry.output_tokens);
+        self.cache_read_tokens = self
+            .cache_read_tokens
+            .saturating_add(entry.cache_read_tokens);
+        self.cache_creation_tokens = self
+            .cache_creation_tokens
+            .saturating_add(entry.cache_creation_tokens);
         self.cost_usd += cost;
-        self.count += 1;
+        self.count = self.count.saturating_add(1);
     }
 }
 
@@ -101,6 +177,93 @@ pub struct TotalSummary {
 mod tests {
     use super::*;
 
+    #[allow(clippy::too_many_arguments)]
+    fn make_summary(
+        year: i32,
+        month: u32,
+        day: u32,
+        input: u64,
+        output: u64,
+        cache_read: u64,
+        cache_creation: u64,
+        cost: f64,
+    ) -> DailySummary {
+        DailySummary {
+            date: NaiveDate::from_ymd_opt(year, month, day).unwrap(),
+            total_input_tokens: input,
+            total_output_tokens: output,
+            total_cache_read_tokens: cache_read,
+            total_cache_creation_tokens: cache_creation,
+            total_cost_usd: cost,
+            models: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn test_stats_data_empty() {
+        let data = StatsData::from_daily_summaries(&[]);
+
+        assert_eq!(data.total_tokens, 0);
+        assert_eq!(data.daily_avg_tokens, 0);
+        assert!(data.peak_day.is_none());
+        assert!((data.total_cost - 0.0).abs() < f64::EPSILON);
+        assert!((data.daily_avg_cost - 0.0).abs() < f64::EPSILON);
+        assert_eq!(data.active_days, 0);
+    }
+
+    #[test]
+    fn test_stats_data_single_day() {
+        let summaries = vec![make_summary(2024, 1, 15, 1000, 500, 100, 50, 0.10)];
+        let data = StatsData::from_daily_summaries(&summaries);
+
+        assert_eq!(data.total_tokens, 1650); // 1000 + 500 + 100 + 50
+        assert_eq!(data.daily_avg_tokens, 1650);
+        assert_eq!(
+            data.peak_day,
+            Some((NaiveDate::from_ymd_opt(2024, 1, 15).unwrap(), 1650))
+        );
+        assert!((data.total_cost - 0.10).abs() < f64::EPSILON);
+        assert!((data.daily_avg_cost - 0.10).abs() < f64::EPSILON);
+        assert_eq!(data.active_days, 1);
+    }
+
+    #[test]
+    fn test_stats_data_multiple_days() {
+        let summaries = vec![
+            make_summary(2024, 1, 10, 100, 50, 10, 5, 0.05), // 165 tokens
+            make_summary(2024, 1, 15, 500, 250, 50, 25, 0.20), // 825 tokens (peak)
+            make_summary(2024, 1, 20, 200, 100, 20, 10, 0.10), // 330 tokens
+        ];
+        let data = StatsData::from_daily_summaries(&summaries);
+
+        assert_eq!(data.total_tokens, 165 + 825 + 330); // 1320
+        assert_eq!(data.daily_avg_tokens, 1320 / 3); // 440
+        assert_eq!(
+            data.peak_day,
+            Some((NaiveDate::from_ymd_opt(2024, 1, 15).unwrap(), 825))
+        );
+        assert!((data.total_cost - 0.35).abs() < f64::EPSILON);
+        assert!((data.daily_avg_cost - 0.35 / 3.0).abs() < 0.001);
+        assert_eq!(data.active_days, 3);
+    }
+
+    #[test]
+    fn test_stats_data_peak_day_tie_keeps_first() {
+        // When multiple days have the same max tokens, first one wins
+        let summaries = vec![
+            make_summary(2024, 1, 10, 500, 250, 50, 25, 0.10), // 825 tokens (first peak)
+            make_summary(2024, 1, 15, 500, 250, 50, 25, 0.10), // 825 tokens (tie)
+            make_summary(2024, 1, 20, 100, 50, 10, 5, 0.05),   // 165 tokens
+        ];
+        let data = StatsData::from_daily_summaries(&summaries);
+
+        // First day with max should win
+        assert_eq!(
+            data.peak_day,
+            Some((NaiveDate::from_ymd_opt(2024, 1, 10).unwrap(), 825))
+        );
+    }
+
     #[test]
     fn test_usage_entry_total_tokens() {
         let entry = UsageEntry {
@@ -108,13 +271,14 @@ mod tests {
             model: Some("claude-sonnet-4".into()),
             input_tokens: 100,
             output_tokens: 50,
-            cache_read_tokens: 0,
-            cache_creation_tokens: 0,
+            cache_read_tokens: 20,
+            cache_creation_tokens: 10,
             cost_usd: None,
             message_id: None,
             request_id: None,
         };
-        assert_eq!(entry.total_tokens(), 150);
+        // total = input + output + cache_read + cache_creation
+        assert_eq!(entry.total_tokens(), 180);
     }
 
     #[test]

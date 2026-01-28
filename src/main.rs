@@ -1,5 +1,7 @@
 mod cli;
 mod parsers;
+mod services;
+mod tui;
 mod types;
 
 use clap::Parser;
