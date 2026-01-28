@@ -8,9 +8,13 @@
   "files": [
     "bin/"
   ],
+  "homepage": "https://github.com/mag123c/toktrack#readme",
   "repository": {
     "type": "git",
     "url": "https://github.com/mag123c/toktrack"
+  },
+  "bugs": {
+    "url": "https://github.com/mag123c/toktrack/issues"
   },
   "keywords": [
     "ai",
@@ -19,9 +23,30 @@
     "tracker",
     "cli",
     "claude",
+    "claude-code",
     "anthropic",
     "openai",
-    "llm"
+    "llm",
+    "token-counter",
+    "token-tracker",
+    "cost-tracker",
+    "usage-tracker",
+    "usage-monitor",
+    "api-usage",
+    "codex",
+    "codex-cli",
+    "gemini",
+    "gemini-cli",
+    "cursor",
+    "opencode",
+    "ccusage",
+    "tokscale",
+    "ai-cost",
+    "ai-billing",
+    "ai-analytics",
+    "tui",
+    "terminal",
+    "rust"
   ],
   "author": "mag123c",
   "license": "MIT",
