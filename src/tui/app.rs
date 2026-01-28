@@ -21,6 +21,7 @@ use super::widgets::{
     models::{ModelsData, ModelsView},
     overview::{Overview, OverviewData},
     spinner::{LoadingStage, Spinner},
+    stats::{StatsData, StatsView},
     tabs::Tab,
 };
 
@@ -43,6 +44,7 @@ pub struct AppData {
     pub daily_tokens: Vec<(NaiveDate, u64)>,
     pub models_data: ModelsData,
     pub daily_data: DailyData,
+    pub stats_data: StatsData,
 }
 
 /// Main application
@@ -130,7 +132,10 @@ impl App {
         let model_map = Aggregator::by_model(&entries);
         let models_data = ModelsData::from_model_usage(&model_map);
 
-        // Create DailyData for Daily view (clone summaries since we still need daily_tokens)
+        // Create StatsData for Stats view (must be before daily_data since summaries are moved)
+        let stats_data = StatsData::from_daily_summaries(&daily_summaries);
+
+        // Create DailyData for Daily view (summaries are moved here)
         let daily_data = DailyData::from_daily_summaries(daily_summaries);
 
         self.state = AppState::Ready {
@@ -139,6 +144,7 @@ impl App {
                 daily_tokens,
                 models_data,
                 daily_data,
+                stats_data,
             }),
         };
     }
@@ -227,41 +233,30 @@ impl Widget for &App {
                 let spinner = Spinner::new(*spinner_frame, *stage);
                 spinner.render(area, buf);
             }
-            AppState::Ready { data } => {
-                match self.current_tab {
-                    Tab::Overview => {
-                        let today = Local::now().date_naive();
-                        let overview_data = OverviewData {
-                            total: &data.total,
-                            daily_tokens: &data.daily_tokens,
-                        };
-                        let overview =
-                            Overview::new(overview_data, today).with_tab(self.current_tab);
-                        overview.render(area, buf);
-                    }
-                    Tab::Models => {
-                        let models_view =
-                            ModelsView::new(&data.models_data).with_tab(self.current_tab);
-                        models_view.render(area, buf);
-                    }
-                    Tab::Daily => {
-                        let daily_view = DailyView::new(&data.daily_data, self.daily_scroll)
-                            .with_tab(self.current_tab);
-                        daily_view.render(area, buf);
-                    }
-                    Tab::Stats => {
-                        // TODO: Implement Stats view
-                        let today = Local::now().date_naive();
-                        let overview_data = OverviewData {
-                            total: &data.total,
-                            daily_tokens: &data.daily_tokens,
-                        };
-                        let overview =
-                            Overview::new(overview_data, today).with_tab(self.current_tab);
-                        overview.render(area, buf);
-                    }
+            AppState::Ready { data } => match self.current_tab {
+                Tab::Overview => {
+                    let today = Local::now().date_naive();
+                    let overview_data = OverviewData {
+                        total: &data.total,
+                        daily_tokens: &data.daily_tokens,
+                    };
+                    let overview = Overview::new(overview_data, today).with_tab(self.current_tab);
+                    overview.render(area, buf);
                 }
-            }
+                Tab::Models => {
+                    let models_view = ModelsView::new(&data.models_data).with_tab(self.current_tab);
+                    models_view.render(area, buf);
+                }
+                Tab::Daily => {
+                    let daily_view = DailyView::new(&data.daily_data, self.daily_scroll)
+                        .with_tab(self.current_tab);
+                    daily_view.render(area, buf);
+                }
+                Tab::Stats => {
+                    let stats_view = StatsView::new(&data.stats_data).with_tab(self.current_tab);
+                    stats_view.render(area, buf);
+                }
+            },
             AppState::Error { message } => {
                 let y = area.y + area.height / 2;
                 let text = format!("Error: {}", message);
