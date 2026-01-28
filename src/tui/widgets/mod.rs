@@ -1,5 +1,6 @@
 //! TUI widgets
 
+pub mod daily;
 pub mod heatmap;
 pub mod legend;
 pub mod models;

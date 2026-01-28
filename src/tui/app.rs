@@ -17,6 +17,7 @@ use crate::services::{Aggregator, PricingService};
 use crate::types::TotalSummary;
 
 use super::widgets::{
+    daily::{DailyData, DailyView},
     models::{ModelsData, ModelsView},
     overview::{Overview, OverviewData},
     spinner::{LoadingStage, Spinner},
@@ -41,6 +42,7 @@ pub struct AppData {
     pub total: TotalSummary,
     pub daily_tokens: Vec<(NaiveDate, u64)>,
     pub models_data: ModelsData,
+    pub daily_data: DailyData,
 }
 
 /// Main application
@@ -48,6 +50,7 @@ pub struct App {
     state: AppState,
     should_quit: bool,
     current_tab: Tab,
+    daily_scroll: usize,
 }
 
 impl App {
@@ -60,6 +63,7 @@ impl App {
             },
             should_quit: false,
             current_tab: Tab::default(),
+            daily_scroll: 0,
         }
     }
 
@@ -126,11 +130,15 @@ impl App {
         let model_map = Aggregator::by_model(&entries);
         let models_data = ModelsData::from_model_usage(&model_map);
 
+        // Create DailyData for Daily view (clone summaries since we still need daily_tokens)
+        let daily_data = DailyData::from_daily_summaries(daily_summaries);
+
         self.state = AppState::Ready {
             data: Box::new(AppData {
                 total,
                 daily_tokens,
                 models_data,
+                daily_data,
             }),
         };
     }
@@ -149,8 +157,31 @@ impl App {
                     KeyCode::BackTab => {
                         self.current_tab = self.current_tab.prev();
                     }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        self.scroll_up();
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        self.scroll_down();
+                    }
                     _ => {}
                 }
+            }
+        }
+    }
+
+    /// Scroll up in the current view
+    fn scroll_up(&mut self) {
+        if self.current_tab == Tab::Daily {
+            self.daily_scroll = self.daily_scroll.saturating_sub(1);
+        }
+    }
+
+    /// Scroll down in the current view
+    fn scroll_down(&mut self) {
+        if self.current_tab == Tab::Daily {
+            if let AppState::Ready { data } = &self.state {
+                let max = DailyView::max_scroll_offset(&data.daily_data);
+                self.daily_scroll = (self.daily_scroll + 1).min(max);
             }
         }
     }
@@ -213,8 +244,13 @@ impl Widget for &App {
                             ModelsView::new(&data.models_data).with_tab(self.current_tab);
                         models_view.render(area, buf);
                     }
-                    Tab::Daily | Tab::Stats => {
-                        // TODO: Implement Daily and Stats views
+                    Tab::Daily => {
+                        let daily_view = DailyView::new(&data.daily_data, self.daily_scroll)
+                            .with_tab(self.current_tab);
+                        daily_view.render(area, buf);
+                    }
+                    Tab::Stats => {
+                        // TODO: Implement Stats view
                         let today = Local::now().date_naive();
                         let overview_data = OverviewData {
                             total: &data.total,
