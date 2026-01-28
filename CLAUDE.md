@@ -56,6 +56,28 @@ cargo test      # Run tests
 cargo bench     # Benchmarks
 ```
 
+## CI/CD Workflow
+
+```
+PR → CI (3 OS) → main 머지
+                    ↓
+            release-please (CI 스킵)
+                    ↓
+            Release PR → CI → 자동 머지
+                    ↓
+                tag → release.yml (5 빌드 + npm)
+```
+
+| Workflow | Trigger | Action |
+|----------|---------|--------|
+| `ci.yml` | PR, main push | fmt, clippy, test (3 OS) |
+| `release-please.yml` | main push | Release PR 생성, auto-merge |
+| `release.yml` | tag v* | 5 플랫폼 빌드, npm 배포 |
+
+**최적화:**
+- release-please 커밋 시 CI 스킵 (paths-ignore)
+- Release PR CI 통과 시 자동 머지
+
 ## Commit Rules
 
 ```
