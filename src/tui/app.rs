@@ -386,7 +386,11 @@ fn run_app(terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
         if matches!(app.state, AppState::Loading { .. }) {
             if let Ok(result) = rx.try_recv() {
                 match result {
-                    Ok(data) => app.state = AppState::Ready { data },
+                    Ok(data) => {
+                        // Initialize scroll to bottom (newest data)
+                        app.daily_scroll = DailyView::max_scroll_offset(&data.daily_data);
+                        app.state = AppState::Ready { data };
+                    }
                     Err(message) => app.state = AppState::Error { message },
                 }
             }

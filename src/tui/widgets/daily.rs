@@ -28,7 +28,7 @@ pub fn format_sparkline(tokens: u64, max: u64, width: usize) -> String {
 /// Data for the daily view
 #[derive(Debug)]
 pub struct DailyData {
-    /// Daily summaries sorted by date descending (newest first)
+    /// Daily summaries sorted by date ascending (oldest first)
     pub summaries: Vec<DailySummary>,
     /// Maximum total tokens across all days (for sparkline scaling)
     pub max_tokens: u64,
@@ -36,9 +36,9 @@ pub struct DailyData {
 
 impl DailyData {
     /// Create DailyData from aggregated daily summaries
-    /// Expects summaries in ascending order (from Aggregator::daily), reverses to descending
-    pub fn from_daily_summaries(mut summaries: Vec<DailySummary>) -> Self {
-        // Calculate max tokens before reversing
+    /// Expects summaries in ascending order (from Aggregator::daily)
+    pub fn from_daily_summaries(summaries: Vec<DailySummary>) -> Self {
+        // Calculate max tokens
         let max_tokens = summaries
             .iter()
             .map(|s| {
@@ -49,9 +49,6 @@ impl DailyData {
             })
             .max()
             .unwrap_or(0);
-
-        // Reverse to get descending order (newest first)
-        summaries.reverse();
 
         Self {
             summaries,
@@ -411,7 +408,7 @@ mod tests {
     }
 
     #[test]
-    fn test_daily_data_sorted_desc() {
+    fn test_daily_data_sorted_asc() {
         // Input is ascending (as from Aggregator::daily)
         let summaries = vec![
             make_daily_summary(2024, 1, 10, 100, 50, 10, 5, 0.01),
@@ -422,10 +419,10 @@ mod tests {
         let data = DailyData::from_daily_summaries(summaries);
 
         assert_eq!(data.summaries.len(), 3);
-        // Should be reversed (newest first)
-        assert_eq!(data.summaries[0].date.to_string(), "2024-01-20");
+        // Should remain ascending (oldest first)
+        assert_eq!(data.summaries[0].date.to_string(), "2024-01-10");
         assert_eq!(data.summaries[1].date.to_string(), "2024-01-15");
-        assert_eq!(data.summaries[2].date.to_string(), "2024-01-10");
+        assert_eq!(data.summaries[2].date.to_string(), "2024-01-20");
     }
 
     #[test]
