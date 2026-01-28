@@ -54,10 +54,10 @@ impl Widget for Legend {
         buf.set_string(x, y, "Less ", Style::default().fg(Color::DarkGray));
         x += 5;
 
-        // Intensity cells (2-char each)
+        // Intensity cells (2-char each) - use uniform block for consistent visual size
         for intensity in intensities {
             let style = Style::default().fg(intensity.color());
-            buf.set_string(x, y, intensity.to_cell_str(), style);
+            buf.set_string(x, y, "██", style);
             x += 2; // 2-char cell
 
             // Space between cells except last

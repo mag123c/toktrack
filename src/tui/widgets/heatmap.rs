@@ -38,6 +38,7 @@ impl HeatmapIntensity {
 
     /// Convert intensity to 3-character cell (2 blocks + 1 space for gap)
     /// Uses distinct block characters for colorblind accessibility
+    #[allow(dead_code)]
     pub fn to_cell_str(self) -> &'static str {
         match self {
             Self::None => "░░ ",   // Light shade - empty/no usage
