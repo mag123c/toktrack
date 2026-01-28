@@ -14,7 +14,7 @@ use ratatui::{
     DefaultTerminal, Frame,
 };
 
-use crate::parsers::ParserRegistry;
+use crate::parsers::{CLIParser, ClaudeCodeParser};
 use crate::services::{Aggregator, PricingService};
 use crate::types::{CacheWarning, StatsData, TotalSummary};
 
@@ -85,24 +85,16 @@ impl App {
             stage: LoadingStage::Parsing,
         };
 
-        let registry = ParserRegistry::new();
-        let mut entries = Vec::new();
-
-        for parser in registry.parsers() {
-            match parser.parse_all() {
-                Ok(parser_entries) => entries.extend(parser_entries),
-                Err(e) => {
-                    eprintln!("[toktrack] Warning: {} failed: {}", parser.name(), e);
-                }
+        let parser = ClaudeCodeParser::new();
+        let entries = match parser.parse_all() {
+            Ok(e) => e,
+            Err(e) => {
+                self.state = AppState::Error {
+                    message: format!("Failed to parse data: {}", e),
+                };
+                return;
             }
-        }
-
-        if entries.is_empty() {
-            self.state = AppState::Error {
-                message: "No usage data found from any CLI".to_string(),
-            };
-            return;
-        }
+        };
 
         // Calculate costs using PricingService (graceful fallback if unavailable)
         let pricing = PricingService::new().ok();
@@ -314,21 +306,10 @@ pub fn run() -> anyhow::Result<()> {
 
 /// Load data synchronously (extracted for background thread)
 fn load_data_sync() -> Result<Box<AppData>, String> {
-    let registry = ParserRegistry::new();
-    let mut entries = Vec::new();
-
-    for parser in registry.parsers() {
-        match parser.parse_all() {
-            Ok(parser_entries) => entries.extend(parser_entries),
-            Err(e) => {
-                eprintln!("[toktrack] Warning: {} failed: {}", parser.name(), e);
-            }
-        }
-    }
-
-    if entries.is_empty() {
-        return Err("No usage data found from any CLI".to_string());
-    }
+    let parser = ClaudeCodeParser::new();
+    let entries = parser
+        .parse_all()
+        .map_err(|e| format!("Failed to parse data: {}", e))?;
 
     // Calculate costs using PricingService (graceful fallback if unavailable)
     let pricing = PricingService::new().ok();
