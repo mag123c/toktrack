@@ -169,6 +169,11 @@ impl App {
                     KeyCode::Down | KeyCode::Char('j') => {
                         self.scroll_down();
                     }
+                    KeyCode::Char(c @ '1'..='4') => {
+                        if let Some(tab) = Tab::from_number(c as u8 - b'0') {
+                            self.current_tab = tab;
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -393,5 +398,31 @@ mod tests {
             KeyModifiers::SHIFT,
         )));
         assert_eq!(app.current_tab, Tab::Daily);
+    }
+
+    #[test]
+    fn test_app_number_key_navigation() {
+        let mut app = App::new();
+        assert_eq!(app.current_tab, Tab::Overview);
+
+        // Press '2' to go to Models
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
+        app.handle_event(event);
+        assert_eq!(app.current_tab, Tab::Models);
+
+        // Press '4' to go to Stats
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE));
+        app.handle_event(event);
+        assert_eq!(app.current_tab, Tab::Stats);
+
+        // Press '3' to go to Daily
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE));
+        app.handle_event(event);
+        assert_eq!(app.current_tab, Tab::Daily);
+
+        // Press '1' to go back to Overview
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE));
+        app.handle_event(event);
+        assert_eq!(app.current_tab, Tab::Overview);
     }
 }

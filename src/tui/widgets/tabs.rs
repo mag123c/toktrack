@@ -52,6 +52,17 @@ impl Tab {
             Self::Stats => Self::Daily,
         }
     }
+
+    /// Get tab from number key (1-4)
+    pub fn from_number(n: u8) -> Option<Self> {
+        match n {
+            1 => Some(Self::Overview),
+            2 => Some(Self::Models),
+            3 => Some(Self::Daily),
+            4 => Some(Self::Stats),
+            _ => None,
+        }
+    }
 }
 
 /// Tab bar widget showing available views
@@ -160,5 +171,15 @@ mod tests {
     #[test]
     fn test_tab_default() {
         assert_eq!(Tab::default(), Tab::Overview);
+    }
+
+    #[test]
+    fn test_tab_from_number() {
+        assert_eq!(Tab::from_number(1), Some(Tab::Overview));
+        assert_eq!(Tab::from_number(2), Some(Tab::Models));
+        assert_eq!(Tab::from_number(3), Some(Tab::Daily));
+        assert_eq!(Tab::from_number(4), Some(Tab::Stats));
+        assert_eq!(Tab::from_number(0), None);
+        assert_eq!(Tab::from_number(5), None);
     }
 }
