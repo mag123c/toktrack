@@ -1,6 +1,6 @@
 ---
 name: next
-description: 세션 시작 - 진행 상태 파악, 다음 작업 제시
+description: Session start - check progress, suggest next task
 required_context:
   - .claude/ai-context/architecture.md
 ---
@@ -16,8 +16,8 @@ Read Planning → Git Log → Analyze → Present → Suggest /clarify
 
 1. **Read Planning**
    ```bash
-   # docs/planning/*.md 파일들 읽기
-   # 체크박스 상태 파악: [ ] 미완료, [x] 완료
+   # Read docs/planning/*.md files
+   # Check checkbox status: [ ] incomplete, [x] complete
    ```
 
 2. **Git Log**
@@ -27,19 +27,19 @@ Read Planning → Git Log → Analyze → Present → Suggest /clarify
    ```
 
 3. **Analyze**
-   - 현재 Phase 식별
-   - 완료된 태스크 수 / 전체 태스크 수
-   - 다음 우선순위 태스크 식별
+   - Identify current phase
+   - Count completed/total tasks
+   - Identify next priority task
 
-4. **Present** (테이블 형식)
+4. **Present** (table format)
    | Phase | Status | Progress |
    |-------|--------|----------|
    | Phase 0 | ✅ | 5/5 |
    | Phase 1 | 🔄 | 3/4 |
 
 5. **Suggest**
-   - 다음 태스크 요약
-   - `/clarify` 실행 제안
+   - Summarize next task
+   - Suggest running `/clarify`
 
 ## Output Format
 ```markdown
@@ -56,6 +56,6 @@ Run `/clarify` to start: {task_summary}
 ```
 
 ## Rules
-- planning 파일 없으면 git log + 코드 상태로 추론
-- 간결하게 출력 (5-10줄)
-- 항상 /clarify 연결 제안
+- If no planning files → infer from git log + code state
+- Keep output concise (5-10 lines)
+- Always suggest /clarify connection

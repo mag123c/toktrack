@@ -28,7 +28,7 @@ Location: `#[cfg(test)]` in same file
 Fixtures: `tests/fixtures/`
 
 ## Error
-Use `ToktrackError` consistently across all modules. Do NOT use `anyhow` in library code.
+Use `ToktrackError` consistently. No `anyhow` in library code.
 ```rust
 #[derive(thiserror::Error)]
 enum ToktrackError {
@@ -57,27 +57,19 @@ scopes: parser|tui|services|cache|cli
 
 ## Paradigm
 
-### Trait-based Polymorphism (OOP)
+### Trait-based Polymorphism
 ```rust
-// Interface for extensibility (planned: OpenCode, Gemini parsers)
 pub trait CLIParser: Send + Sync { ... }
 Box<dyn CLIParser>  // Runtime polymorphism
 ```
 
-### Functional Patterns (FP)
+### Functional Patterns
 ```rust
-// Prefer iterators + combinators
 files.par_iter().flat_map(...).collect()
 HashMap::entry().or_insert_with(...)
-
-// Immutability by default
-let result = ...;  // not mut unless necessary
+let result = ...;  // Immutable by default
 ```
 
 ### YAGNI
-- Abstract only for **planned** extensions (see architecture.md roadmap)
+- Abstract only for planned extensions
 - No speculative generalization
-
-## Docs
-- `///` for pub items
-- Include examples

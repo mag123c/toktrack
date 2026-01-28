@@ -16,34 +16,31 @@ cargo build --release
 | [architecture.md](.claude/ai-context/architecture.md) | Layers, paths, traits, data flow |
 | [conventions.md](.claude/ai-context/conventions.md) | Naming, TDD, error handling, commits |
 
-## Dev Workflow (MUST FOLLOW)
+## Dev Workflow
 
 ```
 /next → /clarify → Plan Mode → /implement → /verify → /review → /wrap
 ```
 
-**Session start**: Run `/next` to see current progress and next task.
+Session start: Run `/next` to see current progress and next task.
 
-## Skill Chain (ENFORCED - 위반 금지)
+## Skill Chain
 
-| 완료 단계 | 다음 호출 | 조건 | 확인 필요 |
-|-----------|----------|------|----------|
-| Plan 승인 | `/implement` | 즉시 | **NO** |
-| `/implement` | `/verify` | 구현 완료 시 | **NO** |
-| `/verify` | `/review` | 통과 시 | **NO** |
-| `/review` | `/wrap` | PASS 시 | **NO** |
+| Completed | Next | Condition |
+|-----------|------|-----------|
+| Plan approved | `/implement` | Immediately |
+| `/implement` | `/verify` | On completion |
+| `/verify` | `/review` | On pass |
+| `/review` | `/wrap` | On PASS |
 
-**CRITICAL**:
-- 각 단계 완료 후 "다음 단계 진행할까요?" **묻지 말 것**
-- 사용자 확인 없이 **즉시** 다음 스킬 호출
-- 체인 중단 = 세션 미완료 (버그로 간주)
+Auto-chain: Each step proceeds without user confirmation.
 
-**예외 상황**:
-- `/verify` 실패 → 수정 후 재실행
-- `/review` FAIL → `/implement`로 복귀
-- 사용자가 명시적으로 중단 요청
+Exceptions:
+- `/verify` fail → fix and retry
+- `/review` FAIL → return to `/implement`
+- User explicitly requests stop
 
-**Plan provided directly** → skip clarify/plan, start with `/implement` skill immediately
+Plan provided directly → skip clarify/plan, start `/implement`
 
 See `.claude/skills/` for skill details.
 
@@ -59,24 +56,24 @@ cargo bench     # Benchmarks
 ## CI/CD Workflow
 
 ```
-PR → CI (3 OS) → main 머지
+PR → CI (3 OS) → main merge
                     ↓
-            release-please (CI 스킵)
+            release-please (CI skip)
                     ↓
-            Release PR → CI → 자동 머지
+            Release PR → CI → auto-merge
                     ↓
-                tag → release.yml (5 빌드 + npm)
+                tag → release.yml (5 builds + npm)
 ```
 
 | Workflow | Trigger | Action |
 |----------|---------|--------|
 | `ci.yml` | PR, main push | fmt, clippy, test (3 OS) |
-| `release-please.yml` | main push | Release PR 생성, auto-merge |
-| `release.yml` | tag v* | 5 플랫폼 빌드, npm 배포 |
+| `release-please.yml` | main push | Release PR, auto-merge |
+| `release.yml` | tag v* | 5 platform builds, npm deploy |
 
-**최적화:**
-- release-please 커밋 시 CI 스킵 (paths-ignore)
-- Release PR CI 통과 시 자동 머지
+Optimizations:
+- release-please commits skip CI (paths-ignore)
+- Release PR auto-merges on CI pass
 
 ## Commit Rules
 

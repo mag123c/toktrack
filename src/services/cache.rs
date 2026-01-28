@@ -14,24 +14,18 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
-/// Cached daily summary data for a CLI
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DailySummaryCache {
-    /// CLI identifier
     pub cli: String,
-    /// Unix timestamp of last update
     pub updated_at: i64,
-    /// Cached daily summaries
     pub summaries: Vec<DailySummary>,
 }
 
-/// Service for caching and retrieving daily summaries
 pub struct DailySummaryCacheService {
     cache_dir: PathBuf,
 }
 
 impl DailySummaryCacheService {
-    /// Create a new cache service with default cache directory (~/.toktrack/cache)
     pub fn new() -> Result<Self> {
         let base_dirs = BaseDirs::new()
             .ok_or_else(|| ToktrackError::Cache("Cannot determine home directory".into()))?;
@@ -40,26 +34,16 @@ impl DailySummaryCacheService {
         Ok(Self { cache_dir })
     }
 
-    /// Create a cache service with a custom cache directory
     pub fn with_cache_dir(cache_dir: PathBuf) -> Self {
         Self { cache_dir }
     }
 
-    /// Get the cache file path for a CLI
     pub fn cache_path(&self, cli: &str) -> PathBuf {
         self.cache_dir.join(format!("{}_daily.json", cli))
     }
 
-    /// Load cached summaries, compute missing dates, and merge results
-    ///
-    /// Algorithm:
-    /// 1. Load cache if exists, filter out today's data
-    /// 2. Determine which dates need computation (missing or today)
-    /// 3. Compute summaries for those dates
-    /// 4. Merge cached + new, deduplicate by date
-    /// 5. Save updated cache
-    ///
-    /// Returns (summaries, optional_warning) - warning indicates cache issues
+    /// Load cached summaries, compute missing dates, merge and deduplicate.
+    /// Today is always recomputed. Returns (summaries, optional_warning).
     pub fn load_or_compute(
         &self,
         cli: &str,
@@ -67,11 +51,9 @@ impl DailySummaryCacheService {
     ) -> Result<(Vec<DailySummary>, Option<CacheWarning>)> {
         let today = Local::now().date_naive();
 
-        // Step 1: Load cache (past dates only)
         let (cached, warning) = self.load_past_summaries(cli, today);
         let cached_dates: HashSet<NaiveDate> = cached.iter().map(|s| s.date).collect();
 
-        // Step 2: Determine dates to compute
         let entry_dates: HashSet<NaiveDate> =
             entries.iter().map(|e| e.timestamp.date_naive()).collect();
 
@@ -81,13 +63,11 @@ impl DailySummaryCacheService {
             .copied()
             .collect();
 
-        // Step 3: Filter entries for dates to compute
         let entries_to_compute: Vec<&UsageEntry> = entries
             .iter()
             .filter(|e| dates_to_compute.contains(&e.timestamp.date_naive()))
             .collect();
 
-        // Step 4: Compute new summaries
         let new_summaries = if entries_to_compute.is_empty() {
             Vec::new()
         } else {
@@ -95,24 +75,19 @@ impl DailySummaryCacheService {
             Aggregator::daily(&owned)
         };
 
-        // Step 5: Merge and deduplicate (new takes precedence)
         let new_dates: HashSet<NaiveDate> = new_summaries.iter().map(|s| s.date).collect();
         let mut result: Vec<DailySummary> = cached
             .into_iter()
             .filter(|s| !new_dates.contains(&s.date))
             .collect();
         result.extend(new_summaries);
-
-        // Sort by date ascending
         result.sort_by_key(|s| s.date);
 
-        // Step 6: Save cache
         self.save_cache(cli, &result)?;
 
         Ok((result, warning))
     }
 
-    /// Clear cache for a CLI
     pub fn clear(&self, cli: &str) -> Result<()> {
         let path = self.cache_path(cli);
         if path.exists() {
@@ -121,9 +96,8 @@ impl DailySummaryCacheService {
         Ok(())
     }
 
-    /// Load cached summaries for past dates (excludes today)
-    /// Uses shared (read) file lock to prevent concurrent write corruption
-    /// Returns (summaries, optional_warning)
+    /// Load cached summaries for past dates (excludes today).
+    /// Uses shared file lock for concurrent read safety.
     fn load_past_summaries(
         &self,
         cli: &str,
@@ -134,7 +108,6 @@ impl DailySummaryCacheService {
             return (Vec::new(), None);
         }
 
-        // Open file with shared lock for reading
         let file = match File::open(&path) {
             Ok(f) => f,
             Err(e) => {
@@ -148,7 +121,6 @@ impl DailySummaryCacheService {
             }
         };
 
-        // Acquire shared (read) lock - allows multiple readers
         if let Err(e) = file.lock_shared() {
             return (
                 Vec::new(),
@@ -175,7 +147,6 @@ impl DailySummaryCacheService {
         let cache: DailySummaryCache = match serde_json::from_str(&content) {
             Ok(c) => c,
             Err(e) => {
-                // Corrupted cache - return warning
                 let _ = file.unlock();
                 return (
                     Vec::new(),
@@ -187,10 +158,7 @@ impl DailySummaryCacheService {
             }
         };
 
-        // Release lock (automatically released on drop, but explicit is clearer)
         let _ = file.unlock();
-
-        // Filter to past dates only
         (
             cache
                 .summaries
@@ -201,8 +169,7 @@ impl DailySummaryCacheService {
         )
     }
 
-    /// Save summaries to cache using atomic write (temp file + rename)
-    /// This prevents data corruption from concurrent reads during write
+    /// Save using atomic write (temp file + rename) with exclusive lock.
     fn save_cache(&self, cli: &str, summaries: &[DailySummary]) -> Result<()> {
         fs::create_dir_all(&self.cache_dir)?;
 
@@ -218,7 +185,6 @@ impl DailySummaryCacheService {
         let path = self.cache_path(cli);
         let temp_path = path.with_extension("json.tmp");
 
-        // Step 1: Write to temp file (no lock needed - unique path per write)
         {
             let mut file = File::create(&temp_path)
                 .map_err(|e| ToktrackError::Cache(format!("Failed to create temp file: {}", e)))?;
@@ -228,27 +194,20 @@ impl DailySummaryCacheService {
                 .map_err(|e| ToktrackError::Cache(format!("Failed to sync temp file: {}", e)))?;
         }
 
-        // Step 2: Lock target file, then atomic rename
-        // Note: truncate(false) since we only need the file descriptor for locking,
-        // the actual content comes from the atomic rename
         let target = OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(false)
             .open(&path)?;
 
-        // Acquire exclusive lock BEFORE modifying target
         target
             .lock_exclusive()
             .map_err(|e| ToktrackError::Cache(format!("Failed to acquire write lock: {}", e)))?;
 
-        // Atomic rename (on same filesystem) - replaces target atomically
         fs::rename(&temp_path, &path)
             .map_err(|e| ToktrackError::Cache(format!("Failed to rename temp file: {}", e)))?;
 
-        // Release lock
         let _ = target.unlock();
-
         Ok(())
     }
 }

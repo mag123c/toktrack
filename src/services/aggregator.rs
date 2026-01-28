@@ -3,11 +3,9 @@
 use crate::types::{DailySummary, ModelUsage, TotalSummary, UsageEntry};
 use std::collections::{HashMap, HashSet};
 
-/// Aggregator for computing usage statistics
 pub struct Aggregator;
 
 impl Aggregator {
-    /// Aggregate entries by day (sorted by date ascending)
     pub fn daily(entries: &[UsageEntry]) -> Vec<DailySummary> {
         if entries.is_empty() {
             return Vec::new();
@@ -56,7 +54,6 @@ impl Aggregator {
         result
     }
 
-    /// Aggregate entries by model (None → "unknown")
     pub fn by_model(entries: &[UsageEntry]) -> HashMap<String, ModelUsage> {
         let mut model_map: HashMap<String, ModelUsage> = HashMap::new();
 
@@ -71,7 +68,6 @@ impl Aggregator {
         model_map
     }
 
-    /// Compute total summary across all entries
     pub fn total(entries: &[UsageEntry]) -> TotalSummary {
         if entries.is_empty() {
             return TotalSummary::default();
@@ -160,8 +156,6 @@ mod tests {
         }
     }
 
-    // ========== daily() tests ==========
-
     #[test]
     fn test_daily_empty_entries() {
         let result = Aggregator::daily(&[]);
@@ -224,8 +218,6 @@ mod tests {
         // Should have 2 models in the breakdown
         assert_eq!(result[0].models.len(), 2);
     }
-
-    // ========== by_model() tests ==========
 
     #[test]
     fn test_by_model_empty() {
@@ -293,8 +285,6 @@ mod tests {
         assert_eq!(gpt.output_tokens, 150);
         assert_eq!(gpt.count, 1);
     }
-
-    // ========== total() tests ==========
 
     #[test]
     fn test_total_empty() {

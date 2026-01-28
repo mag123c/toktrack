@@ -4,25 +4,17 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Data for the stats view (CLI and TUI)
 #[derive(Debug, Clone, Serialize)]
 pub struct StatsData {
-    /// Total tokens across all days
     pub total_tokens: u64,
-    /// Daily average tokens
     pub daily_avg_tokens: u64,
-    /// Peak day (date, tokens)
     pub peak_day: Option<(NaiveDate, u64)>,
-    /// Total cost in USD
     pub total_cost: f64,
-    /// Daily average cost
     pub daily_avg_cost: f64,
-    /// Number of active days
     pub active_days: u32,
 }
 
 impl StatsData {
-    /// Create StatsData from daily summaries
     pub fn from_daily_summaries(summaries: &[DailySummary]) -> Self {
         if summaries.is_empty() {
             return Self {
@@ -51,7 +43,6 @@ impl StatsData {
             total_tokens += day_tokens;
             total_cost += summary.total_cost_usd;
 
-            // Track peak day
             match &peak_day {
                 None => peak_day = Some((summary.date, day_tokens)),
                 Some((_, max_tokens)) if day_tokens > *max_tokens => {
@@ -75,49 +66,25 @@ impl StatsData {
     }
 }
 
-/// A single usage entry from an AI CLI session
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UsageEntry {
-    /// Timestamp of the usage
     pub timestamp: DateTime<Utc>,
-
-    /// Model name (e.g., "claude-sonnet-4-20250514")
     pub model: Option<String>,
-
-    /// Input tokens consumed
     pub input_tokens: u64,
-
-    /// Output tokens generated
     pub output_tokens: u64,
-
-    /// Cache read tokens
     pub cache_read_tokens: u64,
-
-    /// Cache creation tokens
     pub cache_creation_tokens: u64,
-
-    /// Thinking tokens (for models with extended thinking, e.g., Gemini)
     #[serde(default)]
     pub thinking_tokens: u64,
-
-    /// Pre-calculated cost in USD (if available)
     pub cost_usd: Option<f64>,
-
-    /// Message ID for deduplication
     pub message_id: Option<String>,
-
-    /// Request ID for deduplication
     pub request_id: Option<String>,
-
-    /// Parser source identifier (e.g., "claude", "codex", "gemini")
     #[serde(default)]
     pub source: Option<String>,
 }
 
 impl UsageEntry {
-    /// Total tokens (input + output + cache_read + cache_creation + thinking)
-    /// This matches ccusage's calculation which includes all token types
-    #[allow(dead_code)] // Part of public API
+    #[allow(dead_code)]
     pub fn total_tokens(&self) -> u64 {
         self.input_tokens
             + self.output_tokens
@@ -126,7 +93,6 @@ impl UsageEntry {
             + self.thinking_tokens
     }
 
-    /// Create a unique hash for deduplication
     pub fn dedup_hash(&self) -> Option<String> {
         match (&self.message_id, &self.request_id) {
             (Some(msg), Some(req)) => Some(format!("{}:{}", msg, req)),
@@ -135,7 +101,6 @@ impl UsageEntry {
     }
 }
 
-/// Daily summary of usage
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DailySummary {
     pub date: NaiveDate,
@@ -147,7 +112,6 @@ pub struct DailySummary {
     pub models: HashMap<String, ModelUsage>,
 }
 
-/// Per-model usage breakdown
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct ModelUsage {
     pub input_tokens: u64,
@@ -173,7 +137,6 @@ impl ModelUsage {
     }
 }
 
-/// Total summary across all data
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct TotalSummary {
     pub total_input_tokens: u64,
@@ -291,7 +254,6 @@ mod tests {
             request_id: None,
             source: None,
         };
-        // total = input + output + cache_read + cache_creation + thinking
         assert_eq!(entry.total_tokens(), 180);
     }
 
@@ -310,7 +272,6 @@ mod tests {
             request_id: None,
             source: Some("gemini".into()),
         };
-        // total = 100 + 50 + 20 + 10 + 30 = 210
         assert_eq!(entry.total_tokens(), 210);
     }
 

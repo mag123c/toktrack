@@ -74,20 +74,6 @@ simd-json, ratatui, crossterm, clap, rayon, chrono, directories, serde, reqwest,
 dev: insta, criterion, tempfile
 ```
 
-## Dev Workflow
-```
-/clarify → Plan Mode → /implement (TDD) → /verify → /review → /wrap
-```
-
-## Skills
-| Skill | Purpose |
-|-------|---------|
-| /clarify | Requirements → auto Plan Mode |
-| /implement | TDD (RED→GREEN→REFACTOR) |
-| /verify | Self-healing test/clippy/fmt |
-| /review | Negative perspective review |
-| /wrap | Session wrap-up |
-
 ## Pre-commit
 ```bash
 make check  # fmt + clippy + test
