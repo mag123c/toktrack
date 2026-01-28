@@ -19,11 +19,14 @@ const MAX_CONTENT_WIDTH: u16 = 170;
 const CARD_WIDTH: u16 = 28;
 const CARD_HEIGHT: u16 = 5;
 
-/// Calculate number of cards per row based on available width
+/// Fixed number of columns for balanced 2x3 grid
+const FIXED_COLS: usize = 3;
+
+/// Calculate number of cards per row based on available width (max 3 for balanced grid)
 fn cards_per_row(width: u16) -> usize {
     let usable_width = width.saturating_sub(4); // padding
-    let cards = usable_width / (CARD_WIDTH + 2); // +2 for spacing
-    cards.max(1) as usize
+    let cards = (usable_width / (CARD_WIDTH + 2)) as usize; // +2 for spacing
+    cards.clamp(1, FIXED_COLS)
 }
 
 /// Stats view widget
@@ -153,12 +156,14 @@ impl StatsView<'_> {
             StatCard {
                 title: "Total Tokens".to_string(),
                 value: format_number(self.data.total_tokens),
-                color: Color::Cyan,
+                value_color: Color::Cyan,
+                border_color: Color::Cyan,
             },
             StatCard {
                 title: "Daily Average".to_string(),
                 value: format_number(self.data.daily_avg_tokens),
-                color: Color::Blue,
+                value_color: Color::Blue,
+                border_color: Color::Blue,
             },
             StatCard {
                 title: "Peak Day".to_string(),
@@ -169,34 +174,38 @@ impl StatsView<'_> {
                         format!("{} ({})", date.format("%m/%d"), format_number(tokens))
                     })
                     .unwrap_or_else(|| "N/A".to_string()),
-                color: Color::Yellow,
+                value_color: Color::Yellow,
+                border_color: Color::Yellow,
             },
             StatCard {
                 title: "Total Cost".to_string(),
                 value: format!("${:.2}", self.data.total_cost),
-                color: Color::Magenta,
+                value_color: Color::LightRed,
+                border_color: Color::Red,
             },
             StatCard {
                 title: "Daily Avg Cost".to_string(),
                 value: format!("${:.2}", self.data.daily_avg_cost),
-                color: Color::LightMagenta,
+                value_color: Color::Magenta,
+                border_color: Color::Magenta,
             },
             StatCard {
                 title: "Active Days".to_string(),
                 value: self.data.active_days.to_string(),
-                color: Color::Green,
+                value_color: Color::Green,
+                border_color: Color::Green,
             },
         ]
     }
 
     fn render_card(&self, area: Rect, buf: &mut Buffer, card: &StatCard) {
-        // Draw card border
+        // Draw card border with card-specific color
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray));
+            .border_style(Style::default().fg(card.border_color));
         block.render(area, buf);
 
-        // Render title (centered, line 1 inside border)
+        // Render title (centered, line 1 inside border) with matching border color
         if area.height > 2 {
             let title_y = area.y + 1;
             let title = &card.title;
@@ -205,7 +214,7 @@ impl StatsView<'_> {
                 title_x,
                 title_y,
                 title,
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(card.border_color),
             );
         }
 
@@ -218,7 +227,9 @@ impl StatsView<'_> {
                 value_x,
                 value_y,
                 value,
-                Style::default().fg(card.color).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(card.value_color)
+                    .add_modifier(Modifier::BOLD),
             );
         }
     }
@@ -244,7 +255,8 @@ impl StatsView<'_> {
 struct StatCard {
     title: String,
     value: String,
-    color: Color,
+    value_color: Color,
+    border_color: Color,
 }
 
 #[cfg(test)]

@@ -63,6 +63,9 @@ impl DailyData {
 /// Maximum content width for Daily view (consistent with Overview/Models)
 const MAX_CONTENT_WIDTH: u16 = 170;
 
+/// Table width: Date(12) + Model(25) + Input(18) + Output(18) + Cache(18) + Total(18) + Cost(12) + Usage(18) = 139
+const TABLE_WIDTH: u16 = 139;
+
 /// Visible rows for scrolling (excluding header)
 const VISIBLE_ROWS: usize = 15;
 
@@ -140,6 +143,11 @@ impl Widget for DailyView<'_> {
 }
 
 impl DailyView<'_> {
+    /// Calculate horizontal offset to center the table
+    fn calculate_table_offset(&self, area_width: u16) -> u16 {
+        area_width.saturating_sub(TABLE_WIDTH) / 2
+    }
+
     fn render_tabs(&self, area: Rect, buf: &mut Buffer) {
         let tab_bar = TabBar::new(self.selected_tab);
         tab_bar.render(area, buf);
@@ -151,7 +159,9 @@ impl DailyView<'_> {
     }
 
     fn render_header(&self, area: Rect, buf: &mut Buffer) {
-        // Column widths: Date(12), Model(25), Input(10), Output(10), Cache(10), Total(10), Cost(10), Spark(8)
+        let offset = self.calculate_table_offset(area.width);
+
+        // Column widths: Date(12), Model(25), Input(18), Output(18), Cache(18), Total(18), Cost(12), Usage(18)
         let header = Line::from(vec![
             Span::styled(
                 format!("{:<12}", "Date"),
@@ -166,37 +176,37 @@ impl DailyView<'_> {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!("{:>10}", "Input"),
+                format!("{:>18}", "Input"),
                 Style::default()
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!("{:>10}", "Output"),
+                format!("{:>18}", "Output"),
                 Style::default()
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!("{:>10}", "Cache"),
+                format!("{:>18}", "Cache"),
                 Style::default()
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!("{:>10}", "Total"),
+                format!("{:>18}", "Total"),
                 Style::default()
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!("{:>10}", "Cost"),
+                format!("{:>12}", "Cost"),
                 Style::default()
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!("{:>8}", ""),
+                format!("{:>18}", "Usage"),
                 Style::default()
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),
@@ -204,10 +214,19 @@ impl DailyView<'_> {
         ]);
 
         let paragraph = Paragraph::new(header).alignment(Alignment::Left);
-        paragraph.render(area, buf);
+        paragraph.render(
+            Rect {
+                x: area.x + offset,
+                y: area.y,
+                width: TABLE_WIDTH.min(area.width),
+                height: area.height,
+            },
+            buf,
+        );
     }
 
     fn render_daily_rows(&self, area: Rect, buf: &mut Buffer) {
+        let offset = self.calculate_table_offset(area.width);
         let start = self.scroll_offset;
         let end = (start + area.height as usize).min(self.data.summaries.len());
 
@@ -219,9 +238,9 @@ impl DailyView<'_> {
 
             self.render_daily_row(
                 Rect {
-                    x: area.x,
+                    x: area.x + offset,
                     y,
-                    width: area.width,
+                    width: TABLE_WIDTH.min(area.width),
                     height: 1,
                 },
                 buf,
@@ -259,7 +278,7 @@ impl DailyView<'_> {
             model_name
         };
 
-        let sparkline = format_sparkline(total_tokens, self.data.max_tokens, 8);
+        let sparkline = format_sparkline(total_tokens, self.data.max_tokens, 14);
 
         let row = Line::from(vec![
             Span::styled(
@@ -271,26 +290,29 @@ impl DailyView<'_> {
                 Style::default().fg(Color::Cyan),
             ),
             Span::styled(
-                format!("{:>10}", format_number(summary.total_input_tokens)),
+                format!("{:>18}", format_number(summary.total_input_tokens)),
                 Style::default().fg(Color::White),
             ),
             Span::styled(
-                format!("{:>10}", format_number(summary.total_output_tokens)),
+                format!("{:>18}", format_number(summary.total_output_tokens)),
                 Style::default().fg(Color::White),
             ),
             Span::styled(
-                format!("{:>10}", format_number(cache_tokens)),
+                format!("{:>18}", format_number(cache_tokens)),
                 Style::default().fg(Color::White),
             ),
             Span::styled(
-                format!("{:>10}", format_number(total_tokens)),
+                format!("{:>18}", format_number(total_tokens)),
                 Style::default().fg(Color::White),
             ),
             Span::styled(
-                format!("{:>10}", format!("${:.2}", summary.total_cost_usd)),
+                format!("{:>12}", format!("${:.2}", summary.total_cost_usd)),
                 Style::default().fg(Color::Magenta),
             ),
-            Span::styled(format!(" {}", sparkline), Style::default().fg(Color::Green)),
+            Span::styled(
+                format!("{:>18}", sparkline),
+                Style::default().fg(Color::Green),
+            ),
         ]);
 
         let paragraph = Paragraph::new(row).alignment(Alignment::Left);

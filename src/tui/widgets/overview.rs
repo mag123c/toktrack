@@ -83,7 +83,7 @@ impl Widget for Overview<'_> {
 
         // Fixed-height layout (no expansion, keybindings stay with content):
         // - Top padding (1) + Tabs (1) + Separator (1) + Hero (3) + Sub-stats (1) + Blank (1)
-        // - Heatmap (18: 15 rows grid + month labels + blank + legend) + Separator (1) + Keybindings (1) = 28 total
+        // - Heatmap (10: 7 rows grid + month labels + blank + legend) + Separator (1) + Keybindings (1) = 20 total
         let chunks = Layout::vertical([
             Constraint::Length(1),  // Top padding
             Constraint::Length(1),  // Tabs
@@ -91,7 +91,7 @@ impl Widget for Overview<'_> {
             Constraint::Length(3),  // Hero stat
             Constraint::Length(1),  // Sub-stats (Cost only)
             Constraint::Length(1),  // Blank
-            Constraint::Length(18), // Heatmap (15 rows grid) + month labels + blank + legend
+            Constraint::Length(10), // Heatmap (7 rows grid) + month labels + blank + legend
             Constraint::Length(1),  // Separator
             Constraint::Length(1),  // Keybindings
         ])
@@ -171,8 +171,8 @@ impl Overview<'_> {
     }
 
     fn render_heatmap_section(&self, area: Rect, buf: &mut Buffer) {
-        // Layout constants for heatmap section
-        const HEATMAP_GRID_ROWS: u16 = 15; // 7 weekdays * 2 (content + separator) + 1 top border
+        // Layout constants for heatmap section (borderless)
+        const HEATMAP_GRID_ROWS: u16 = 7; // 7 weekdays (no borders)
         const MONTH_LABEL_ROWS: u16 = 1;
         const BLANK_ROWS: u16 = 1;
         const LEGEND_ROWS: u16 = 1;
@@ -185,12 +185,20 @@ impl Overview<'_> {
 
         // Legend on last row - aligned to heatmap grid right edge (with 1 blank row gap)
         if area.height >= REQUIRED_HEIGHT {
-            // Calculate actual heatmap width: label (4) + 1 (left border) + weeks * cell_width (3)
-            let heatmap_width = 4 + 1 + (weeks as u16 * 3);
+            // Calculate heatmap dimensions (must match heatmap.rs constants)
+            const LABEL_WIDTH: u16 = 4;
+            const CELL_WIDTH: u16 = 2;
+            let heatmap_width = LABEL_WIDTH + (weeks as u16 * CELL_WIDTH);
+            let x_offset = area.width.saturating_sub(heatmap_width) / 2;
+
+            // Position legend at heatmap's right edge
+            let legend_width = Legend::min_width();
+            let legend_x = area.x + x_offset + heatmap_width.saturating_sub(legend_width);
+
             let legend_area = Rect {
-                x: area.x,
+                x: legend_x,
                 y: area.y + LEGEND_Y_OFFSET,
-                width: heatmap_width.min(area.width),
+                width: legend_width.min(area.width),
                 height: LEGEND_ROWS,
             };
             Legend::new().render(legend_area, buf);

@@ -173,23 +173,9 @@ pub fn build_grid(
     grid
 }
 
-/// Cell dimensions for grid layout with borders
-const CELL_HEIGHT: u16 = 2; // 1 row content + 1 row border
-const CELL_WIDTH: u16 = 3; // 2 chars content + 1 border
+/// Cell dimensions for grid layout (no borders)
+const CELL_WIDTH: u16 = 2; // 2 chars content (no border)
 const LABEL_WIDTH: u16 = 4; // "Mon " prefix
-
-/// Box drawing characters for grid border
-const BOX_TOP_LEFT: &str = "┌";
-const BOX_TOP_RIGHT: &str = "┐";
-const BOX_BOTTOM_LEFT: &str = "└";
-const BOX_BOTTOM_RIGHT: &str = "┘";
-const BOX_HORIZONTAL: &str = "─";
-const BOX_VERTICAL: &str = "│";
-const BOX_T_DOWN: &str = "┬";
-const BOX_T_UP: &str = "┴";
-const BOX_T_RIGHT: &str = "├";
-const BOX_T_LEFT: &str = "┤";
-const BOX_CROSS: &str = "┼";
 
 /// Heatmap widget for ratatui
 pub struct Heatmap {
@@ -206,10 +192,10 @@ impl Heatmap {
     }
 
     /// Compute weeks to show based on terminal width
-    /// Returns weeks count for responsive layout (3-char cells with borders)
+    /// Returns weeks count for responsive layout (2-char cells, no borders)
     pub fn weeks_for_width(width: u16) -> usize {
-        // Account for label + left border (1 char)
-        let available = width.saturating_sub(LABEL_WIDTH + 1);
+        // Account for label only (no border)
+        let available = width.saturating_sub(LABEL_WIDTH);
         let max_weeks = (available / CELL_WIDTH) as usize;
 
         if max_weeks >= 52 {
@@ -223,40 +209,11 @@ impl Heatmap {
 
     /// Calculate x_offset for centering the heatmap
     fn calculate_x_offset(&self, area: Rect) -> u16 {
-        let heatmap_width = LABEL_WIDTH + 1 + (self.weeks_to_show as u16 * CELL_WIDTH);
+        let heatmap_width = LABEL_WIDTH + (self.weeks_to_show as u16 * CELL_WIDTH);
         area.width.saturating_sub(heatmap_width) / 2
     }
 
-    /// Render the top border row: ┌──┬──┬──┐
-    fn render_top_border(&self, area: Rect, buf: &mut Buffer, weeks: usize, x_offset: u16) {
-        let start_x = area.x + x_offset + LABEL_WIDTH;
-        let y = area.y;
-        let max_x = area.x + area.width;
-        let border_style = Style::default().fg(Color::DarkGray);
-
-        // Left corner
-        if start_x < max_x {
-            buf.set_string(start_x, y, BOX_TOP_LEFT, border_style);
-        }
-
-        // Horizontal segments with T-down connectors
-        for col in 0..weeks {
-            let x = start_x + 1 + (col as u16 * CELL_WIDTH);
-            if x + 2 >= max_x {
-                break;
-            }
-            buf.set_string(x, y, BOX_HORIZONTAL, border_style);
-            buf.set_string(x + 1, y, BOX_HORIZONTAL, border_style);
-
-            if col < weeks - 1 {
-                buf.set_string(x + 2, y, BOX_T_DOWN, border_style);
-            } else {
-                buf.set_string(x + 2, y, BOX_TOP_RIGHT, border_style);
-            }
-        }
-    }
-
-    /// Render a content row: Mon │██│██│██│
+    /// Render a content row: Mon ████████
     fn render_content_row(
         &self,
         area: Rect,
@@ -268,7 +225,6 @@ impl Heatmap {
     ) {
         let start_x = area.x + x_offset + LABEL_WIDTH;
         let max_x = area.x + area.width;
-        let border_style = Style::default().fg(Color::DarkGray);
 
         // Draw weekday label
         buf.set_string(
@@ -278,19 +234,14 @@ impl Heatmap {
             Style::default().fg(Color::DarkGray),
         );
 
-        // Left border
-        if start_x < max_x {
-            buf.set_string(start_x, y, BOX_VERTICAL, border_style);
-        }
-
-        // Cells with right borders
+        // Cells (no borders)
         let row = &self.grid[day_idx];
         for (col_idx, cell) in row.iter().enumerate() {
             if col_idx >= self.weeks_to_show {
                 break;
             }
-            let x = start_x + 1 + (col_idx as u16 * CELL_WIDTH);
-            if x + 2 >= max_x {
+            let x = start_x + (col_idx as u16 * CELL_WIDTH);
+            if x + 2 > max_x {
                 break;
             }
 
@@ -298,79 +249,6 @@ impl Heatmap {
             if let Some(cell) = cell {
                 let style = Style::default().fg(cell.intensity.color());
                 buf.set_string(x, y, "██", style);
-            }
-
-            // Right border
-            buf.set_string(x + 2, y, BOX_VERTICAL, border_style);
-        }
-    }
-
-    /// Render a separator row: ├──┼──┼──┤
-    fn render_separator_row(
-        &self,
-        area: Rect,
-        buf: &mut Buffer,
-        y: u16,
-        weeks: usize,
-        x_offset: u16,
-    ) {
-        let start_x = area.x + x_offset + LABEL_WIDTH;
-        let max_x = area.x + area.width;
-        let border_style = Style::default().fg(Color::DarkGray);
-
-        // Left T-right
-        if start_x < max_x {
-            buf.set_string(start_x, y, BOX_T_RIGHT, border_style);
-        }
-
-        // Horizontal segments with cross connectors
-        for col in 0..weeks {
-            let x = start_x + 1 + (col as u16 * CELL_WIDTH);
-            if x + 2 >= max_x {
-                break;
-            }
-            buf.set_string(x, y, BOX_HORIZONTAL, border_style);
-            buf.set_string(x + 1, y, BOX_HORIZONTAL, border_style);
-
-            if col < weeks - 1 {
-                buf.set_string(x + 2, y, BOX_CROSS, border_style);
-            } else {
-                buf.set_string(x + 2, y, BOX_T_LEFT, border_style);
-            }
-        }
-    }
-
-    /// Render the bottom border row: └──┴──┴──┘
-    fn render_bottom_border(
-        &self,
-        area: Rect,
-        buf: &mut Buffer,
-        y: u16,
-        weeks: usize,
-        x_offset: u16,
-    ) {
-        let start_x = area.x + x_offset + LABEL_WIDTH;
-        let max_x = area.x + area.width;
-        let border_style = Style::default().fg(Color::DarkGray);
-
-        // Left corner
-        if start_x < max_x {
-            buf.set_string(start_x, y, BOX_BOTTOM_LEFT, border_style);
-        }
-
-        // Horizontal segments with T-up connectors
-        for col in 0..weeks {
-            let x = start_x + 1 + (col as u16 * CELL_WIDTH);
-            if x + 2 >= max_x {
-                break;
-            }
-            buf.set_string(x, y, BOX_HORIZONTAL, border_style);
-            buf.set_string(x + 1, y, BOX_HORIZONTAL, border_style);
-
-            if col < weeks - 1 {
-                buf.set_string(x + 2, y, BOX_T_UP, border_style);
-            } else {
-                buf.set_string(x + 2, y, BOX_BOTTOM_RIGHT, border_style);
             }
         }
     }
@@ -389,38 +267,24 @@ const DISPLAY_ROWS: [(usize, &str); 7] = [
 
 impl Widget for Heatmap {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let weeks = self.weeks_to_show;
         let x_offset = self.calculate_x_offset(area);
         let start_x = area.x + x_offset + LABEL_WIDTH;
 
-        // Row 0: Top border (┌──┬──┬──┐)
-        self.render_top_border(area, buf, weeks, x_offset);
-
-        // Rows 1-13: Alternating content and separator
+        // Render 7 rows (Mon-Sun) directly, no borders
         for (day_idx, (_, label)) in DISPLAY_ROWS.iter().enumerate() {
-            let content_y = area.y + 1 + (day_idx as u16 * CELL_HEIGHT);
-            if content_y >= area.y + area.height {
+            let y = area.y + day_idx as u16;
+            if y >= area.y + area.height {
                 break;
             }
 
-            // Content row: Mon │██│██│██│
-            self.render_content_row(area, buf, content_y, day_idx, label, x_offset);
-
-            // Separator row: ├──┼──┼──┤ (or └──┴──┴──┘ for last)
-            let separator_y = content_y + 1;
-            if separator_y < area.y + area.height {
-                if day_idx < 6 {
-                    self.render_separator_row(area, buf, separator_y, weeks, x_offset);
-                } else {
-                    self.render_bottom_border(area, buf, separator_y, weeks, x_offset);
-                }
-            }
+            // Content row: Mon ████████
+            self.render_content_row(area, buf, y, day_idx, label, x_offset);
         }
 
-        // Render month labels below the grid (after 15 rows: 1 top + 7*2 content/sep)
-        let month_label_y = area.y + 15;
+        // Render month labels below the grid (after 7 rows)
+        let month_label_y = area.y + 7;
         if month_label_y < area.y + area.height && !self.grid[0].is_empty() {
-            self.render_month_labels(area, buf, start_x + 1, month_label_y, CELL_WIDTH);
+            self.render_month_labels(area, buf, start_x, month_label_y, CELL_WIDTH);
         }
     }
 }
@@ -644,60 +508,41 @@ mod tests {
 
     #[test]
     fn test_weeks_for_width_wide() {
-        // 52 weeks needs: label 4 + left border 1 + 52*3 = 161 (3-char cells with borders)
-        // So width >= 161 -> 52 weeks
-        assert_eq!(Heatmap::weeks_for_width(161), 52);
-        assert_eq!(Heatmap::weeks_for_width(180), 52);
+        // 52 weeks needs: label 4 + 52*2 = 108 (2-char cells, no borders)
+        // So width >= 108 -> 52 weeks
+        assert_eq!(Heatmap::weeks_for_width(108), 52);
+        assert_eq!(Heatmap::weeks_for_width(120), 52);
         assert_eq!(Heatmap::weeks_for_width(200), 52);
     }
 
     #[test]
     fn test_weeks_for_width_medium() {
-        // 26 weeks needs: label 4 + left border 1 + 26*3 = 83
-        // So width 83-160 -> 26 weeks
-        assert_eq!(Heatmap::weeks_for_width(83), 26);
-        assert_eq!(Heatmap::weeks_for_width(120), 26);
-        assert_eq!(Heatmap::weeks_for_width(160), 26);
+        // 26 weeks needs: label 4 + 26*2 = 56
+        // So width 56-107 -> 26 weeks
+        assert_eq!(Heatmap::weeks_for_width(56), 26);
+        assert_eq!(Heatmap::weeks_for_width(80), 26);
+        assert_eq!(Heatmap::weeks_for_width(107), 26);
     }
 
     #[test]
     fn test_weeks_for_width_narrow() {
-        // 13 weeks needs: label 4 + left border 1 + 13*3 = 44
-        // So width < 83 -> 13 weeks
-        assert_eq!(Heatmap::weeks_for_width(44), 13);
-        assert_eq!(Heatmap::weeks_for_width(82), 13);
+        // 13 weeks needs: label 4 + 13*2 = 30
+        // So width < 56 -> 13 weeks
+        assert_eq!(Heatmap::weeks_for_width(30), 13);
+        assert_eq!(Heatmap::weeks_for_width(55), 13);
     }
 
-    // ========== CELL_HEIGHT/WIDTH tests ==========
+    // ========== CELL_WIDTH tests ==========
 
     #[test]
     fn test_cell_dimensions() {
-        // Cell should be 2 rows height (1 content + 1 border)
-        assert_eq!(CELL_HEIGHT, 2);
-        // Cell should be 3 chars wide (2 content + 1 border)
-        assert_eq!(CELL_WIDTH, 3);
+        // Cell should be 2 chars wide (no border)
+        assert_eq!(CELL_WIDTH, 2);
         // Label width should be 4 chars ("Mon ")
         assert_eq!(LABEL_WIDTH, 4);
     }
 
-    // ========== Box Drawing constants tests ==========
-
-    #[test]
-    fn test_box_drawing_constants() {
-        assert_eq!(BOX_TOP_LEFT, "┌");
-        assert_eq!(BOX_TOP_RIGHT, "┐");
-        assert_eq!(BOX_BOTTOM_LEFT, "└");
-        assert_eq!(BOX_BOTTOM_RIGHT, "┘");
-        assert_eq!(BOX_HORIZONTAL, "─");
-        assert_eq!(BOX_VERTICAL, "│");
-        assert_eq!(BOX_T_DOWN, "┬");
-        assert_eq!(BOX_T_UP, "┴");
-        assert_eq!(BOX_T_RIGHT, "├");
-        assert_eq!(BOX_T_LEFT, "┤");
-        assert_eq!(BOX_CROSS, "┼");
-    }
-
-    // ========== Grid border rendering tests ==========
+    // ========== Grid rendering tests (borderless) ==========
 
     /// Helper to create a test buffer and heatmap
     fn create_test_heatmap(weeks: usize) -> (Heatmap, Rect, Buffer) {
@@ -708,9 +553,9 @@ mod tests {
         ];
         let heatmap = Heatmap::new(&daily_tokens, today, weeks);
 
-        // Create area large enough for grid: label(4) + border(1) + weeks*3
-        let width = LABEL_WIDTH + 1 + (weeks as u16 * CELL_WIDTH);
-        let height = 17; // 1 top + 7*2 content/sep + month
+        // Create area large enough for grid: label(4) + weeks*2
+        let width = LABEL_WIDTH + (weeks as u16 * CELL_WIDTH);
+        let height = 8; // 7 rows + 1 month label
         let area = Rect::new(0, 0, width, height);
         let buf = Buffer::empty(area);
 
@@ -718,130 +563,51 @@ mod tests {
     }
 
     #[test]
-    fn test_render_top_border_pattern() {
-        let (heatmap, area, mut buf) = create_test_heatmap(3);
-
-        // x_offset is 0 when buffer width equals heatmap width
-        heatmap.render_top_border(area, &mut buf, 3, 0);
-
-        // Top border at y=0: "    ┌──┬──┬──┐"
-        // Position: label(4) + pattern
-        let start_x = LABEL_WIDTH as usize;
-
-        // Check left corner
-        let cell = buf.cell((start_x as u16, 0)).unwrap();
-        assert_eq!(cell.symbol(), BOX_TOP_LEFT);
-
-        // Check right corner (at start_x + 1 + 3*3 - 1 = start_x + 9)
-        let end_x = start_x + 1 + (3 * CELL_WIDTH as usize) - 1;
-        let cell = buf.cell((end_x as u16, 0)).unwrap();
-        assert_eq!(cell.symbol(), BOX_TOP_RIGHT);
-    }
-
-    #[test]
-    fn test_render_separator_row_pattern() {
-        let (heatmap, area, mut buf) = create_test_heatmap(3);
-
-        // x_offset is 0 when buffer width equals heatmap width
-        heatmap.render_separator_row(area, &mut buf, 2, 3, 0);
-
-        // Separator at y=2: "    ├──┼──┼──┤"
-        let start_x = LABEL_WIDTH as usize;
-
-        // Check left T-right
-        let cell = buf.cell((start_x as u16, 2)).unwrap();
-        assert_eq!(cell.symbol(), BOX_T_RIGHT);
-
-        // Check right T-left
-        let end_x = start_x + 1 + (3 * CELL_WIDTH as usize) - 1;
-        let cell = buf.cell((end_x as u16, 2)).unwrap();
-        assert_eq!(cell.symbol(), BOX_T_LEFT);
-
-        // Check middle cross (at first internal junction)
-        let cross_x = start_x + 1 + CELL_WIDTH as usize - 1;
-        let cell = buf.cell((cross_x as u16, 2)).unwrap();
-        assert_eq!(cell.symbol(), BOX_CROSS);
-    }
-
-    #[test]
-    fn test_render_bottom_border_pattern() {
-        let (heatmap, area, mut buf) = create_test_heatmap(3);
-
-        // x_offset is 0 when buffer width equals heatmap width
-        heatmap.render_bottom_border(area, &mut buf, 14, 3, 0);
-
-        // Bottom border: "    └──┴──┴──┘"
-        let start_x = LABEL_WIDTH as usize;
-
-        // Check left corner
-        let cell = buf.cell((start_x as u16, 14)).unwrap();
-        assert_eq!(cell.symbol(), BOX_BOTTOM_LEFT);
-
-        // Check right corner
-        let end_x = start_x + 1 + (3 * CELL_WIDTH as usize) - 1;
-        let cell = buf.cell((end_x as u16, 14)).unwrap();
-        assert_eq!(cell.symbol(), BOX_BOTTOM_RIGHT);
-
-        // Check T-up (at first internal junction)
-        let t_up_x = start_x + 1 + CELL_WIDTH as usize - 1;
-        let cell = buf.cell((t_up_x as u16, 14)).unwrap();
-        assert_eq!(cell.symbol(), BOX_T_UP);
-    }
-
-    #[test]
-    fn test_render_content_row_has_vertical_borders() {
-        let (heatmap, area, mut buf) = create_test_heatmap(3);
-
-        // x_offset is 0 when buffer width equals heatmap width
-        heatmap.render_content_row(area, &mut buf, 1, 0, "Mon", 0);
-
-        let start_x = LABEL_WIDTH as usize;
-
-        // Check left vertical border
-        let cell = buf.cell((start_x as u16, 1)).unwrap();
-        assert_eq!(cell.symbol(), BOX_VERTICAL);
-
-        // Check right border of first cell
-        let first_cell_right = start_x + CELL_WIDTH as usize;
-        let cell = buf.cell((first_cell_right as u16, 1)).unwrap();
-        assert_eq!(cell.symbol(), BOX_VERTICAL);
-    }
-
-    #[test]
     fn test_render_content_row_has_label() {
         let (heatmap, area, mut buf) = create_test_heatmap(3);
 
         // x_offset is 0 when buffer width equals heatmap width
-        heatmap.render_content_row(area, &mut buf, 1, 0, "Mon", 0);
+        heatmap.render_content_row(area, &mut buf, 0, 0, "Mon", 0);
 
         // Check label at x=0
-        let cell = buf.cell((0, 1)).unwrap();
+        let cell = buf.cell((0, 0)).unwrap();
         assert_eq!(cell.symbol(), "M");
-        let cell = buf.cell((1, 1)).unwrap();
+        let cell = buf.cell((1, 0)).unwrap();
         assert_eq!(cell.symbol(), "o");
-        let cell = buf.cell((2, 1)).unwrap();
+        let cell = buf.cell((2, 0)).unwrap();
         assert_eq!(cell.symbol(), "n");
     }
 
     #[test]
-    fn test_full_grid_structure() {
+    fn test_render_content_row_no_borders() {
+        let (heatmap, area, mut buf) = create_test_heatmap(3);
+
+        // x_offset is 0 when buffer width equals heatmap width
+        heatmap.render_content_row(area, &mut buf, 0, 0, "Mon", 0);
+
+        let start_x = LABEL_WIDTH as usize;
+
+        // Cell content should be directly at start_x (no left border)
+        let cell = buf.cell((start_x as u16, 0)).unwrap();
+        // Should be a block char from intensity, not a border
+        assert_ne!(cell.symbol(), "│");
+    }
+
+    #[test]
+    fn test_full_grid_structure_borderless() {
         let (heatmap, area, mut buf) = create_test_heatmap(3);
 
         // Render full heatmap
         heatmap.render(area, &mut buf);
 
-        let start_x = LABEL_WIDTH;
+        // Row 0: Mon content row - should have label
+        assert_eq!(buf.cell((0, 0)).unwrap().symbol(), "M");
+        assert_eq!(buf.cell((1, 0)).unwrap().symbol(), "o");
+        assert_eq!(buf.cell((2, 0)).unwrap().symbol(), "n");
 
-        // Row 0: Top border - check corners
-        assert_eq!(buf.cell((start_x, 0)).unwrap().symbol(), BOX_TOP_LEFT);
-
-        // Row 1: Mon content row - check left border
-        assert_eq!(buf.cell((start_x, 1)).unwrap().symbol(), BOX_VERTICAL);
-
-        // Row 2: Separator - check left T
-        assert_eq!(buf.cell((start_x, 2)).unwrap().symbol(), BOX_T_RIGHT);
-
-        // Row 14: Bottom border - check left corner
-        assert_eq!(buf.cell((start_x, 14)).unwrap().symbol(), BOX_BOTTOM_LEFT);
+        // Row 6: Sun content row - should have label
+        assert_eq!(buf.cell((0, 6)).unwrap().symbol(), "S");
+        assert_eq!(buf.cell((1, 6)).unwrap().symbol(), "u");
+        assert_eq!(buf.cell((2, 6)).unwrap().symbol(), "n");
     }
 }

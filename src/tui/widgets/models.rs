@@ -73,6 +73,9 @@ impl ModelsData {
 /// Maximum content width for Models view (consistent with Overview)
 const MAX_CONTENT_WIDTH: u16 = 170;
 
+/// Table width: Model(30) + Tokens(18) + Cost(12) + Usage(18) = 78
+const TABLE_WIDTH: u16 = 78;
+
 /// Models view widget
 pub struct ModelsView<'a> {
     data: &'a ModelsData,
@@ -140,6 +143,11 @@ impl Widget for ModelsView<'_> {
 }
 
 impl ModelsView<'_> {
+    /// Calculate horizontal offset to center the table
+    fn calculate_table_offset(&self, area_width: u16) -> u16 {
+        area_width.saturating_sub(TABLE_WIDTH) / 2
+    }
+
     fn render_tabs(&self, area: Rect, buf: &mut Buffer) {
         let tab_bar = TabBar::new(self.selected_tab);
         tab_bar.render(area, buf);
@@ -151,7 +159,9 @@ impl ModelsView<'_> {
     }
 
     fn render_header(&self, area: Rect, buf: &mut Buffer) {
-        // Column widths: Model(30), Tokens(15), Cost(12), Usage(12)
+        let offset = self.calculate_table_offset(area.width);
+
+        // Column widths: Model(30), Tokens(18), Cost(12), Usage(18)
         let header = Line::from(vec![
             Span::styled(
                 format!("{:<30}", "Model"),
@@ -160,7 +170,7 @@ impl ModelsView<'_> {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!("{:>15}", "Tokens"),
+                format!("{:>18}", "Tokens"),
                 Style::default()
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),
@@ -172,7 +182,7 @@ impl ModelsView<'_> {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!("{:>12}", "% Usage"),
+                format!("{:>18}", "Usage"),
                 Style::default()
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),
@@ -180,10 +190,20 @@ impl ModelsView<'_> {
         ]);
 
         let paragraph = Paragraph::new(header).alignment(Alignment::Left);
-        paragraph.render(area, buf);
+        paragraph.render(
+            Rect {
+                x: area.x + offset,
+                y: area.y,
+                width: TABLE_WIDTH.min(area.width),
+                height: area.height,
+            },
+            buf,
+        );
     }
 
     fn render_models(&self, area: Rect, buf: &mut Buffer) {
+        let offset = self.calculate_table_offset(area.width);
+
         for (i, model) in self
             .data
             .models
@@ -202,7 +222,7 @@ impl ModelsView<'_> {
                 0.0
             };
 
-            let bar = format_percentage_bar(percent, 8);
+            let bar = format_percentage_bar(percent, 14);
 
             // Truncate model name if too long (UTF-8 safe)
             let name = if model.name.chars().count() > 28 {
@@ -214,22 +234,22 @@ impl ModelsView<'_> {
             let row = Line::from(vec![
                 Span::styled(format!("{:<30}", name), Style::default().fg(Color::Cyan)),
                 Span::styled(
-                    format!("{:>15}", format_number(model.total_tokens)),
+                    format!("{:>18}", format_number(model.total_tokens)),
                     Style::default().fg(Color::White),
                 ),
                 Span::styled(
                     format!("{:>12}", format!("${:.2}", model.cost_usd)),
                     Style::default().fg(Color::Magenta),
                 ),
-                Span::styled(format!(" {}", bar), Style::default().fg(Color::Green)),
+                Span::styled(format!("{:>18}", bar), Style::default().fg(Color::Green)),
             ]);
 
             let paragraph = Paragraph::new(row).alignment(Alignment::Left);
             paragraph.render(
                 Rect {
-                    x: area.x,
+                    x: area.x + offset,
                     y,
-                    width: area.width,
+                    width: TABLE_WIDTH.min(area.width),
                     height: 1,
                 },
                 buf,

@@ -237,6 +237,15 @@ fn test_parse_claude_jsonl() {
 - [x] 방향키 스크롤 (↑↓/j/k - Task 5.4에서 구현)
 - [x] q 종료 (Task 5.1에서 구현)
 
+### Task 5.7: TUI 가독성/반응형 개선 ✅
+- [x] Models/Daily 테이블 중앙정렬 (calculate_table_offset)
+- [x] Daily 컬럼 폭 확장 (14→18자, 100조까지 지원)
+- [x] Stats 카드 색상 차별화 (테두리/제목 각 카드별 고유 색상)
+- [x] Stats 카드 3열 고정 (2x3 균형 그리드)
+- [x] Legend 반응형 배치 (heatmap 우측 끝에 맞춤)
+- [x] Models/Daily "Usage" 헤더 추가 및 bar 크기 확장 (8→14)
+- [x] Usage 컬럼 우측 정렬
+
 ---
 
 ## Phase 6: CLI 명령어
