@@ -8,6 +8,16 @@ required_context:
 
 # Review
 
+## Chain (MUST)
+```
+/clarify → Plan Mode → /implement → /verify → /review → /wrap
+                                              ^^^^^^^^
+                                              현재 단계
+```
+| 이전 | 현재 | 다음 (자동 호출) |
+|------|------|------------------|
+| `/verify` | `/review` | `/wrap` (PASS 시 즉시) |
+
 ## Purpose
 구현 완료 후 **부정적 관점**에서 검토. 문제를 찾는 것이 목표.
 
@@ -51,11 +61,15 @@ required_context:
 - 권장 수정사항
 
 ### Verdict
-- [ ] PASS: 커밋 가능
-- [ ] FAIL: 수정 필요 (이유)
+- [ ] PASS: 커밋 가능 → /wrap 자동 호출
+- [ ] FAIL: 수정 필요 → /implement로 복귀
 ```
 
 ## Rules
 - 문제를 찾는 것이 목적 (칭찬 금지)
 - 발견된 문제는 수정 후 재검증
 - FAIL 시 /implement로 돌아가 수정
+
+## NEXT STEP (자동 실행)
+- **PASS**: **사용자 확인 없이 즉시** `/wrap` 호출
+- **FAIL**: `/implement`로 복귀하여 수정 후 체인 재시작

@@ -8,6 +8,16 @@ required_context:
 
 # Clarify
 
+## Chain (MUST)
+```
+[시작] → /clarify → Plan Mode → /implement → /verify → /review → /wrap
+         ^^^^^^^^
+         현재 단계
+```
+| 이전 | 현재 | 다음 |
+|------|------|------|
+| 세션 시작 | `/clarify` | `EnterPlanMode()` → `/implement` |
+
 ## Flow
 ```
 Record Original → AskUserQuestion → Summary → EnterPlanMode()
@@ -25,5 +35,5 @@ Record Original → AskUserQuestion → Summary → EnterPlanMode()
 - TDD 가능 수준까지 구체화
 - clarify 후 반드시 Plan Mode 진입
 
-## After Plan Approval
-Plan이 승인되면 즉시 `/implement` 스킬 호출하여 구현 시작
+## NEXT STEP (자동 실행)
+Plan이 승인되면 **사용자 확인 없이 즉시** `/implement` 스킬 호출

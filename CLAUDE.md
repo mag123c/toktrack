@@ -24,15 +24,26 @@ cargo build --release
 
 **Session start**: Run `/next` to see current progress and next task.
 
-**Auto-transition rules**:
-- **Plan provided directly** → skip clarify/plan, start with `/implement` skill immediately
-- After plan approval → immediately run `/implement` skill
-- After implement completes → auto-call `/verify`
-- After verify passes → auto-call `/review`
-- After review passes → auto-call `/wrap`
-- `/wrap` must:
-  - Update `ai-context/*.md` if architecture/conventions changed
-  - Update `docs/planning/*.md` task checkboxes for completed work
+## Skill Chain (ENFORCED - 위반 금지)
+
+| 완료 단계 | 다음 호출 | 조건 | 확인 필요 |
+|-----------|----------|------|----------|
+| Plan 승인 | `/implement` | 즉시 | **NO** |
+| `/implement` | `/verify` | 구현 완료 시 | **NO** |
+| `/verify` | `/review` | 통과 시 | **NO** |
+| `/review` | `/wrap` | PASS 시 | **NO** |
+
+**CRITICAL**:
+- 각 단계 완료 후 "다음 단계 진행할까요?" **묻지 말 것**
+- 사용자 확인 없이 **즉시** 다음 스킬 호출
+- 체인 중단 = 세션 미완료 (버그로 간주)
+
+**예외 상황**:
+- `/verify` 실패 → 수정 후 재실행
+- `/review` FAIL → `/implement`로 복귀
+- 사용자가 명시적으로 중단 요청
+
+**Plan provided directly** → skip clarify/plan, start with `/implement` skill immediately
 
 See `.claude/skills/` for skill details.
 

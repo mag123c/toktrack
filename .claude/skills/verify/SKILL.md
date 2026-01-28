@@ -6,6 +6,16 @@ required_context: []
 
 # Verify
 
+## Chain (MUST)
+```
+/clarify → Plan Mode → /implement → /verify → /review → /wrap
+                                    ^^^^^^^
+                                    현재 단계
+```
+| 이전 | 현재 | 다음 (자동 호출) |
+|------|------|------------------|
+| `/implement` | `/verify` | `/review` (통과 시 즉시) |
+
 ## Flow
 ```
 cargo test → cargo clippy → cargo fmt --check
@@ -28,3 +38,6 @@ cargo fmt --all -- --check
 - 커밋 전 필수 실행
 - 순서: test → clippy → fmt
 - 모두 통과해야 다음 단계 진행
+
+## NEXT STEP (자동 실행)
+모든 검증 통과 시 **사용자 확인 없이 즉시** `/review` 호출

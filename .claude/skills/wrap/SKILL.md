@@ -7,9 +7,19 @@ required_context:
 
 # Wrap
 
+## Chain (MUST - 종료 단계)
+```
+/clarify → Plan Mode → /implement → /verify → /review → /wrap
+                                                        ^^^^^
+                                                        현재 단계 (종료)
+```
+| 이전 | 현재 | 다음 |
+|------|------|------|
+| `/review` PASS | `/wrap` | 세션 완료 |
+
 ## Flow
 ```
-Git Status → Doc Check → User Selection → Execute
+Git Status → Doc Check → User Selection → Execute → 완료
 ```
 
 ## Execution
@@ -39,6 +49,8 @@ Git Status → Doc Check → User Selection → Execute
 ## Commit
 ```
 {type}({scope}): {summary}
-
-Co-Authored-By: Claude <noreply@anthropic.com>
 ```
+
+## COMPLETION
+wrap 완료 = **스킬 체인 정상 종료**
+다음 작업은 새 `/clarify` 또는 `/next`로 시작
