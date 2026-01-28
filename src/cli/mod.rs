@@ -3,7 +3,7 @@
 use clap::{Parser, Subcommand};
 
 use crate::parsers::ParserRegistry;
-use crate::services::{Aggregator, PricingService};
+use crate::services::{check_and_prompt_update, Aggregator, PricingService};
 use crate::types::{DailySummary, StatsData};
 
 /// Ultra-fast AI CLI token usage tracker
@@ -38,7 +38,10 @@ enum Commands {
 impl Cli {
     pub fn run(self) -> anyhow::Result<()> {
         match self.command {
-            None | Some(Commands::Tui) => crate::tui::run(),
+            None | Some(Commands::Tui) => {
+                check_and_prompt_update();
+                crate::tui::run()
+            }
             Some(Commands::Daily { json }) => run_daily(json),
             Some(Commands::Stats { json }) => run_stats(json),
         }
