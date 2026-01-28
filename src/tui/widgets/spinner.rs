@@ -17,6 +17,7 @@ const TAGLINE: &str = "Ultra-fast LLM token tracker";
 
 /// Loading stage for display
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // Parsing/Aggregating reserved for future progress reporting
 pub enum LoadingStage {
     Scanning,
     Parsing,

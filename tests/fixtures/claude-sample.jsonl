@@ -3,3 +3,4 @@
 invalid json line here
 {"type":"assistant","timestamp":"2026-01-15T10:05:00.000Z","sessionId":"abc123","requestId":"req-002","message":{"model":"claude-opus-4-20250514","id":"msg-002","usage":{"input_tokens":500,"output_tokens":200}},"costUSD":0.025}
 {"type":"assistant","timestamp":"2026-01-15T10:10:00.000Z","sessionId":"abc123","message":{"model":"claude-sonnet-4-20250514","usage":{"input_tokens":150,"output_tokens":75}}}
+{"type":"assistant","timestamp":"2026-01-15T10:15:00.000Z","sessionId":"abc123","message":{"model":"<synthetic>","usage":{"input_tokens":0,"output_tokens":0}}}

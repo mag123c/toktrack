@@ -69,6 +69,11 @@ impl ClaudeCodeParser {
         let message = data.message.as_ref()?;
         let usage = message.usage.as_ref()?;
 
+        // Skip synthetic responses (no actual API call)
+        if message.model == Some("<synthetic>") {
+            return None;
+        }
+
         let timestamp = match DateTime::parse_from_rfc3339(data.timestamp) {
             Ok(dt) => dt.with_timezone(&Utc),
             Err(_) => {
@@ -270,5 +275,21 @@ mod tests {
         let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
         let entries = parser.parse_file(&fixture_path("empty.jsonl")).unwrap();
         assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn test_skip_synthetic_model() {
+        let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
+        let entries = parser
+            .parse_file(&fixture_path("claude-sample.jsonl"))
+            .unwrap();
+
+        // <synthetic> model entries should be filtered out
+        assert!(
+            entries
+                .iter()
+                .all(|e| e.model != Some("<synthetic>".to_string())),
+            "Synthetic model entries should be filtered out"
+        );
     }
 }

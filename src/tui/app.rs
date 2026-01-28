@@ -14,7 +14,7 @@ use ratatui::{
     DefaultTerminal, Frame,
 };
 
-use crate::parsers::{CLIParser, ClaudeCodeParser};
+use crate::parsers::ParserRegistry;
 use crate::services::{Aggregator, PricingService};
 use crate::types::{CacheWarning, StatsData, TotalSummary};
 
@@ -75,87 +75,6 @@ impl App {
             daily_scroll: 0,
             show_help: false,
         }
-    }
-
-    /// Load data from parser
-    pub fn load_data(&mut self) {
-        // Update stage to Parsing
-        self.state = AppState::Loading {
-            spinner_frame: 0,
-            stage: LoadingStage::Parsing,
-        };
-
-        let parser = ClaudeCodeParser::new();
-        let entries = match parser.parse_all() {
-            Ok(e) => e,
-            Err(e) => {
-                self.state = AppState::Error {
-                    message: format!("Failed to parse data: {}", e),
-                };
-                return;
-            }
-        };
-
-        // Calculate costs using PricingService (graceful fallback if unavailable)
-        let pricing = PricingService::new().ok();
-        let entries: Vec<_> = entries
-            .into_iter()
-            .map(|mut entry| {
-                if entry.cost_usd.is_none() {
-                    if let Some(ref pricing) = pricing {
-                        entry.cost_usd = Some(pricing.calculate_cost(&entry));
-                    }
-                }
-                entry
-            })
-            .collect();
-
-        // Update stage to Aggregating
-        self.state = AppState::Loading {
-            spinner_frame: 0,
-            stage: LoadingStage::Aggregating,
-        };
-
-        // Get total summary
-        let total = Aggregator::total(&entries);
-
-        // Get daily summaries
-        let daily_summaries = Aggregator::daily(&entries);
-
-        // Convert to daily tokens for heatmap (all tokens including cache)
-        let daily_tokens: Vec<(NaiveDate, u64)> = daily_summaries
-            .iter()
-            .map(|d| {
-                (
-                    d.date,
-                    d.total_input_tokens
-                        + d.total_output_tokens
-                        + d.total_cache_read_tokens
-                        + d.total_cache_creation_tokens,
-                )
-            })
-            .collect();
-
-        // Get model breakdown for Models view
-        let model_map = Aggregator::by_model(&entries);
-        let models_data = ModelsData::from_model_usage(&model_map);
-
-        // Create StatsData for Stats view (must be before daily_data since summaries are moved)
-        let stats_data = StatsData::from_daily_summaries(&daily_summaries);
-
-        // Create DailyData for Daily view (summaries are moved here)
-        let daily_data = DailyData::from_daily_summaries(daily_summaries);
-
-        self.state = AppState::Ready {
-            data: Box::new(AppData {
-                total,
-                daily_tokens,
-                models_data,
-                daily_data,
-                stats_data,
-                cache_warning: None, // TODO: Integrate with DailySummaryCacheService
-            }),
-        };
     }
 
     /// Handle keyboard events
@@ -306,10 +225,21 @@ pub fn run() -> anyhow::Result<()> {
 
 /// Load data synchronously (extracted for background thread)
 fn load_data_sync() -> Result<Box<AppData>, String> {
-    let parser = ClaudeCodeParser::new();
-    let entries = parser
-        .parse_all()
-        .map_err(|e| format!("Failed to parse data: {}", e))?;
+    let registry = ParserRegistry::new();
+    let mut entries = Vec::new();
+
+    for parser in registry.parsers() {
+        match parser.parse_all() {
+            Ok(parser_entries) => entries.extend(parser_entries),
+            Err(e) => {
+                eprintln!("[toktrack] Warning: {} failed: {}", parser.name(), e);
+            }
+        }
+    }
+
+    if entries.is_empty() {
+        return Err("No usage data found from any CLI".to_string());
+    }
 
     // Calculate costs using PricingService (graceful fallback if unavailable)
     let pricing = PricingService::new().ok();
