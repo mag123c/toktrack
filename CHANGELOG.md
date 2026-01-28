@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/mag123c/toktrack/compare/v0.1.6...v0.1.7) (2026-01-28)
+
+
+### Bug Fixes
+
+* **parser:** restore ParserRegistry in TUI and filter synthetic models ([aa6abc3](https://github.com/mag123c/toktrack/commit/aa6abc328638d1adca84e16de8bc971dcda7ac1f))
+
 ## [0.1.6](https://github.com/mag123c/toktrack/compare/v0.1.5...v0.1.6) (2026-01-28)
 
 
