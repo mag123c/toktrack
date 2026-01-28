@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/mag123c/toktrack/compare/v0.1.4...v0.1.5) (2026-01-28)
+
+
+### Bug Fixes
+
+* **tui:** reverse daily view sort order and initial scroll position ([cd137db](https://github.com/mag123c/toktrack/commit/cd137dbe53ead5e5fa6f82981d0ed2b32f155e47))
+
 ## [0.1.4](https://github.com/mag123c/toktrack/compare/v0.1.3...v0.1.4) (2026-01-28)
 
 
