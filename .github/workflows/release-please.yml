@@ -13,9 +13,18 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - uses: googleapis/release-please-action@v4
         id: release
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      # Auto-merge release PR when CI passes
+      - name: Enable auto-merge for Release PR
+        if: steps.release.outputs.pr
+        run: gh pr merge ${{ steps.release.outputs.pr }} --auto --squash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

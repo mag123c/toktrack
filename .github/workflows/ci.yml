@@ -3,6 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'CHANGELOG.md'
+      - '.release-please-manifest.json'
+      - 'Cargo.toml'  # release-please updates version here
   pull_request:
     branches: [main]
 
