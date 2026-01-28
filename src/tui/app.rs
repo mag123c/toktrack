@@ -14,7 +14,7 @@ use ratatui::{
 
 use crate::parsers::{CLIParser, ClaudeCodeParser};
 use crate::services::{Aggregator, PricingService};
-use crate::types::{CacheWarning, TotalSummary};
+use crate::types::{CacheWarning, StatsData, TotalSummary};
 
 use super::widgets::{
     daily::{DailyData, DailyView},
@@ -22,7 +22,7 @@ use super::widgets::{
     models::{ModelsData, ModelsView},
     overview::{Overview, OverviewData},
     spinner::{LoadingStage, Spinner},
-    stats::{StatsData, StatsView},
+    stats::StatsView,
     tabs::Tab,
 };
 

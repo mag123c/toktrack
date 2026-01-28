@@ -1,6 +1,5 @@
 //! Stats view widget - displays usage statistics in a card grid
 
-use chrono::NaiveDate;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Layout, Rect},
@@ -11,78 +10,7 @@ use ratatui::{
 
 use super::overview::format_number;
 use super::tabs::{Tab, TabBar};
-use crate::types::DailySummary;
-
-/// Data for the stats view
-#[derive(Debug, Clone)]
-pub struct StatsData {
-    /// Total tokens across all days
-    pub total_tokens: u64,
-    /// Daily average tokens
-    pub daily_avg_tokens: u64,
-    /// Peak day (date, tokens)
-    pub peak_day: Option<(NaiveDate, u64)>,
-    /// Total cost in USD
-    pub total_cost: f64,
-    /// Daily average cost
-    pub daily_avg_cost: f64,
-    /// Number of active days
-    pub active_days: u32,
-}
-
-impl StatsData {
-    /// Create StatsData from daily summaries
-    pub fn from_daily_summaries(summaries: &[DailySummary]) -> Self {
-        if summaries.is_empty() {
-            return Self {
-                total_tokens: 0,
-                daily_avg_tokens: 0,
-                peak_day: None,
-                total_cost: 0.0,
-                daily_avg_cost: 0.0,
-                active_days: 0,
-            };
-        }
-
-        let active_days = summaries.len() as u32;
-
-        // Calculate totals
-        let mut total_tokens: u64 = 0;
-        let mut total_cost: f64 = 0.0;
-        let mut peak_day: Option<(NaiveDate, u64)> = None;
-
-        for summary in summaries {
-            let day_tokens = summary.total_input_tokens
-                + summary.total_output_tokens
-                + summary.total_cache_read_tokens
-                + summary.total_cache_creation_tokens;
-
-            total_tokens += day_tokens;
-            total_cost += summary.total_cost_usd;
-
-            // Track peak day
-            match &peak_day {
-                None => peak_day = Some((summary.date, day_tokens)),
-                Some((_, max_tokens)) if day_tokens > *max_tokens => {
-                    peak_day = Some((summary.date, day_tokens));
-                }
-                _ => {}
-            }
-        }
-
-        let daily_avg_tokens = total_tokens / active_days as u64;
-        let daily_avg_cost = total_cost / active_days as f64;
-
-        Self {
-            total_tokens,
-            daily_avg_tokens,
-            peak_day,
-            total_cost,
-            daily_avg_cost,
-            active_days,
-        }
-    }
-}
+use crate::types::StatsData;
 
 /// Maximum content width for Stats view (consistent with other views)
 const MAX_CONTENT_WIDTH: u16 = 170;
@@ -322,94 +250,7 @@ struct StatCard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
-
-    #[allow(clippy::too_many_arguments)]
-    fn make_summary(
-        year: i32,
-        month: u32,
-        day: u32,
-        input: u64,
-        output: u64,
-        cache_read: u64,
-        cache_creation: u64,
-        cost: f64,
-    ) -> DailySummary {
-        DailySummary {
-            date: NaiveDate::from_ymd_opt(year, month, day).unwrap(),
-            total_input_tokens: input,
-            total_output_tokens: output,
-            total_cache_read_tokens: cache_read,
-            total_cache_creation_tokens: cache_creation,
-            total_cost_usd: cost,
-            models: HashMap::new(),
-        }
-    }
-
-    #[test]
-    fn test_stats_data_empty() {
-        let data = StatsData::from_daily_summaries(&[]);
-
-        assert_eq!(data.total_tokens, 0);
-        assert_eq!(data.daily_avg_tokens, 0);
-        assert!(data.peak_day.is_none());
-        assert!((data.total_cost - 0.0).abs() < f64::EPSILON);
-        assert!((data.daily_avg_cost - 0.0).abs() < f64::EPSILON);
-        assert_eq!(data.active_days, 0);
-    }
-
-    #[test]
-    fn test_stats_data_single_day() {
-        let summaries = vec![make_summary(2024, 1, 15, 1000, 500, 100, 50, 0.10)];
-        let data = StatsData::from_daily_summaries(&summaries);
-
-        assert_eq!(data.total_tokens, 1650); // 1000 + 500 + 100 + 50
-        assert_eq!(data.daily_avg_tokens, 1650);
-        assert_eq!(
-            data.peak_day,
-            Some((NaiveDate::from_ymd_opt(2024, 1, 15).unwrap(), 1650))
-        );
-        assert!((data.total_cost - 0.10).abs() < f64::EPSILON);
-        assert!((data.daily_avg_cost - 0.10).abs() < f64::EPSILON);
-        assert_eq!(data.active_days, 1);
-    }
-
-    #[test]
-    fn test_stats_data_multiple_days() {
-        let summaries = vec![
-            make_summary(2024, 1, 10, 100, 50, 10, 5, 0.05), // 165 tokens
-            make_summary(2024, 1, 15, 500, 250, 50, 25, 0.20), // 825 tokens (peak)
-            make_summary(2024, 1, 20, 200, 100, 20, 10, 0.10), // 330 tokens
-        ];
-        let data = StatsData::from_daily_summaries(&summaries);
-
-        assert_eq!(data.total_tokens, 165 + 825 + 330); // 1320
-        assert_eq!(data.daily_avg_tokens, 1320 / 3); // 440
-        assert_eq!(
-            data.peak_day,
-            Some((NaiveDate::from_ymd_opt(2024, 1, 15).unwrap(), 825))
-        );
-        assert!((data.total_cost - 0.35).abs() < f64::EPSILON);
-        assert!((data.daily_avg_cost - 0.35 / 3.0).abs() < 0.001);
-        assert_eq!(data.active_days, 3);
-    }
-
-    #[test]
-    fn test_stats_data_peak_day_tie_keeps_first() {
-        // When multiple days have the same max tokens, first one wins
-        let summaries = vec![
-            make_summary(2024, 1, 10, 500, 250, 50, 25, 0.10), // 825 tokens (first peak)
-            make_summary(2024, 1, 15, 500, 250, 50, 25, 0.10), // 825 tokens (tie)
-            make_summary(2024, 1, 20, 100, 50, 10, 5, 0.05),   // 165 tokens
-        ];
-        let data = StatsData::from_daily_summaries(&summaries);
-
-        // First day with max should win
-        assert_eq!(
-            data.peak_day,
-            Some((NaiveDate::from_ymd_opt(2024, 1, 10).unwrap(), 825))
-        );
-    }
+    use chrono::NaiveDate;
 
     #[test]
     fn test_stats_view_builds_six_cards() {
