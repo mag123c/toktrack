@@ -52,6 +52,7 @@ impl ClaudeCodeParser {
     }
 
     /// Create a parser with a custom data directory (for testing)
+    #[allow(dead_code)] // Used in tests
     pub fn with_data_dir(data_dir: PathBuf) -> Self {
         Self { data_dir }
     }

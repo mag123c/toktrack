@@ -1,5 +1,4 @@
 //! Parser traits and implementations for AI CLI tools
-#![allow(dead_code)]
 
 mod claude;
 
@@ -13,6 +12,7 @@ use std::path::{Path, PathBuf};
 /// Trait for parsing usage data from AI CLI tools
 pub trait CLIParser: Send + Sync {
     /// Parser name (e.g., "claude-code")
+    #[allow(dead_code)] // Part of trait API, used in tests
     fn name(&self) -> &str;
 
     /// Data directory to scan for usage files
@@ -63,10 +63,12 @@ pub trait CLIParser: Send + Sync {
 }
 
 /// Registry of available parsers
+#[allow(dead_code)] // Reserved for multi-CLI support
 pub struct ParserRegistry {
     parsers: Vec<Box<dyn CLIParser>>,
 }
 
+#[allow(dead_code)] // Reserved for multi-CLI support
 impl ParserRegistry {
     /// Create a new registry with default parsers
     pub fn new() -> Self {

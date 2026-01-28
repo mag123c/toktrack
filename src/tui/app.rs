@@ -14,10 +14,11 @@ use ratatui::{
 
 use crate::parsers::{CLIParser, ClaudeCodeParser};
 use crate::services::{Aggregator, PricingService};
-use crate::types::TotalSummary;
+use crate::types::{CacheWarning, TotalSummary};
 
 use super::widgets::{
     daily::{DailyData, DailyView},
+    help::HelpPopup,
     models::{ModelsData, ModelsView},
     overview::{Overview, OverviewData},
     spinner::{LoadingStage, Spinner},
@@ -45,6 +46,9 @@ pub struct AppData {
     pub models_data: ModelsData,
     pub daily_data: DailyData,
     pub stats_data: StatsData,
+    /// Cache warning indicator for display in TUI
+    #[allow(dead_code)] // Reserved for warning indicator feature
+    pub cache_warning: Option<CacheWarning>,
 }
 
 /// Main application
@@ -53,6 +57,7 @@ pub struct App {
     should_quit: bool,
     current_tab: Tab,
     daily_scroll: usize,
+    show_help: bool,
 }
 
 impl App {
@@ -66,6 +71,7 @@ impl App {
             should_quit: false,
             current_tab: Tab::default(),
             daily_scroll: 0,
+            show_help: false,
         }
     }
 
@@ -145,6 +151,7 @@ impl App {
                 models_data,
                 daily_data,
                 stats_data,
+                cache_warning: None, // TODO: Integrate with DailySummaryCacheService
             }),
         };
     }
@@ -173,6 +180,9 @@ impl App {
                         if let Some(tab) = Tab::from_number(c as u8 - b'0') {
                             self.current_tab = tab;
                         }
+                    }
+                    KeyCode::Char('?') => {
+                        self.show_help = !self.show_help;
                     }
                     _ => {}
                 }
@@ -238,30 +248,42 @@ impl Widget for &App {
                 let spinner = Spinner::new(*spinner_frame, *stage);
                 spinner.render(area, buf);
             }
-            AppState::Ready { data } => match self.current_tab {
-                Tab::Overview => {
-                    let today = Local::now().date_naive();
-                    let overview_data = OverviewData {
-                        total: &data.total,
-                        daily_tokens: &data.daily_tokens,
-                    };
-                    let overview = Overview::new(overview_data, today).with_tab(self.current_tab);
-                    overview.render(area, buf);
+            AppState::Ready { data } => {
+                // Render main view
+                match self.current_tab {
+                    Tab::Overview => {
+                        let today = Local::now().date_naive();
+                        let overview_data = OverviewData {
+                            total: &data.total,
+                            daily_tokens: &data.daily_tokens,
+                        };
+                        let overview =
+                            Overview::new(overview_data, today).with_tab(self.current_tab);
+                        overview.render(area, buf);
+                    }
+                    Tab::Models => {
+                        let models_view =
+                            ModelsView::new(&data.models_data).with_tab(self.current_tab);
+                        models_view.render(area, buf);
+                    }
+                    Tab::Daily => {
+                        let daily_view = DailyView::new(&data.daily_data, self.daily_scroll)
+                            .with_tab(self.current_tab);
+                        daily_view.render(area, buf);
+                    }
+                    Tab::Stats => {
+                        let stats_view =
+                            StatsView::new(&data.stats_data).with_tab(self.current_tab);
+                        stats_view.render(area, buf);
+                    }
                 }
-                Tab::Models => {
-                    let models_view = ModelsView::new(&data.models_data).with_tab(self.current_tab);
-                    models_view.render(area, buf);
+
+                // Render help popup overlay if active
+                if self.show_help {
+                    let popup_area = HelpPopup::centered_area(area);
+                    HelpPopup::new().render(popup_area, buf);
                 }
-                Tab::Daily => {
-                    let daily_view = DailyView::new(&data.daily_data, self.daily_scroll)
-                        .with_tab(self.current_tab);
-                    daily_view.render(area, buf);
-                }
-                Tab::Stats => {
-                    let stats_view = StatsView::new(&data.stats_data).with_tab(self.current_tab);
-                    stats_view.render(area, buf);
-                }
-            },
+            }
             AppState::Error { message } => {
                 let y = area.y + area.height / 2;
                 let text = format!("Error: {}", message);
@@ -424,5 +446,20 @@ mod tests {
         let event = Event::Key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE));
         app.handle_event(event);
         assert_eq!(app.current_tab, Tab::Overview);
+    }
+
+    #[test]
+    fn test_app_help_toggle() {
+        let mut app = App::new();
+        assert!(!app.show_help);
+
+        // Press '?' to show help
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
+        app.handle_event(event.clone());
+        assert!(app.show_help);
+
+        // Press '?' again to hide help
+        app.handle_event(event);
+        assert!(!app.show_help);
     }
 }

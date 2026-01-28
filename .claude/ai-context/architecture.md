@@ -21,6 +21,7 @@ TUI[ratatui] → CLI[clap] → Services → Parsers[trait] → Cache
 | `widgets/overview.rs` | Overview layout (hero stat, sub-stats, keybindings) |
 | `widgets/models.rs` | Models view (per-model breakdown, cost %, percentage bar) |
 | `widgets/daily.rs` | Daily view (per-day breakdown, sparklines, scroll) |
+| `widgets/help.rs` | Help popup (keyboard shortcuts overlay, `?` toggle) |
 | `widgets/stats.rs` | Stats view (6 cards: total/avg tokens, peak day, costs, active days) |
 | `widgets/legend.rs` | Heatmap intensity legend |
 | `widgets/tabs.rs` | Tab enum, TabBar widget |

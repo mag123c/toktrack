@@ -20,6 +20,7 @@ pub fn format_sparkline(tokens: u64, max: u64, width: usize) -> String {
     }
     let ratio = tokens as f64 / max as f64;
     let filled = (ratio * width as f64).round() as usize;
+    let filled = filled.min(width); // Clamp to prevent overflow when ratio > 1.0
     let empty = width.saturating_sub(filled);
     format!("{}{}", "▓".repeat(filled), "░".repeat(empty))
 }
@@ -348,6 +349,12 @@ mod tests {
     #[test]
     fn test_format_sparkline_zero_width() {
         assert_eq!(format_sparkline(500, 1000, 0), "");
+    }
+
+    #[test]
+    fn test_format_sparkline_overflow_ratio() {
+        // When tokens > max (ratio > 1.0), should clamp to width
+        assert_eq!(format_sparkline(2000, 1000, 8), "▓▓▓▓▓▓▓▓");
     }
 
     // ========== DailyData tests ==========

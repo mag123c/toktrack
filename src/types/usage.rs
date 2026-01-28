@@ -1,5 +1,4 @@
 //! Usage types for token tracking
-#![allow(dead_code)]
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -39,6 +38,7 @@ pub struct UsageEntry {
 impl UsageEntry {
     /// Total tokens (input + output + cache_read + cache_creation)
     /// This matches ccusage's calculation which includes all token types
+    #[allow(dead_code)] // Part of public API
     pub fn total_tokens(&self) -> u64 {
         self.input_tokens + self.output_tokens + self.cache_read_tokens + self.cache_creation_tokens
     }
