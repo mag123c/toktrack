@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.13](https://github.com/mag123c/toktrack/compare/v0.1.12...v0.1.13) (2026-01-29)
+
+
+### Bug Fixes
+
+* **ci:** trigger release workflow from release-please and fix cross build ([81f88b2](https://github.com/mag123c/toktrack/commit/81f88b2d1df779668be140c1708af91597ccf173))
+
 ## [0.1.12](https://github.com/mag123c/toktrack/compare/v0.1.11...v0.1.12) (2026-01-29)
 
 
