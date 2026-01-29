@@ -144,10 +144,77 @@ fn bench_parse_all_files(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_parse_recent_files(c: &mut Criterion) {
+    let parser = ClaudeCodeParser::new();
+    let data_dir = parser.data_dir();
+
+    if !data_dir.exists() {
+        eprintln!("Skipping parse_recent_files: no real Claude data found");
+        return;
+    }
+
+    let all_files = find_all_jsonl(&data_dir);
+    if all_files.is_empty() {
+        eprintln!("Skipping parse_recent_files: no JSONL files found");
+        return;
+    }
+
+    let since_24h = std::time::SystemTime::now() - std::time::Duration::from_secs(24 * 3600);
+
+    // Count recent files and their sizes for reporting
+    let recent_files: Vec<&PathBuf> = all_files
+        .iter()
+        .filter(|f| {
+            f.metadata()
+                .and_then(|m| m.modified())
+                .map(|mtime| mtime >= since_24h)
+                .unwrap_or(true)
+        })
+        .collect();
+
+    let recent_size: u64 = recent_files
+        .iter()
+        .filter_map(|p| std::fs::metadata(p).ok())
+        .map(|m| m.len())
+        .sum();
+
+    let total_size: u64 = all_files
+        .iter()
+        .filter_map(|p| std::fs::metadata(p).ok())
+        .map(|m| m.len())
+        .sum();
+
+    eprintln!(
+        "parse_recent_files: {}/{} files, {:.2} MB / {:.2} GB total",
+        recent_files.len(),
+        all_files.len(),
+        recent_size as f64 / 1_048_576.0,
+        total_size as f64 / 1_073_741_824.0
+    );
+
+    let mut group = c.benchmark_group("parser");
+    group.sample_size(10);
+
+    group.bench_function("parse_all (cold path)", |b| {
+        b.iter(|| {
+            let _ = parser.parse_all();
+        });
+    });
+
+    group.bench_function("parse_recent_files_24h (warm path)", |b| {
+        b.iter(|| {
+            let _ = parser.parse_recent_files(black_box(since_24h));
+        });
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_parse_file,
     bench_parse_line,
-    bench_parse_all_files
+    bench_parse_all_files,
+    bench_parse_recent_files
 );
 criterion_main!(benches);
