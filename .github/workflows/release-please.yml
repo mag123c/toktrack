@@ -12,6 +12,9 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v4
 
@@ -31,9 +34,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Trigger release build + npm publish
-      - name: Trigger Release workflow
-        if: steps.release.outputs.release_created == 'true'
-        run: gh workflow run release.yml -f tag=${{ steps.release.outputs.tag_name }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  build-and-publish:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+    secrets: inherit
