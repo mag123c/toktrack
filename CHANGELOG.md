@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.16](https://github.com/mag123c/toktrack/compare/v0.1.15...v0.1.16) (2026-01-29)
+
+
+### Features
+
+* **tui:** move update notification to in-TUI overlay popup ([f646a55](https://github.com/mag123c/toktrack/commit/f646a5576b666d936e2680cea791b86eda88ae88))
+
 ## [0.1.15](https://github.com/mag123c/toktrack/compare/v0.1.14...v0.1.15) (2026-01-29)
 
 
