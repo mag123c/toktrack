@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.15](https://github.com/mag123c/toktrack/compare/v0.1.14...v0.1.15) (2026-01-29)
+
+
+### Bug Fixes
+
+* **ci:** use workflow_call instead of workflow_dispatch for release chain ([6d36aa1](https://github.com/mag123c/toktrack/commit/6d36aa1f67ef1cc385d99fd6b92081a00eedcdab))
+
 ## [0.1.14](https://github.com/mag123c/toktrack/compare/v0.1.13...v0.1.14) (2026-01-29)
 
 
