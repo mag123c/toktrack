@@ -62,18 +62,19 @@ PR → CI (3 OS) → main merge
                     ↓
             Release PR → CI → auto-merge
                     ↓
-                tag → release.yml (5 builds + npm)
+        tag + workflow_dispatch → release.yml (5 builds + npm)
 ```
 
 | Workflow | Trigger | Action |
 |----------|---------|--------|
 | `ci.yml` | PR, main push | fmt, clippy, test (3 OS) |
-| `release-please.yml` | main push | Release PR, auto-merge |
-| `release.yml` | tag v* | 5 platform builds, npm deploy |
+| `release-please.yml` | main push | Release PR, auto-merge, trigger release.yml |
+| `release.yml` | workflow_dispatch (from release-please) | 5 platform builds, npm deploy |
 
 Optimizations:
 - release-please commits skip CI (paths-ignore)
 - Release PR auto-merges on CI pass
+- release-please triggers release.yml via workflow_dispatch (GITHUB_TOKEN tags can't trigger other workflows)
 
 ## Commit Rules
 

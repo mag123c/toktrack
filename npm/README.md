@@ -1,8 +1,17 @@
 # toktrack
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/mag123c/toktrack/blob/main/LICENSE)
+
 Ultra-fast AI CLI token usage tracker. Built with Rust + simd-json + ratatui.
 
 ![toktrack overview](https://raw.githubusercontent.com/mag123c/toktrack/main/image.png)
+
+## Why toktrack?
+
+| Tool | Time (2,000+ files / 3GB) | |
+|------|---------------------------|---|
+| ccusage (Node.js) | ~43s | 1x |
+| **toktrack (Rust)** | **~3s** | **15x faster** |
 
 ## Installation
 
@@ -16,7 +25,7 @@ npm install -g toktrack
 
 ## Features
 
-- **Blazing Fast** - 40x faster than Node.js alternatives (~2 GiB/s throughput)
+- **Blazing Fast** - 15x faster than Node.js alternatives (~2 GiB/s throughput)
 - **Beautiful TUI** - 4 views (Overview, Models, Daily, Stats) with heatmap
 - **Multi-CLI Support** - Claude Code, Codex CLI, Gemini CLI
 - **CLI Commands** - `daily`, `stats` with JSON output
@@ -60,11 +69,10 @@ toktrack stats --json   # JSON output
 
 ## Performance
 
-| Tool | Time (2,000+ files) |
-|------|---------------------|
-| ccusage (Node.js) | ~20s |
-| ccusage (cached) | ~7s |
-| **toktrack** | **< 500ms** |
+| Tool | Time (2,000+ files / 3GB) | |
+|------|---------------------------|---|
+| ccusage (Node.js) | ~43s | 1x |
+| **toktrack** | **~3s** | **15x faster** |
 
 ## Links
 

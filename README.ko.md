@@ -1,10 +1,21 @@
 # toktrack
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 [English](README.md) | **한국어**
 
 Rust로 만든 초고속 AI CLI 토큰 사용량 트래커. simd-json + ratatui 기반.
 
 ![toktrack overview](image.png)
+
+## 왜 toktrack인가?
+
+| 도구 | 시간 (2,000+ 파일 / 3GB) | |
+|------|---------------------------|---|
+| ccusage (Node.js) | ~43초 | 1x |
+| **toktrack (Rust)** | **~3초** | **15배 빠름** |
+
+> ccusage의 성능 한계에 부딪혔습니다. Node.js 최적화를 최대한 적용한 후, Rust로 재작성했습니다.
 
 ## 주요 기능
 
@@ -71,10 +82,10 @@ toktrack backup
 
 | CLI | 상태 | 데이터 위치 |
 |-----|--------|---------------|
-| Claude Code | ✅ MVP | `~/.claude/projects/` |
-| OpenCode | 🔜 v1.1 | `~/.local/share/opencode/` |
-| Codex CLI | 🔜 v1.2 | `~/.codex/sessions/` |
-| Gemini CLI | 🔜 v1.3 | `~/.gemini/tmp/*/chats/` |
+| Claude Code | ✅ | `~/.claude/projects/` |
+| Codex CLI | ✅ | `~/.codex/sessions/` |
+| Gemini CLI | ✅ | `~/.gemini/tmp/*/chats/` |
+| OpenCode | 🔜 | `~/.local/share/opencode/` |
 
 ## 벤치마크
 
@@ -83,13 +94,12 @@ toktrack backup
 | 단일 파일 (simd-json) | ~1.0 GiB/s |
 | 병렬 처리 (rayon) | ~2.0 GiB/s |
 
-**실제 성능** (2,000+ 파일 / 2.9GB 데이터):
+**실제 성능** (2,000+ 파일 / 3GB 데이터):
 
-| 도구 | 시간 |
-|------|------|
-| ccusage (Node.js) | ~20초 |
-| ccusage (캐시 사용) | ~7초 |
-| **toktrack** | **< 500ms** |
+| 도구 | 시간 | |
+|------|------|---|
+| ccusage (Node.js) | ~43초 | 1x |
+| **toktrack** | **~3초** | **15배 빠름** |
 
 ## 데이터 보존
 
@@ -105,47 +115,25 @@ Claude Code의 자동 삭제 비활성화:
 }
 ```
 
-## 설정
-
-```toml
-# ~/.toktrack/config.toml
-
-[cache]
-enabled = true
-backup_on_start = true
-
-[tui]
-theme = "green"  # green, teal, blue, pink, purple, orange
-```
-
-## 아키텍처
-
-```
-toktrack/
-├── src/
-│   ├── parser/      # simd-json JSONL 파싱
-│   ├── services/    # 집계 및 파일 감시
-│   ├── tui/         # ratatui 기반 터미널 UI
-│   └── cli/         # 명령줄 인터페이스
-```
-
 ## 개발
 
 ```bash
-# 전체 검사 실행 (fmt + clippy + test)
-make check
+make check    # fmt + clippy + test (커밋 전 실행)
+cargo test    # 테스트 실행
+cargo bench   # 벤치마크 실행
+```
 
-# 테스트 실행
-cargo test
+## 로드맵
 
-# 감시 모드로 실행
-cargo watch -x test
+- [ ] **성능 개선** - 3GB+ 데이터셋 1초 이내 목표
+- [ ] **OpenCode 지원**
 
-# 벤치마크 실행
-cargo bench
+## 기여하기
 
-# 릴리스 빌드
-cargo build --release
+이슈와 PR 환영합니다!
+
+```bash
+make check  # PR 전 실행
 ```
 
 ## 라이선스
