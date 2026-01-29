@@ -100,6 +100,7 @@ pub struct App {
     daily_view_mode: DailyViewMode,
     show_help: bool,
     update_status: UpdateStatus,
+    update_selection: u8, // 0 = Update now, 1 = Skip
     pending_data: Option<Result<Box<AppData>, String>>,
 }
 
@@ -119,6 +120,7 @@ impl App {
             daily_view_mode: config.initial_view_mode,
             show_help: false,
             update_status: UpdateStatus::Checking,
+            update_selection: 0,
             pending_data: None,
         }
     }
@@ -189,19 +191,23 @@ impl App {
         if let Event::Key(key) = event {
             if key.kind == KeyEventKind::Press {
                 match (&self.update_status, key.code) {
-                    // Available state: u triggers update, q/Esc quits, any other key skips
-                    (UpdateStatus::Available { .. }, KeyCode::Char('u') | KeyCode::Char('U')) => {
-                        self.update_status = UpdateStatus::Updating;
+                    // Available state: ↑↓ to select, Enter to confirm, q/Esc to quit
+                    (UpdateStatus::Available { .. }, KeyCode::Up | KeyCode::Down) => {
+                        self.update_selection = 1 - self.update_selection;
+                    }
+                    (UpdateStatus::Available { .. }, KeyCode::Enter) => {
+                        if self.update_selection == 0 {
+                            self.update_status = UpdateStatus::Updating;
+                        } else {
+                            self.update_status = UpdateStatus::Resolved;
+                            self.consume_pending_data();
+                        }
                     }
                     (
                         UpdateStatus::Available { .. },
                         KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc,
                     ) => {
                         self.should_quit = true;
-                    }
-                    (UpdateStatus::Available { .. }, _) => {
-                        self.update_status = UpdateStatus::Resolved;
-                        self.consume_pending_data();
                     }
                     // UpdateDone state: any key dismisses
                     (UpdateStatus::UpdateDone { success, .. }, _) => {
@@ -354,7 +360,7 @@ impl Widget for &App {
         match &self.update_status {
             UpdateStatus::Available { current, latest } => {
                 let popup_area = UpdatePopup::centered_area(area);
-                UpdatePopup::new(current, latest).render(popup_area, buf);
+                UpdatePopup::new(current, latest, self.update_selection).render(popup_area, buf);
             }
             UpdateStatus::Updating => {
                 let popup_area = UpdateMessagePopup::centered_area(area);
@@ -944,26 +950,45 @@ mod tests {
     }
 
     #[test]
-    fn test_update_overlay_skip_any_key() {
+    fn test_update_overlay_skip_via_selection() {
         let mut app = make_update_available_app();
 
-        // Press space → should skip (resolve)
-        let event = Event::Key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-        app.handle_update_event(event);
+        // ↓ to select Skip, Enter to confirm
+        let down = Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        app.handle_update_event(down);
+        assert_eq!(app.update_selection, 1);
+
+        let enter = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        app.handle_update_event(enter);
 
         assert_eq!(app.update_status, UpdateStatus::Resolved);
         assert!(!app.should_quit());
     }
 
     #[test]
-    fn test_update_overlay_u_triggers_update() {
+    fn test_update_overlay_enter_triggers_update() {
         let mut app = make_update_available_app();
 
-        // Press 'u' → should trigger update
-        let event = Event::Key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE));
-        app.handle_update_event(event);
+        // Default selection=0 (Update now), Enter to confirm
+        assert_eq!(app.update_selection, 0);
+        let enter = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        app.handle_update_event(enter);
 
         assert_eq!(app.update_status, UpdateStatus::Updating);
+    }
+
+    #[test]
+    fn test_update_overlay_arrow_toggles_selection() {
+        let mut app = make_update_available_app();
+        assert_eq!(app.update_selection, 0);
+
+        let down = Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        app.handle_update_event(down);
+        assert_eq!(app.update_selection, 1);
+
+        let up = Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+        app.handle_update_event(up);
+        assert_eq!(app.update_selection, 0);
     }
 
     #[test]
@@ -1018,9 +1043,11 @@ mod tests {
             cache_warning: None,
         })));
 
-        // Skip update overlay
-        let event = Event::Key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-        app.handle_update_event(event);
+        // Skip update overlay: ↓ to Skip, Enter to confirm
+        let down = Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        app.handle_update_event(down);
+        let enter = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        app.handle_update_event(enter);
 
         // Should have consumed pending_data and transitioned to Ready
         assert_eq!(app.update_status, UpdateStatus::Resolved);

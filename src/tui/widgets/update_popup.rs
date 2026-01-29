@@ -10,17 +10,22 @@ use ratatui::{
 
 /// Width and height of the update popup
 const POPUP_WIDTH: u16 = 48;
-const POPUP_HEIGHT: u16 = 10;
+const POPUP_HEIGHT: u16 = 11;
 
 /// Update popup overlay showing available update info
 pub struct UpdatePopup<'a> {
     current: &'a str,
     latest: &'a str,
+    selection: u8, // 0 = Update now, 1 = Skip
 }
 
 impl<'a> UpdatePopup<'a> {
-    pub fn new(current: &'a str, latest: &'a str) -> Self {
-        Self { current, latest }
+    pub fn new(current: &'a str, latest: &'a str, selection: u8) -> Self {
+        Self {
+            current,
+            latest,
+            selection,
+        }
     }
 
     /// Calculate centered popup area
@@ -58,9 +63,10 @@ impl<'a> Widget for UpdatePopup<'a> {
             Constraint::Length(1), // [2] Padding
             Constraint::Length(1), // [3] Separator
             Constraint::Length(1), // [4] Padding
-            Constraint::Length(1), // [5] u: Update
-            Constraint::Length(1), // [6] any key: Skip
-            Constraint::Min(0),    // Remaining
+            Constraint::Length(1), // [5] Update now
+            Constraint::Length(1), // [6] Skip
+            Constraint::Length(1), // [7] Padding
+            Constraint::Length(1), // [8] Key hints
         ])
         .split(inner);
 
@@ -93,22 +99,63 @@ impl<'a> Widget for UpdatePopup<'a> {
             Style::default().fg(Color::DarkGray),
         );
 
-        // Key hints
+        // Selection items
+        let (update_marker, update_style) = if self.selection == 0 {
+            (
+                "▸ ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )
+        } else {
+            ("  ", Style::default().fg(Color::DarkGray))
+        };
         let update_line = Line::from(vec![
-            Span::styled("  u", Style::default().fg(Color::Cyan)),
-            Span::styled("  Update now", Style::default().fg(Color::White)),
+            Span::styled(update_marker, update_style),
+            Span::styled("Update now", update_style),
         ]);
         Paragraph::new(update_line)
-            .alignment(Alignment::Left)
+            .alignment(Alignment::Center)
             .render(chunks[5], buf);
 
+        let (skip_marker, skip_style) = if self.selection == 1 {
+            (
+                "▸ ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )
+        } else {
+            ("  ", Style::default().fg(Color::DarkGray))
+        };
         let skip_line = Line::from(vec![
-            Span::styled("  any key", Style::default().fg(Color::Cyan)),
-            Span::styled("  Skip", Style::default().fg(Color::DarkGray)),
+            Span::styled(skip_marker, skip_style),
+            Span::styled("Skip", skip_style),
         ]);
         Paragraph::new(skip_line)
-            .alignment(Alignment::Left)
+            .alignment(Alignment::Center)
             .render(chunks[6], buf);
+
+        // Key hints
+        let hint_line = Line::from(vec![
+            Span::styled(
+                "↑↓",
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" Select  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "Enter",
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" Confirm", Style::default().fg(Color::DarkGray)),
+        ]);
+        Paragraph::new(hint_line)
+            .alignment(Alignment::Center)
+            .render(chunks[8], buf);
     }
 }
 
@@ -192,7 +239,7 @@ mod tests {
         let area = Rect::new(0, 0, 60, 20);
         let popup_area = UpdatePopup::centered_area(area);
         let mut buf = Buffer::empty(area);
-        let popup = UpdatePopup::new("0.1.14", "0.2.0");
+        let popup = UpdatePopup::new("0.1.14", "0.2.0", 0);
         popup.render(popup_area, &mut buf);
     }
 
