@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.14](https://github.com/mag123c/toktrack/compare/v0.1.13...v0.1.14) (2026-01-29)
+
+
+### Documentation
+
+* **docs:** update CI/CD docs, README, and add blog draft ([493d2e9](https://github.com/mag123c/toktrack/commit/493d2e982fa41c44225320d0b2a3b7439dccb574))
+
 ## [0.1.13](https://github.com/mag123c/toktrack/compare/v0.1.12...v0.1.13) (2026-01-29)
 
 
