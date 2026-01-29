@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.17](https://github.com/mag123c/toktrack/compare/v0.1.16...v0.1.17) (2026-01-29)
+
+
+### Features
+
+* **cli:** add weekly/monthly subcommands, TUI-first dispatch ([5a6ef44](https://github.com/mag123c/toktrack/commit/5a6ef44df5d249eb4425de854f5ba202fc14698c))
+
+
+### Performance
+
+* **services:** cache-first loading pipeline for TUI and CLI ([04cd85e](https://github.com/mag123c/toktrack/commit/04cd85ea09a963ee5287dbafbf10df883936399a))
+
 ## [0.1.16](https://github.com/mag123c/toktrack/compare/v0.1.15...v0.1.16) (2026-01-29)
 
 
