@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.18](https://github.com/mag123c/toktrack/compare/v0.1.17...v0.1.18) (2026-01-29)
+
+
+### Features
+
+* **tui:** replace update popup key hints with arrow-select UI ([48ab39c](https://github.com/mag123c/toktrack/commit/48ab39c19642294f69383baa1defd750cfb07765))
+
 ## [0.1.17](https://github.com/mag123c/toktrack/compare/v0.1.16...v0.1.17) (2026-01-29)
 
 
