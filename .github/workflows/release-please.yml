@@ -30,3 +30,10 @@ jobs:
           gh pr merge "$PR_NUMBER" --auto --squash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Trigger release build + npm publish
+      - name: Trigger Release workflow
+        if: steps.release.outputs.release_created == 'true'
+        run: gh workflow run release.yml -f tag=${{ steps.release.outputs.tag_name }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
