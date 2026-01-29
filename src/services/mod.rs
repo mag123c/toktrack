@@ -7,4 +7,5 @@ pub mod pricing;
 pub mod update_checker;
 
 pub use aggregator::Aggregator;
+pub use cache::DailySummaryCacheService;
 pub use pricing::PricingService;

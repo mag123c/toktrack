@@ -12,6 +12,7 @@ use crate::types::{Result, UsageEntry};
 use rayon::prelude::*;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 /// Trait for parsing usage data from AI CLI tools
 pub trait CLIParser: Send + Sync {
@@ -30,11 +31,36 @@ pub trait CLIParser: Send + Sync {
 
     /// Parse all files in parallel using rayon, with deduplication
     fn parse_all(&self) -> Result<Vec<UsageEntry>> {
-        let pattern = self.data_dir().join(self.file_pattern());
-        let files: Vec<PathBuf> = glob::glob(&pattern.to_string_lossy())
-            .map(|paths| paths.filter_map(|e| e.ok()).collect())
-            .unwrap_or_default();
+        let files = self.collect_files();
+        Self::parse_and_dedup(self, &files)
+    }
 
+    /// Parse only files modified since `since`, with deduplication.
+    /// Falls back to including files whose mtime cannot be read.
+    fn parse_recent_files(&self, since: SystemTime) -> Result<Vec<UsageEntry>> {
+        let all_files = self.collect_files();
+        let recent: Vec<PathBuf> = all_files
+            .into_iter()
+            .filter(|f| {
+                f.metadata()
+                    .and_then(|m| m.modified())
+                    .map(|mtime| mtime >= since)
+                    .unwrap_or(true) // include on mtime failure (safe direction)
+            })
+            .collect();
+        Self::parse_and_dedup(self, &recent)
+    }
+
+    /// Collect all files matching the glob pattern
+    fn collect_files(&self) -> Vec<PathBuf> {
+        let pattern = self.data_dir().join(self.file_pattern());
+        glob::glob(&pattern.to_string_lossy())
+            .map(|paths| paths.filter_map(|e| e.ok()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Parse files in parallel and deduplicate
+    fn parse_and_dedup(&self, files: &[PathBuf]) -> Result<Vec<UsageEntry>> {
         let all_entries: Vec<UsageEntry> = files
             .par_iter()
             .flat_map(|f| match self.parse_file(f) {
@@ -154,5 +180,41 @@ mod tests {
         let result = parser.parse_all().unwrap();
         // empty.jsonl contributes 0 entries, total = 5
         assert_eq!(result.len(), 5);
+    }
+
+    #[test]
+    fn test_parse_recent_files_includes_all_recent() {
+        // All fixture files were modified recently (exist on disk now)
+        // Using epoch as since → all files should be included
+        let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
+        let since = std::time::UNIX_EPOCH;
+        let result = parser.parse_recent_files(since).unwrap();
+        // Same as parse_all: all files are "recent" relative to epoch
+        assert_eq!(result.len(), 5);
+    }
+
+    #[test]
+    fn test_parse_recent_files_filters_old() {
+        // Using a future time as since → no files should match
+        let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
+        let since = SystemTime::now() + std::time::Duration::from_secs(3600);
+        let result = parser.parse_recent_files(since).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_parse_recent_files_empty_directory() {
+        let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures/nonexistent"));
+        let since = std::time::UNIX_EPOCH;
+        let result = parser.parse_recent_files(since).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_collect_files() {
+        let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
+        let files = parser.collect_files();
+        // claude-sample.jsonl, empty.jsonl, multi/file1.jsonl, multi/file2.jsonl, codex/sample-session.jsonl
+        assert_eq!(files.len(), 5);
     }
 }

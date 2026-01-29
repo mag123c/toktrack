@@ -31,9 +31,12 @@ TUI[ratatui] → CLI[clap] → Services → Parsers[trait] → Cache
 trait CLIParser: Send + Sync {
     fn name(&self) -> &str;
     fn data_dir(&self) -> PathBuf;
-    fn file_pattern(&self) -> &str;  // e.g., "**/*.jsonl"
+    fn file_pattern(&self) -> &str;
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>>;
-    fn parse_all(&self) -> Result<Vec<UsageEntry>>;  // rayon parallel
+    fn parse_all(&self) -> Result<Vec<UsageEntry>>;           // full parse (rayon)
+    fn parse_recent_files(&self, since: SystemTime) -> Result<Vec<UsageEntry>>; // mtime filter
+    fn collect_files(&self) -> Vec<PathBuf>;                  // glob collect
+    fn parse_and_dedup(&self, files: &[PathBuf]) -> Result<Vec<UsageEntry>>;    // shared logic
 }
 ```
 
@@ -46,11 +49,18 @@ trait CLIParser: Send + Sync {
 
 ## Data Flow
 ```
-1. Scan data_dir (glob)
-2. Parse files (simd-json, parallel)
-3. Aggregate (daily/weekly/monthly/model/total)
-4. Calculate cost (LiteLLM pricing)
-5. Render TUI / Output JSON
+[Warm Path] cache exists:
+1. PricingService::from_cache_only()    → no network
+2. parse_recent_files(24h)              → mtime filter
+3. cache.load_or_compute(entries)       → cached past + fresh today
+4. Aggregator::total_from_daily()       → no raw entries needed
+5. Aggregator::by_model_from_daily()    → no raw entries needed
+
+[Cold Path] first run / no cache:
+1. parse_all() per parser               → full glob + rayon
+2. PricingService::new()                → network fallback
+3. cache.load_or_compute(entries)       → build cache
+4. Aggregator from summaries
 ```
 
 ## Parser Optimizations

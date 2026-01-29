@@ -170,6 +170,52 @@ impl Aggregator {
         model_map
     }
 
+    /// Compute TotalSummary from DailySummary slice (no raw entries needed)
+    pub fn total_from_daily(summaries: &[DailySummary]) -> TotalSummary {
+        if summaries.is_empty() {
+            return TotalSummary::default();
+        }
+
+        let mut summary = TotalSummary::default();
+        for s in summaries {
+            summary.total_input_tokens = summary
+                .total_input_tokens
+                .saturating_add(s.total_input_tokens);
+            summary.total_output_tokens = summary
+                .total_output_tokens
+                .saturating_add(s.total_output_tokens);
+            summary.total_cache_read_tokens = summary
+                .total_cache_read_tokens
+                .saturating_add(s.total_cache_read_tokens);
+            summary.total_cache_creation_tokens = summary
+                .total_cache_creation_tokens
+                .saturating_add(s.total_cache_creation_tokens);
+            summary.total_cost_usd += s.total_cost_usd;
+
+            // entry_count = sum of per-model counts across all daily summaries
+            for model_usage in s.models.values() {
+                summary.entry_count = summary.entry_count.saturating_add(model_usage.count);
+            }
+        }
+
+        summary.day_count = summaries.len() as u64;
+        summary
+    }
+
+    /// Compute model breakdown from DailySummary slice (no raw entries needed)
+    pub fn by_model_from_daily(summaries: &[DailySummary]) -> HashMap<String, ModelUsage> {
+        let mut model_map: HashMap<String, ModelUsage> = HashMap::new();
+
+        for s in summaries {
+            for (model_name, usage) in &s.models {
+                let target = model_map.entry(model_name.clone()).or_default();
+                merge_model_usage(target, usage);
+            }
+        }
+
+        model_map
+    }
+
     pub fn total(entries: &[UsageEntry]) -> TotalSummary {
         if entries.is_empty() {
             return TotalSummary::default();
@@ -708,5 +754,142 @@ mod tests {
         assert_eq!(result[0].date.to_string(), "2025-01-01");
         assert_eq!(result[1].date.to_string(), "2025-02-01");
         assert_eq!(result[2].date.to_string(), "2025-03-01");
+    }
+
+    // ========== total_from_daily tests ==========
+
+    #[test]
+    fn test_total_from_daily_empty() {
+        let result = Aggregator::total_from_daily(&[]);
+        assert_eq!(result.total_input_tokens, 0);
+        assert_eq!(result.total_output_tokens, 0);
+        assert_eq!(result.entry_count, 0);
+        assert_eq!(result.day_count, 0);
+    }
+
+    #[test]
+    fn test_total_from_daily_single() {
+        let mut models = HashMap::new();
+        models.insert(
+            "claude".to_string(),
+            ModelUsage {
+                input_tokens: 100,
+                output_tokens: 50,
+                cache_read_tokens: 10,
+                cache_creation_tokens: 5,
+                cost_usd: 0.01,
+                count: 3,
+            },
+        );
+        let summaries = vec![make_daily_summary_with_models(
+            2024, 1, 15, 100, 50, 0.01, models,
+        )];
+
+        let result = Aggregator::total_from_daily(&summaries);
+
+        assert_eq!(result.total_input_tokens, 100);
+        assert_eq!(result.total_output_tokens, 50);
+        assert!((result.total_cost_usd - 0.01).abs() < f64::EPSILON);
+        assert_eq!(result.entry_count, 3);
+        assert_eq!(result.day_count, 1);
+    }
+
+    #[test]
+    fn test_total_from_daily_multiple() {
+        let mut models_a = HashMap::new();
+        models_a.insert(
+            "claude".to_string(),
+            ModelUsage {
+                input_tokens: 100,
+                output_tokens: 50,
+                cost_usd: 0.01,
+                count: 2,
+                ..Default::default()
+            },
+        );
+        let mut models_b = HashMap::new();
+        models_b.insert(
+            "gpt-4".to_string(),
+            ModelUsage {
+                input_tokens: 200,
+                output_tokens: 100,
+                cost_usd: 0.02,
+                count: 1,
+                ..Default::default()
+            },
+        );
+        let summaries = vec![
+            make_daily_summary_with_models(2024, 1, 15, 100, 50, 0.01, models_a),
+            make_daily_summary_with_models(2024, 1, 16, 200, 100, 0.02, models_b),
+        ];
+
+        let result = Aggregator::total_from_daily(&summaries);
+
+        assert_eq!(result.total_input_tokens, 300);
+        assert_eq!(result.total_output_tokens, 150);
+        assert!((result.total_cost_usd - 0.03).abs() < f64::EPSILON);
+        assert_eq!(result.entry_count, 3); // 2 + 1
+        assert_eq!(result.day_count, 2);
+    }
+
+    // ========== by_model_from_daily tests ==========
+
+    #[test]
+    fn test_by_model_from_daily_empty() {
+        let result = Aggregator::by_model_from_daily(&[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_by_model_from_daily_merges_across_days() {
+        let mut models_a = HashMap::new();
+        models_a.insert(
+            "claude".to_string(),
+            ModelUsage {
+                input_tokens: 100,
+                output_tokens: 50,
+                cost_usd: 0.01,
+                count: 1,
+                ..Default::default()
+            },
+        );
+        let mut models_b = HashMap::new();
+        models_b.insert(
+            "claude".to_string(),
+            ModelUsage {
+                input_tokens: 200,
+                output_tokens: 100,
+                cost_usd: 0.02,
+                count: 2,
+                ..Default::default()
+            },
+        );
+        models_b.insert(
+            "gpt-4".to_string(),
+            ModelUsage {
+                input_tokens: 50,
+                output_tokens: 25,
+                cost_usd: 0.005,
+                count: 1,
+                ..Default::default()
+            },
+        );
+
+        let summaries = vec![
+            make_daily_summary_with_models(2024, 1, 15, 100, 50, 0.01, models_a),
+            make_daily_summary_with_models(2024, 1, 16, 250, 125, 0.025, models_b),
+        ];
+
+        let result = Aggregator::by_model_from_daily(&summaries);
+
+        assert_eq!(result.len(), 2);
+        let claude = result.get("claude").unwrap();
+        assert_eq!(claude.input_tokens, 300);
+        assert_eq!(claude.output_tokens, 150);
+        assert_eq!(claude.count, 3);
+
+        let gpt = result.get("gpt-4").unwrap();
+        assert_eq!(gpt.input_tokens, 50);
+        assert_eq!(gpt.count, 1);
     }
 }

@@ -73,6 +73,22 @@ impl PricingService {
         Ok(Self { cache, cache_path })
     }
 
+    /// Create a PricingService from cache only (no network).
+    /// Returns None if no cache file exists. Uses expired cache if available.
+    pub fn from_cache_only() -> Option<Self> {
+        let cache_path = Self::default_cache_path().ok()?;
+        Self::from_cache_only_with_path(&cache_path)
+    }
+
+    /// Cache-only constructor with custom path (for testing)
+    pub fn from_cache_only_with_path(cache_path: &PathBuf) -> Option<Self> {
+        let cache = Self::load_cache(cache_path).ok()?;
+        Some(Self {
+            cache,
+            cache_path: cache_path.clone(),
+        })
+    }
+
     /// Get the default cache path (~/.toktrack/pricing.json)
     fn default_cache_path() -> Result<PathBuf> {
         let home = directories::UserDirs::new()
@@ -482,5 +498,46 @@ mod tests {
 
         // We added 2 models in create_test_service
         assert_eq!(service.model_count(), 2);
+    }
+
+    // ========== from_cache_only tests ==========
+
+    #[test]
+    fn test_from_cache_only_with_valid_cache() {
+        let (_, temp_dir) = create_test_service();
+        let cache_path = temp_dir.path().join("pricing.json");
+
+        let service = PricingService::from_cache_only_with_path(&cache_path);
+        assert!(service.is_some());
+        assert_eq!(service.unwrap().model_count(), 2);
+    }
+
+    #[test]
+    fn test_from_cache_only_no_cache_returns_none() {
+        let temp_dir = TempDir::new().unwrap();
+        let cache_path = temp_dir.path().join("nonexistent.json");
+
+        let service = PricingService::from_cache_only_with_path(&cache_path);
+        assert!(service.is_none());
+    }
+
+    #[test]
+    fn test_from_cache_only_uses_expired_cache() {
+        let temp_dir = TempDir::new().unwrap();
+        let cache_path = temp_dir.path().join("pricing.json");
+
+        // Create expired cache (fetched_at = 0 → long expired)
+        let mut models = HashMap::new();
+        models.insert("test-model".to_string(), ModelPricing::default());
+        let cache = PricingCache {
+            fetched_at: 0,
+            models,
+        };
+        let content = serde_json::to_string_pretty(&cache).unwrap();
+        fs::write(&cache_path, content).unwrap();
+
+        let service = PricingService::from_cache_only_with_path(&cache_path);
+        assert!(service.is_some());
+        assert_eq!(service.unwrap().model_count(), 1);
     }
 }

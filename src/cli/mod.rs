@@ -3,7 +3,7 @@
 use clap::{Parser, Subcommand};
 
 use crate::parsers::ParserRegistry;
-use crate::services::{Aggregator, PricingService};
+use crate::services::{Aggregator, DailySummaryCacheService, PricingService};
 use crate::types::{DailySummary, StatsData};
 
 /// Ultra-fast AI CLI token usage tracker
@@ -45,35 +45,122 @@ impl Cli {
     }
 }
 
-/// Load and process usage data from all CLI parsers
+/// Load and process usage data from all CLI parsers.
+/// Uses cache-first strategy matching the TUI pipeline.
 fn load_data() -> anyhow::Result<Vec<DailySummary>> {
     let registry = ParserRegistry::new();
-    let mut all_entries = Vec::new();
+    let cache_service = DailySummaryCacheService::new().ok();
+    let pricing = PricingService::from_cache_only();
 
-    for parser in registry.parsers() {
-        match parser.parse_all() {
-            Ok(entries) => all_entries.extend(entries),
-            Err(e) => {
-                eprintln!("[toktrack] Warning: {} failed: {}", parser.name(), e);
-            }
-        }
-    }
+    let has_cache = cache_service.as_ref().is_some_and(|cs| {
+        registry
+            .parsers()
+            .iter()
+            .any(|p| cs.cache_path(p.name()).exists())
+    });
 
-    // Calculate cost (graceful fallback)
-    let pricing = PricingService::new().ok();
-    let entries: Vec<_> = all_entries
-        .into_iter()
-        .map(|mut e| {
-            if e.cost_usd.is_none() {
-                if let Some(ref p) = pricing {
-                    e.cost_usd = Some(p.calculate_cost(&e));
+    let mut all_summaries = Vec::new();
+
+    if has_cache {
+        // Warm path: recent files + cache
+        let since = std::time::SystemTime::now() - std::time::Duration::from_secs(24 * 3600);
+
+        for parser in registry.parsers() {
+            let entries = match parser.parse_recent_files(since) {
+                Ok(e) => e,
+                Err(e) => {
+                    eprintln!("[toktrack] Warning: {} failed: {}", parser.name(), e);
+                    continue;
+                }
+            };
+
+            let entries: Vec<_> = entries
+                .into_iter()
+                .map(|mut entry| {
+                    if entry.cost_usd.is_none() {
+                        if let Some(ref p) = pricing {
+                            entry.cost_usd = Some(p.calculate_cost(&entry));
+                        }
+                    }
+                    entry
+                })
+                .collect();
+
+            if let Some(ref cs) = cache_service {
+                match cs.load_or_compute(parser.name(), &entries) {
+                    Ok((summaries, _)) => all_summaries.extend(summaries),
+                    Err(e) => {
+                        eprintln!(
+                            "[toktrack] Warning: cache for {} failed: {}",
+                            parser.name(),
+                            e
+                        );
+                    }
                 }
             }
-            e
-        })
-        .collect();
+        }
 
-    Ok(Aggregator::daily(&entries))
+        if !all_summaries.is_empty() {
+            all_summaries.sort_by_key(|s| s.date);
+            return Ok(all_summaries);
+        }
+        // Fall through to cold path if warm produced nothing
+    }
+
+    // Cold path: full parse
+    let fallback_pricing = if pricing.is_none() {
+        PricingService::new().ok()
+    } else {
+        None
+    };
+    let pricing_ref = pricing.as_ref().or(fallback_pricing.as_ref());
+
+    for parser in registry.parsers() {
+        let entries = match parser.parse_all() {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!("[toktrack] Warning: {} failed: {}", parser.name(), e);
+                continue;
+            }
+        };
+
+        if entries.is_empty() {
+            continue;
+        }
+
+        let entries: Vec<_> = entries
+            .into_iter()
+            .map(|mut entry| {
+                if entry.cost_usd.is_none() {
+                    if let Some(p) = pricing_ref {
+                        entry.cost_usd = Some(p.calculate_cost(&entry));
+                    }
+                }
+                entry
+            })
+            .collect();
+
+        if let Some(ref cs) = cache_service {
+            match cs.load_or_compute(parser.name(), &entries) {
+                Ok((summaries, _)) => {
+                    all_summaries.extend(summaries);
+                    continue;
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[toktrack] Warning: cache for {} failed: {}",
+                        parser.name(),
+                        e
+                    );
+                }
+            }
+        }
+
+        all_summaries.extend(Aggregator::daily(&entries));
+    }
+
+    all_summaries.sort_by_key(|s| s.date);
+    Ok(all_summaries)
 }
 
 /// Format number with thousand separators
