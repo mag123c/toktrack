@@ -4,6 +4,9 @@ use clap::{Parser, Subcommand};
 
 use crate::parsers::ParserRegistry;
 use crate::services::{Aggregator, DailySummaryCacheService, PricingService};
+use crate::tui::widgets::daily::DailyViewMode;
+use crate::tui::widgets::tabs::Tab;
+use crate::tui::TuiConfig;
 use crate::types::{DailySummary, StatsData};
 
 /// Ultra-fast AI CLI token usage tracker
@@ -20,15 +23,29 @@ enum Commands {
     /// Launch interactive TUI (default)
     Tui,
 
-    /// Show daily usage report
+    /// Show daily usage (TUI daily tab, or JSON with --json)
     Daily {
         /// Output as JSON
         #[arg(long)]
         json: bool,
     },
 
-    /// Show usage statistics
+    /// Show usage statistics (TUI stats tab, or JSON with --json)
     Stats {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Show weekly usage (TUI daily tab weekly mode, or JSON with --json)
+    Weekly {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Show monthly usage (TUI daily tab monthly mode, or JSON with --json)
+    Monthly {
         /// Output as JSON
         #[arg(long)]
         json: bool,
@@ -38,9 +55,47 @@ enum Commands {
 impl Cli {
     pub fn run(self) -> anyhow::Result<()> {
         match self.command {
-            None | Some(Commands::Tui) => crate::tui::run(),
-            Some(Commands::Daily { json }) => run_daily(json),
-            Some(Commands::Stats { json }) => run_stats(json),
+            None | Some(Commands::Tui) => crate::tui::run(TuiConfig::default()),
+            Some(Commands::Daily { json }) => {
+                if json {
+                    run_daily_json()
+                } else {
+                    crate::tui::run(TuiConfig {
+                        initial_tab: Tab::Daily,
+                        initial_view_mode: DailyViewMode::Daily,
+                    })
+                }
+            }
+            Some(Commands::Stats { json }) => {
+                if json {
+                    run_stats_json()
+                } else {
+                    crate::tui::run(TuiConfig {
+                        initial_tab: Tab::Stats,
+                        initial_view_mode: DailyViewMode::default(),
+                    })
+                }
+            }
+            Some(Commands::Weekly { json }) => {
+                if json {
+                    run_weekly_json()
+                } else {
+                    crate::tui::run(TuiConfig {
+                        initial_tab: Tab::Daily,
+                        initial_view_mode: DailyViewMode::Weekly,
+                    })
+                }
+            }
+            Some(Commands::Monthly { json }) => {
+                if json {
+                    run_monthly_json()
+                } else {
+                    crate::tui::run(TuiConfig {
+                        initial_tab: Tab::Daily,
+                        initial_view_mode: DailyViewMode::Monthly,
+                    })
+                }
+            }
         }
     }
 }
@@ -163,113 +218,38 @@ fn load_data() -> anyhow::Result<Vec<DailySummary>> {
     Ok(all_summaries)
 }
 
-/// Format number with thousand separators
-fn format_tokens(n: u64) -> String {
-    let s = n.to_string();
-    let mut result = String::with_capacity(s.len() + s.len() / 3);
-    for (i, c) in s.chars().rev().enumerate() {
-        if i > 0 && i % 3 == 0 {
-            result.push(',');
-        }
-        result.push(c);
-    }
-    result.chars().rev().collect()
-}
-
-/// Run daily command
-fn run_daily(json: bool) -> anyhow::Result<()> {
+/// Output daily summaries as JSON
+fn run_daily_json() -> anyhow::Result<()> {
     let mut summaries = load_data()?;
-
-    // Sort by date descending (newest first)
     summaries.sort_by(|a, b| b.date.cmp(&a.date));
-
-    if json {
-        println!("{}", serde_json::to_string_pretty(&summaries)?);
-    } else {
-        print_daily_table(&summaries);
-    }
-
+    println!("{}", serde_json::to_string_pretty(&summaries)?);
     Ok(())
 }
 
-/// Print daily table
-fn print_daily_table(summaries: &[DailySummary]) {
-    // Header
-    println!(
-        "{:<12}│{:>10}│{:>10}│{:>10}│{:>10}│{:>10}",
-        "Date", "Input", "Output", "Cache", "Total", "Cost"
-    );
-    println!(
-        "{}",
-        "─".repeat(12 + 1 + 10 + 1 + 10 + 1 + 10 + 1 + 10 + 1 + 10)
-    );
-
-    for summary in summaries {
-        let total = summary.total_input_tokens
-            + summary.total_output_tokens
-            + summary.total_cache_read_tokens
-            + summary.total_cache_creation_tokens;
-        let cache = summary.total_cache_read_tokens + summary.total_cache_creation_tokens;
-
-        println!(
-            "{:<12}│{:>10}│{:>10}│{:>10}│{:>10}│{:>10}",
-            summary.date.format("%Y-%m-%d"),
-            format_tokens(summary.total_input_tokens),
-            format_tokens(summary.total_output_tokens),
-            format_tokens(cache),
-            format_tokens(total),
-            format!("${:.2}", summary.total_cost_usd),
-        );
-    }
+/// Output weekly summaries as JSON
+fn run_weekly_json() -> anyhow::Result<()> {
+    let summaries = load_data()?;
+    let mut weekly = Aggregator::weekly(&summaries);
+    weekly.sort_by(|a, b| b.date.cmp(&a.date));
+    println!("{}", serde_json::to_string_pretty(&weekly)?);
+    Ok(())
 }
 
-/// Run stats command
-fn run_stats(json: bool) -> anyhow::Result<()> {
+/// Output monthly summaries as JSON
+fn run_monthly_json() -> anyhow::Result<()> {
+    let summaries = load_data()?;
+    let mut monthly = Aggregator::monthly(&summaries);
+    monthly.sort_by(|a, b| b.date.cmp(&a.date));
+    println!("{}", serde_json::to_string_pretty(&monthly)?);
+    Ok(())
+}
+
+/// Output stats as JSON
+fn run_stats_json() -> anyhow::Result<()> {
     let summaries = load_data()?;
     let stats = StatsData::from_daily_summaries(&summaries);
-
-    if json {
-        println!("{}", serde_json::to_string_pretty(&stats)?);
-    } else {
-        print_stats(&stats);
-    }
-
+    println!("{}", serde_json::to_string_pretty(&stats)?);
     Ok(())
-}
-
-/// Print stats text
-fn print_stats(stats: &StatsData) {
-    println!("Usage Statistics");
-    println!("{}", "═".repeat(40));
-    println!(
-        "{:<25}{:>15}",
-        "Total Tokens:",
-        format_tokens(stats.total_tokens)
-    );
-    println!(
-        "{:<25}{:>15}",
-        "Daily Average:",
-        format_tokens(stats.daily_avg_tokens)
-    );
-    println!(
-        "{:<25}{:>15}",
-        "Peak Day:",
-        stats
-            .peak_day
-            .map(|(date, tokens)| format!("{} ({})", date, format_tokens(tokens)))
-            .unwrap_or_else(|| "N/A".to_string())
-    );
-    println!(
-        "{:<25}{:>15}",
-        "Total Cost:",
-        format!("${:.2}", stats.total_cost)
-    );
-    println!(
-        "{:<25}{:>15}",
-        "Daily Avg Cost:",
-        format!("${:.2}", stats.daily_avg_cost)
-    );
-    println!("{:<25}{:>15}", "Active Days:", stats.active_days);
 }
 
 #[cfg(test)]
@@ -307,13 +287,36 @@ mod tests {
     }
 
     #[test]
-    fn test_format_tokens() {
-        assert_eq!(format_tokens(0), "0");
-        assert_eq!(format_tokens(999), "999");
-        assert_eq!(format_tokens(1000), "1,000");
-        assert_eq!(format_tokens(12345), "12,345");
-        assert_eq!(format_tokens(1234567), "1,234,567");
-        assert_eq!(format_tokens(12345678901), "12,345,678,901");
+    fn test_cli_parse_weekly() {
+        let cli = Cli::try_parse_from(["toktrack", "weekly"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Weekly { json: false })
+        ));
+    }
+
+    #[test]
+    fn test_cli_parse_weekly_json() {
+        let cli = Cli::try_parse_from(["toktrack", "weekly", "--json"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::Weekly { json: true })));
+    }
+
+    #[test]
+    fn test_cli_parse_monthly() {
+        let cli = Cli::try_parse_from(["toktrack", "monthly"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Monthly { json: false })
+        ));
+    }
+
+    #[test]
+    fn test_cli_parse_monthly_json() {
+        let cli = Cli::try_parse_from(["toktrack", "monthly", "--json"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Monthly { json: true })
+        ));
     }
 
     #[test]

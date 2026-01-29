@@ -21,8 +21,8 @@ Ultra-fast AI CLI token usage tracker. Built with Rust + simd-json + ratatui.
 
 - **Blazing Fast** - simd-json based parsing (~2 GiB/s throughput)
 - **TUI Dashboard** - 4 views (Overview, Models, Daily, Stats) with daily/weekly/monthly breakdown
-- **CLI Commands** - `daily`, `stats` with JSON output support
-- **Data Preservation** - Automatic backup before 30-day deletion
+- **CLI Commands** - `daily`, `weekly`, `monthly`, `stats` with JSON output support
+- **Data Preservation** - Cached summaries for fast repeated access
 
 ## Installation
 
@@ -56,16 +56,17 @@ toktrack
 ### CLI Commands
 
 ```bash
-# Daily usage report
-toktrack daily
+# Open TUI at specific tab
+toktrack daily     # Daily tab (daily view)
+toktrack weekly    # Daily tab (weekly view)
+toktrack monthly   # Daily tab (monthly view)
+toktrack stats     # Stats tab
+
+# JSON output (for scripting)
 toktrack daily --json
-
-# Statistics
-toktrack stats
+toktrack weekly --json
+toktrack monthly --json
 toktrack stats --json
-
-# Manual backup
-toktrack backup
 ```
 
 ### Keyboard Shortcuts
@@ -106,7 +107,7 @@ toktrack backup
 
 Claude Code and Gemini CLI delete session data after 30 days by default.
 
-toktrack automatically backs up your data to `~/.toktrack/cache/` on first run.
+toktrack caches daily summaries to `~/.toktrack/cache/` for fast repeated access.
 
 To disable auto-deletion in Claude Code:
 ```json

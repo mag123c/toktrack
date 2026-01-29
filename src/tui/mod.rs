@@ -3,4 +3,4 @@
 mod app;
 pub mod widgets;
 
-pub use app::run;
+pub use app::{run, TuiConfig};

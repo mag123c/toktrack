@@ -30,6 +30,13 @@ use super::widgets::{
     update_popup::{UpdateMessagePopup, UpdatePopup},
 };
 
+/// Configuration for TUI startup
+#[derive(Debug, Clone, Default)]
+pub struct TuiConfig {
+    pub initial_tab: Tab,
+    pub initial_view_mode: DailyViewMode,
+}
+
 /// Application state
 pub enum AppState {
     /// Loading data with spinner animation
@@ -97,19 +104,19 @@ pub struct App {
 }
 
 impl App {
-    /// Create a new app in loading state
-    pub fn new() -> Self {
+    /// Create a new app in loading state with the given configuration
+    pub fn new(config: TuiConfig) -> Self {
         Self {
             state: AppState::Loading {
                 spinner_frame: 0,
                 stage: LoadingStage::Scanning,
             },
             should_quit: false,
-            current_tab: Tab::default(),
+            current_tab: config.initial_tab,
             daily_scroll: 0,
             weekly_scroll: 0,
             monthly_scroll: 0,
-            daily_view_mode: DailyViewMode::default(),
+            daily_view_mode: config.initial_view_mode,
             show_help: false,
             update_status: UpdateStatus::Checking,
             pending_data: None,
@@ -281,7 +288,7 @@ impl App {
 
 impl Default for App {
     fn default() -> Self {
-        Self::new()
+        Self::new(TuiConfig::default())
     }
 }
 
@@ -364,10 +371,10 @@ impl Widget for &App {
     }
 }
 
-/// Run the TUI application
-pub fn run() -> anyhow::Result<()> {
+/// Run the TUI application with the given configuration
+pub fn run(config: TuiConfig) -> anyhow::Result<()> {
     let mut terminal = ratatui::init();
-    let result = run_app(&mut terminal);
+    let result = run_app(&mut terminal, config);
     ratatui::restore();
     result
 }
@@ -574,8 +581,8 @@ fn build_app_data_from_summaries(
     }))
 }
 
-fn run_app(terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
-    let mut app = App::new();
+fn run_app(terminal: &mut DefaultTerminal, config: TuiConfig) -> anyhow::Result<()> {
+    let mut app = App::new(config);
 
     // Spawn background thread for data loading
     let (data_tx, data_rx) = mpsc::channel();
@@ -689,7 +696,7 @@ mod tests {
         let stats_data = crate::types::StatsData::from_daily_summaries(&summaries);
         let models_data = super::ModelsData::from_model_usage(&HashMap::new());
 
-        let mut app = App::new();
+        let mut app = App::default();
         let daily_scroll = DailyView::max_scroll_offset(&daily_data, DailyViewMode::Daily);
         let weekly_scroll = DailyView::max_scroll_offset(&daily_data, DailyViewMode::Weekly);
         let monthly_scroll = DailyView::max_scroll_offset(&daily_data, DailyViewMode::Monthly);
@@ -712,7 +719,7 @@ mod tests {
 
     #[test]
     fn test_app_initial_state() {
-        let app = App::new();
+        let app = App::default();
         assert!(matches!(
             app.state,
             AppState::Loading {
@@ -725,7 +732,7 @@ mod tests {
 
     #[test]
     fn test_app_quit_on_q() {
-        let mut app = App::new();
+        let mut app = App::default();
         assert!(!app.should_quit());
 
         let event = Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
@@ -736,7 +743,7 @@ mod tests {
 
     #[test]
     fn test_app_quit_on_esc() {
-        let mut app = App::new();
+        let mut app = App::default();
         let event = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         app.handle_event(event);
         assert!(app.should_quit());
@@ -744,7 +751,7 @@ mod tests {
 
     #[test]
     fn test_app_tick_updates_spinner() {
-        let mut app = App::new();
+        let mut app = App::default();
         assert!(matches!(
             app.state,
             AppState::Loading {
@@ -765,7 +772,7 @@ mod tests {
 
     #[test]
     fn test_app_tab_navigation() {
-        let mut app = App::new();
+        let mut app = App::default();
         assert_eq!(app.current_tab, Tab::Overview);
 
         // Tab forward
@@ -786,7 +793,7 @@ mod tests {
 
     #[test]
     fn test_app_tab_navigation_backward() {
-        let mut app = App::new();
+        let mut app = App::default();
         assert_eq!(app.current_tab, Tab::Overview);
 
         // Shift+Tab (BackTab)
@@ -803,7 +810,7 @@ mod tests {
 
     #[test]
     fn test_app_number_key_navigation() {
-        let mut app = App::new();
+        let mut app = App::default();
         assert_eq!(app.current_tab, Tab::Overview);
 
         // Press '2' to go to Models
@@ -829,7 +836,7 @@ mod tests {
 
     #[test]
     fn test_app_help_toggle() {
-        let mut app = App::new();
+        let mut app = App::default();
         assert!(!app.show_help);
 
         // Press '?' to show help
@@ -920,18 +927,25 @@ mod tests {
 
     #[test]
     fn test_app_initial_update_status() {
-        let app = App::new();
+        let app = App::default();
         assert_eq!(app.update_status, UpdateStatus::Checking);
         assert!(app.pending_data.is_none());
     }
 
+    /// Helper to create an app with update available overlay
+    fn make_update_available_app() -> App {
+        App {
+            update_status: UpdateStatus::Available {
+                current: "0.1.14".to_string(),
+                latest: "0.2.0".to_string(),
+            },
+            ..App::default()
+        }
+    }
+
     #[test]
     fn test_update_overlay_skip_any_key() {
-        let mut app = App::new();
-        app.update_status = UpdateStatus::Available {
-            current: "0.1.14".to_string(),
-            latest: "0.2.0".to_string(),
-        };
+        let mut app = make_update_available_app();
 
         // Press space → should skip (resolve)
         let event = Event::Key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
@@ -943,11 +957,7 @@ mod tests {
 
     #[test]
     fn test_update_overlay_u_triggers_update() {
-        let mut app = App::new();
-        app.update_status = UpdateStatus::Available {
-            current: "0.1.14".to_string(),
-            latest: "0.2.0".to_string(),
-        };
+        let mut app = make_update_available_app();
 
         // Press 'u' → should trigger update
         let event = Event::Key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE));
@@ -958,11 +968,7 @@ mod tests {
 
     #[test]
     fn test_update_overlay_quit_still_works() {
-        let mut app = App::new();
-        app.update_status = UpdateStatus::Available {
-            current: "0.1.14".to_string(),
-            latest: "0.2.0".to_string(),
-        };
+        let mut app = make_update_available_app();
 
         // Press 'q' → should quit
         let event = Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
@@ -973,11 +979,7 @@ mod tests {
 
     #[test]
     fn test_update_overlay_esc_quits() {
-        let mut app = App::new();
-        app.update_status = UpdateStatus::Available {
-            current: "0.1.14".to_string(),
-            latest: "0.2.0".to_string(),
-        };
+        let mut app = make_update_available_app();
 
         let event = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         app.handle_update_event(event);
@@ -990,11 +992,7 @@ mod tests {
         use crate::types::DailySummary;
         use chrono::NaiveDate;
 
-        let mut app = App::new();
-        app.update_status = UpdateStatus::Available {
-            current: "0.1.14".to_string(),
-            latest: "0.2.0".to_string(),
-        };
+        let mut app = make_update_available_app();
 
         // Simulate data arriving while overlay is shown
         let summaries: Vec<DailySummary> = vec![DailySummary {
@@ -1049,10 +1047,12 @@ mod tests {
 
     #[test]
     fn test_update_done_success_quits_on_any_key() {
-        let mut app = App::new();
-        app.update_status = UpdateStatus::UpdateDone {
-            success: true,
-            message: "Updated!".to_string(),
+        let mut app = App {
+            update_status: UpdateStatus::UpdateDone {
+                success: true,
+                message: "Updated!".to_string(),
+            },
+            ..App::default()
         };
 
         let event = Event::Key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
@@ -1063,10 +1063,12 @@ mod tests {
 
     #[test]
     fn test_update_done_failure_dismisses_on_any_key() {
-        let mut app = App::new();
-        app.update_status = UpdateStatus::UpdateDone {
-            success: false,
-            message: "Failed".to_string(),
+        let mut app = App {
+            update_status: UpdateStatus::UpdateDone {
+                success: false,
+                message: "Failed".to_string(),
+            },
+            ..App::default()
         };
 
         let event = Event::Key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));

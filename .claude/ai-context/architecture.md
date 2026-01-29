@@ -15,7 +15,7 @@ TUI[ratatui] → CLI[clap] → Services → Parsers[trait] → Cache
 ## TUI Widgets
 | Widget | Purpose |
 |--------|---------|
-| `app.rs` | AppState enum, Tab state, event loop |
+| `app.rs` | AppState enum, TuiConfig (initial_tab, initial_view_mode), event loop |
 | `widgets/spinner.rs` | Loading animation (dots/braille) |
 | `widgets/heatmap.rs` | 52-week heatmap (2x2 blocks, 14 rows, responsive, colorblind-accessible) |
 | `widgets/overview.rs` | Overview layout (hero stat, sub-stats, keybindings) |
