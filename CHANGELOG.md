@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.12](https://github.com/mag123c/toktrack/compare/v0.1.11...v0.1.12) (2026-01-29)
+
+
+### Features
+
+* **services:** add npm update checker for TUI startup ([247a8d7](https://github.com/mag123c/toktrack/commit/247a8d74d3157761bc96f78acf035689607bc7d4))
+* **tui:** add weekly/monthly view modes to Daily tab ([45eab98](https://github.com/mag123c/toktrack/commit/45eab98a5dd5cd7c2d9b7802bcfb7a2fbabe201a))
+
+
+### Documentation
+
+* **npm:** add README and expand keywords for npm discovery ([b0acdb1](https://github.com/mag123c/toktrack/commit/b0acdb1510b63cd165582c1610767d0d56ee0e9d))
+
 ## [0.1.11](https://github.com/mag123c/toktrack/compare/v0.1.10...v0.1.11) (2026-01-28)
 
 
