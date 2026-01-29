@@ -204,4 +204,33 @@ mod tests {
         assert_eq!(popup_area.width, 48);
         assert_eq!(popup_area.height, 5);
     }
+
+    #[test]
+    fn test_update_message_popup_renders_content() {
+        let area = Rect::new(0, 0, 60, 20);
+        let popup_area = UpdateMessagePopup::centered_area(area);
+
+        // Success message
+        let mut buf = Buffer::empty(area);
+        let popup_success =
+            UpdateMessagePopup::new("Updated! Press any key to exit.", Color::Green);
+        popup_success.render(popup_area, &mut buf);
+
+        let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(
+            content.contains("Updated! Press any key to exit."),
+            "Success message not found in buffer"
+        );
+
+        // Error message
+        let mut buf2 = Buffer::empty(area);
+        let popup_error = UpdateMessagePopup::new("Failed: npm error", Color::Red);
+        popup_error.render(popup_area, &mut buf2);
+
+        let content2: String = buf2.content().iter().map(|c| c.symbol()).collect();
+        assert!(
+            content2.contains("Failed: npm error"),
+            "Error message not found in buffer"
+        );
+    }
 }

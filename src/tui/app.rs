@@ -1077,4 +1077,88 @@ mod tests {
         assert!(!app.should_quit());
         assert_eq!(app.update_status, UpdateStatus::Resolved);
     }
+
+    // ========== TuiConfig & App::new tests ==========
+
+    #[test]
+    fn test_tuiconfig_default_values() {
+        let config = TuiConfig::default();
+        assert_eq!(config.initial_tab, Tab::Overview);
+        assert_eq!(config.initial_view_mode, DailyViewMode::Daily);
+    }
+
+    #[test]
+    fn test_app_new_with_custom_config() {
+        let config = TuiConfig {
+            initial_tab: Tab::Daily,
+            initial_view_mode: DailyViewMode::Weekly,
+        };
+        let app = App::new(config);
+
+        // Config-driven fields
+        assert_eq!(app.current_tab, Tab::Daily);
+        assert_eq!(app.daily_view_mode, DailyViewMode::Weekly);
+
+        // Default initial fields
+        assert!(!app.should_quit);
+        assert!(matches!(
+            app.state,
+            AppState::Loading {
+                spinner_frame: 0,
+                stage: LoadingStage::Scanning
+            }
+        ));
+        assert_eq!(app.update_status, UpdateStatus::Checking);
+        assert!(!app.show_help);
+        assert_eq!(app.daily_scroll, 0);
+        assert_eq!(app.weekly_scroll, 0);
+        assert_eq!(app.monthly_scroll, 0);
+        assert!(app.pending_data.is_none());
+    }
+
+    #[test]
+    fn test_checking_state_does_not_show_overlay() {
+        // UpdateStatus::Checking.shows_overlay() == false is the guard that
+        // prevents handle_update_event from being called during Checking state
+        assert!(!UpdateStatus::Checking.shows_overlay());
+
+        // Verify the production code path: when shows_overlay() is false,
+        // handle_event runs instead of handle_update_event
+        let mut app = App::default();
+        assert_eq!(app.update_status, UpdateStatus::Checking);
+
+        // 'q' via handle_event should quit (proving handle_event runs, not handle_update_event)
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        app.handle_event(event);
+        assert!(app.should_quit());
+    }
+
+    #[test]
+    fn test_pending_data_consumed_on_update_done_failure() {
+        let mut app = App {
+            update_status: UpdateStatus::UpdateDone {
+                success: false,
+                message: "npm error".to_string(),
+            },
+            ..App::default()
+        };
+
+        // Set pending data with an error result
+        app.pending_data = Some(Err("load failed".to_string()));
+
+        // Dismiss the UpdateDone overlay (failure path consumes pending_data)
+        let event = Event::Key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        app.handle_update_event(event);
+
+        assert_eq!(app.update_status, UpdateStatus::Resolved);
+        assert!(app.pending_data.is_none());
+        // Error result should have been applied → Error state with correct message
+        match &app.state {
+            AppState::Error { message } => assert_eq!(message, "load failed"),
+            other => panic!(
+                "Expected AppState::Error, got {:?}",
+                std::mem::discriminant(other)
+            ),
+        }
+    }
 }

@@ -892,4 +892,165 @@ mod tests {
         assert_eq!(gpt.input_tokens, 50);
         assert_eq!(gpt.count, 1);
     }
+
+    // ========== accumulate_summary / merge_model_usage gap tests ==========
+
+    #[test]
+    fn test_accumulate_summary_with_cache_tokens() {
+        let mut target = DailySummary {
+            date: chrono::NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            total_input_tokens: 100,
+            total_output_tokens: 50,
+            total_cache_read_tokens: 10,
+            total_cache_creation_tokens: 5,
+            total_cost_usd: 0.01,
+            models: HashMap::new(),
+        };
+        let source = DailySummary {
+            date: chrono::NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            total_input_tokens: 200,
+            total_output_tokens: 100,
+            total_cache_read_tokens: 30,
+            total_cache_creation_tokens: 15,
+            total_cost_usd: 0.02,
+            models: HashMap::new(),
+        };
+
+        accumulate_summary(&mut target, &source);
+
+        assert_eq!(target.total_input_tokens, 300);
+        assert_eq!(target.total_output_tokens, 150);
+        assert_eq!(target.total_cache_read_tokens, 40);
+        assert_eq!(target.total_cache_creation_tokens, 20);
+        assert!((target.total_cost_usd - 0.03).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_merge_model_usage_all_fields() {
+        let mut target = ModelUsage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_tokens: 10,
+            cache_creation_tokens: 5,
+            cost_usd: 0.01,
+            count: 2,
+        };
+        let source = ModelUsage {
+            input_tokens: 200,
+            output_tokens: 100,
+            cache_read_tokens: 20,
+            cache_creation_tokens: 10,
+            cost_usd: 0.02,
+            count: 3,
+        };
+
+        merge_model_usage(&mut target, &source);
+
+        assert_eq!(target.input_tokens, 300);
+        assert_eq!(target.output_tokens, 150);
+        assert_eq!(target.cache_read_tokens, 30);
+        assert_eq!(target.cache_creation_tokens, 15);
+        assert!((target.cost_usd - 0.03).abs() < f64::EPSILON);
+        assert_eq!(target.count, 5);
+    }
+
+    #[test]
+    fn test_total_from_daily_entry_count_zero_count_models() {
+        // Models with count=0 should not inflate entry_count
+        let mut models = HashMap::new();
+        models.insert(
+            "claude".to_string(),
+            ModelUsage {
+                input_tokens: 100,
+                output_tokens: 50,
+                cost_usd: 0.01,
+                count: 0, // zero count edge case
+                ..Default::default()
+            },
+        );
+        models.insert(
+            "gpt-4".to_string(),
+            ModelUsage {
+                input_tokens: 200,
+                output_tokens: 100,
+                cost_usd: 0.02,
+                count: 5,
+                ..Default::default()
+            },
+        );
+        let summaries = vec![make_daily_summary_with_models(
+            2025, 1, 15, 300, 150, 0.03, models,
+        )];
+
+        let result = Aggregator::total_from_daily(&summaries);
+
+        assert_eq!(result.entry_count, 5); // 0 + 5
+        assert_eq!(result.day_count, 1);
+    }
+
+    #[test]
+    fn test_accumulate_summary_merges_models() {
+        let mut models_target = HashMap::new();
+        models_target.insert(
+            "claude".to_string(),
+            ModelUsage {
+                input_tokens: 100,
+                output_tokens: 50,
+                cost_usd: 0.01,
+                count: 1,
+                ..Default::default()
+            },
+        );
+        let mut target = DailySummary {
+            date: chrono::NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            total_input_tokens: 100,
+            total_output_tokens: 50,
+            total_cache_read_tokens: 0,
+            total_cache_creation_tokens: 0,
+            total_cost_usd: 0.01,
+            models: models_target,
+        };
+
+        let mut models_source = HashMap::new();
+        models_source.insert(
+            "claude".to_string(),
+            ModelUsage {
+                input_tokens: 200,
+                output_tokens: 100,
+                cost_usd: 0.02,
+                count: 2,
+                ..Default::default()
+            },
+        );
+        models_source.insert(
+            "gpt-4".to_string(),
+            ModelUsage {
+                input_tokens: 50,
+                output_tokens: 25,
+                cost_usd: 0.005,
+                count: 1,
+                ..Default::default()
+            },
+        );
+        let source = DailySummary {
+            date: chrono::NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            total_input_tokens: 250,
+            total_output_tokens: 125,
+            total_cache_read_tokens: 0,
+            total_cache_creation_tokens: 0,
+            total_cost_usd: 0.025,
+            models: models_source,
+        };
+
+        accumulate_summary(&mut target, &source);
+
+        // Models should be merged
+        assert_eq!(target.models.len(), 2);
+        let claude = target.models.get("claude").unwrap();
+        assert_eq!(claude.input_tokens, 300);
+        assert_eq!(claude.count, 3);
+        let gpt = target.models.get("gpt-4").unwrap();
+        assert_eq!(gpt.input_tokens, 50);
+        assert_eq!(gpt.count, 1);
+    }
 }
