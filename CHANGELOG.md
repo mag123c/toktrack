@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.20](https://github.com/mag123c/toktrack/compare/v0.1.19...v0.1.20) (2026-01-30)
+
+
+### Documentation
+
+* add development motivation tagline to all READMEs ([5d2b1f4](https://github.com/mag123c/toktrack/commit/5d2b1f4f4c85f1b42f0a56757a899ff19384a664))
+
 ## [0.1.19](https://github.com/mag123c/toktrack/compare/v0.1.18...v0.1.19) (2026-01-30)
 
 
