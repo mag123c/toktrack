@@ -11,6 +11,8 @@ Rust로 만든 초고속 AI CLI 토큰 사용량 트래커. simd-json + ratatui 
 
 ![toktrack overview](demo.gif)
 
+> 기존 도구로 2,000개 이상의 세션 파일(3 GB)을 스캔하면 40초 이상 걸렸습니다 — toktrack은 ~1초면 됩니다.
+
 ## 주요 기능
 
 - **초고속 파싱** — simd-json + rayon 병렬 처리 (~2 GiB/s 처리량)

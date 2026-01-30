@@ -9,6 +9,8 @@ Ultra-fast AI CLI token usage tracker. Built with Rust + simd-json + ratatui.
 
 ![toktrack overview](https://raw.githubusercontent.com/mag123c/toktrack/main/demo.gif)
 
+> Scanning 2,000+ session files (3 GB) took over 40 seconds with existing tools — toktrack does it in ~1 second.
+
 ## Installation
 
 ```bash
