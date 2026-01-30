@@ -42,6 +42,15 @@ Exceptions:
 
 Plan provided directly → skip clarify/plan, start `/implement`
 
+### /clarify — Adaptive Depth Routing
+
+| Complexity | Path | Flow |
+|------------|------|------|
+| LOW | Shallow | Q&A → Summary → EnterPlanMode() |
+| HIGH | Deep | Explore → DRAFT → Interview → PLAN → EnterPlanMode() |
+
+Escalation: Shallow → Deep when ambiguity persists after 3 rounds.
+
 See `.claude/skills/` for skill details.
 
 ## Commands
