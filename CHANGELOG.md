@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.21](https://github.com/mag123c/toktrack/compare/v0.1.20...v0.1.21) (2026-01-30)
+
+
+### Bug Fixes
+
+* **parser:** use last cumulative total_token_usage for Codex sessions ([db3b1ca](https://github.com/mag123c/toktrack/commit/db3b1cabf587bd994f2eadbf19f93e5f7bf6459a))
+
 ## [0.1.20](https://github.com/mag123c/toktrack/compare/v0.1.19...v0.1.20) (2026-01-30)
 
 
