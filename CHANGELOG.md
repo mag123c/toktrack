@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.19](https://github.com/mag123c/toktrack/compare/v0.1.18...v0.1.19) (2026-01-30)
+
+
+### Documentation
+
+* overhaul README with badges, architecture diagram, and updated benchmarks ([b204492](https://github.com/mag123c/toktrack/commit/b20449235b7f8a2a63b1edcf524d1ecb364ad326))
+
 ## [0.1.18](https://github.com/mag123c/toktrack/compare/v0.1.17...v0.1.18) (2026-01-29)
 
 
