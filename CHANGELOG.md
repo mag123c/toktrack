@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.22](https://github.com/mag123c/toktrack/compare/v0.1.21...v0.1.22) (2026-01-30)
+
+
+### Documentation
+
+* **skills:** add adaptive depth routing to clarify skill ([2c8d030](https://github.com/mag123c/toktrack/commit/2c8d0301e6dac83ccfc5e58e9ee276702107e55b))
+
 ## [0.1.21](https://github.com/mag123c/toktrack/compare/v0.1.20...v0.1.21) (2026-01-30)
 
 
