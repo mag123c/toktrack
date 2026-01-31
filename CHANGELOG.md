@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.23](https://github.com/mag123c/toktrack/compare/v0.1.22...v0.1.23) (2026-01-31)
+
+
+### Documentation
+
+* add logo and center-align README header ([d95b5fc](https://github.com/mag123c/toktrack/commit/d95b5fcd527fe3846bec93ea0822fe5db41019bc))
+
 ## [0.1.22](https://github.com/mag123c/toktrack/compare/v0.1.21...v0.1.22) (2026-01-30)
 
 
