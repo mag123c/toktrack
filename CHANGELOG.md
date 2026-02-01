@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.24](https://github.com/mag123c/toktrack/compare/v0.1.23...v0.1.24) (2026-02-01)
+
+
+### Documentation
+
+* **seo:** optimize repo metadata and README for discoverability ([2660ba5](https://github.com/mag123c/toktrack/commit/2660ba5e051fa44f06467aca026b82443e1f4ab4))
+
 ## [0.1.23](https://github.com/mag123c/toktrack/compare/v0.1.22...v0.1.23) (2026-01-31)
 
 
