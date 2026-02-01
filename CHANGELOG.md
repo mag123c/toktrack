@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.26](https://github.com/mag123c/toktrack/compare/v0.1.25...v0.1.26) (2026-02-01)
+
+
+### Documentation
+
+* **conventions:** remove insta snapshot reference ([087419a](https://github.com/mag123c/toktrack/commit/087419a42c26289145b3a061fcca8d26eaa37ff1))
+
 ## [0.1.25](https://github.com/mag123c/toktrack/compare/v0.1.24...v0.1.25) (2026-02-01)
 
 
