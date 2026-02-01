@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.25](https://github.com/mag123c/toktrack/compare/v0.1.24...v0.1.25) (2026-02-01)
+
+
+### Documentation
+
+* **perf:** update benchmark numbers to current measurements ([8570f9c](https://github.com/mag123c/toktrack/commit/8570f9cfeccf9b7aa373b6289672e9a01b965705))
+
 ## [0.1.24](https://github.com/mag123c/toktrack/compare/v0.1.23...v0.1.24) (2026-02-01)
 
 
