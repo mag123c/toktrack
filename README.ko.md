@@ -1,7 +1,6 @@
 # toktrack
 
 [![CI](https://github.com/mag123c/toktrack/actions/workflows/ci.yml/badge.svg)](https://github.com/mag123c/toktrack/actions/workflows/ci.yml)
-[![Crates.io](https://img.shields.io/crates/v/toktrack)](https://crates.io/crates/toktrack)
 [![npm](https://img.shields.io/npm/v/toktrack)](https://www.npmjs.com/package/toktrack)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
