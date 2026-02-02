@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.28](https://github.com/mag123c/toktrack/compare/v0.1.27...v0.1.28) (2026-02-02)
+
+
+### Bug Fixes
+
+* **ci:** handle GITHUB_TOKEN merge not triggering new workflows ([46a1a82](https://github.com/mag123c/toktrack/commit/46a1a82cd395a5541e961ac70bce4c73fb8f1943))
+
 ## [0.1.27](https://github.com/mag123c/toktrack/compare/v0.1.26...v0.1.27) (2026-02-02)
 
 
