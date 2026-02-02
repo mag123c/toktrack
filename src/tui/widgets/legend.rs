@@ -1,20 +1,18 @@
 //! Legend widget for heatmap intensity levels
 
-use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-    style::{Color, Style},
-    widgets::Widget,
-};
+use ratatui::{buffer::Buffer, layout::Rect, style::Style, widgets::Widget};
 
 use super::heatmap::HeatmapIntensity;
+use crate::tui::theme::Theme;
 
 /// Legend widget showing intensity scale
-pub struct Legend;
+pub struct Legend {
+    theme: Theme,
+}
 
 impl Legend {
-    pub fn new() -> Self {
-        Self
+    pub fn new(theme: Theme) -> Self {
+        Self { theme }
     }
 
     /// Returns the minimum width needed to render the legend
@@ -26,7 +24,7 @@ impl Legend {
 
 impl Default for Legend {
     fn default() -> Self {
-        Self::new()
+        Self::new(Theme::default())
     }
 }
 
@@ -51,12 +49,12 @@ impl Widget for Legend {
         let mut x = start_x;
 
         // "Less "
-        buf.set_string(x, y, "Less ", Style::default().fg(Color::DarkGray));
+        buf.set_string(x, y, "Less ", Style::default().fg(self.theme.muted()));
         x += 5;
 
         // Intensity cells (2-char each) - use uniform block for consistent visual size
         for intensity in intensities {
-            let style = Style::default().fg(intensity.color());
+            let style = Style::default().fg(intensity.color(self.theme));
             buf.set_string(x, y, "██", style);
             x += 2; // 2-char cell
 
@@ -68,7 +66,7 @@ impl Widget for Legend {
         }
 
         // " More"
-        buf.set_string(x, y, " More", Style::default().fg(Color::DarkGray));
+        buf.set_string(x, y, " More", Style::default().fg(self.theme.muted()));
     }
 }
 
@@ -84,6 +82,6 @@ mod tests {
 
     #[test]
     fn test_legend_new() {
-        let _legend = Legend::new();
+        let _legend = Legend::new(Theme::Dark);
     }
 }

@@ -10,6 +10,7 @@ use ratatui::{
 
 use super::overview::format_number;
 use super::tabs::{Tab, TabBar};
+use crate::tui::theme::Theme;
 use crate::types::StatsData;
 
 /// Maximum content width for Stats view (consistent with other views)
@@ -33,13 +34,15 @@ fn cards_per_row(width: u16) -> usize {
 pub struct StatsView<'a> {
     data: &'a StatsData,
     selected_tab: Tab,
+    theme: Theme,
 }
 
 impl<'a> StatsView<'a> {
-    pub fn new(data: &'a StatsData) -> Self {
+    pub fn new(data: &'a StatsData, theme: Theme) -> Self {
         Self {
             data,
             selected_tab: Tab::Stats,
+            theme,
         }
     }
 
@@ -101,20 +104,25 @@ impl Widget for StatsView<'_> {
 
 impl StatsView<'_> {
     fn render_tabs(&self, area: Rect, buf: &mut Buffer) {
-        let tab_bar = TabBar::new(self.selected_tab);
+        let tab_bar = TabBar::new(self.selected_tab, self.theme);
         tab_bar.render(area, buf);
     }
 
     fn render_separator(&self, area: Rect, buf: &mut Buffer) {
         let line = "─".repeat(area.width as usize);
-        buf.set_string(area.x, area.y, &line, Style::default().fg(Color::DarkGray));
+        buf.set_string(
+            area.x,
+            area.y,
+            &line,
+            Style::default().fg(self.theme.muted()),
+        );
     }
 
     fn render_title(&self, area: Rect, buf: &mut Buffer) {
         let title = Paragraph::new(Line::from(Span::styled(
             "Usage Statistics",
             Style::default()
-                .fg(Color::White)
+                .fg(self.theme.text())
                 .add_modifier(Modifier::BOLD),
         )))
         .alignment(Alignment::Center);
@@ -156,14 +164,14 @@ impl StatsView<'_> {
             StatCard {
                 title: "Total Tokens".to_string(),
                 value: format_number(self.data.total_tokens),
-                value_color: Color::Cyan,
-                border_color: Color::Cyan,
+                value_color: self.theme.accent(),
+                border_color: self.theme.accent(),
             },
             StatCard {
                 title: "Daily Average".to_string(),
                 value: format_number(self.data.daily_avg_tokens),
-                value_color: Color::Blue,
-                border_color: Color::Blue,
+                value_color: self.theme.stat_blue(),
+                border_color: self.theme.stat_blue(),
             },
             StatCard {
                 title: "Peak Day".to_string(),
@@ -174,26 +182,26 @@ impl StatsView<'_> {
                         format!("{} ({})", date.format("%m/%d"), format_number(tokens))
                     })
                     .unwrap_or_else(|| "N/A".to_string()),
-                value_color: Color::Yellow,
-                border_color: Color::Yellow,
+                value_color: self.theme.date(),
+                border_color: self.theme.date(),
             },
             StatCard {
                 title: "Total Cost".to_string(),
                 value: format!("${:.2}", self.data.total_cost),
-                value_color: Color::LightRed,
-                border_color: Color::Red,
+                value_color: self.theme.stat_warm(),
+                border_color: self.theme.error(),
             },
             StatCard {
                 title: "Daily Avg Cost".to_string(),
                 value: format!("${:.2}", self.data.daily_avg_cost),
-                value_color: Color::Magenta,
-                border_color: Color::Magenta,
+                value_color: self.theme.cost(),
+                border_color: self.theme.cost(),
             },
             StatCard {
                 title: "Active Days".to_string(),
                 value: self.data.active_days.to_string(),
-                value_color: Color::Green,
-                border_color: Color::Green,
+                value_color: self.theme.bar(),
+                border_color: self.theme.bar(),
             },
         ]
     }
@@ -236,14 +244,14 @@ impl StatsView<'_> {
 
     fn render_keybindings(&self, area: Rect, buf: &mut Buffer) {
         let bindings = Paragraph::new(Line::from(vec![
-            Span::styled("q", Style::default().fg(Color::Cyan)),
-            Span::styled(": Quit", Style::default().fg(Color::DarkGray)),
+            Span::styled("q", Style::default().fg(self.theme.accent())),
+            Span::styled(": Quit", Style::default().fg(self.theme.muted())),
             Span::raw("  "),
-            Span::styled("Tab", Style::default().fg(Color::Cyan)),
-            Span::styled(": Switch view", Style::default().fg(Color::DarkGray)),
+            Span::styled("Tab", Style::default().fg(self.theme.accent())),
+            Span::styled(": Switch view", Style::default().fg(self.theme.muted())),
             Span::raw("  "),
-            Span::styled("?", Style::default().fg(Color::Cyan)),
-            Span::styled(": Help", Style::default().fg(Color::DarkGray)),
+            Span::styled("?", Style::default().fg(self.theme.accent())),
+            Span::styled(": Help", Style::default().fg(self.theme.muted())),
         ]))
         .alignment(Alignment::Center);
 
@@ -274,7 +282,7 @@ mod tests {
             daily_avg_cost: 0.75,
             active_days: 2,
         };
-        let view = StatsView::new(&data);
+        let view = StatsView::new(&data, Theme::Dark);
         let cards = view.build_cards();
 
         assert_eq!(cards.len(), 6);

@@ -3,7 +3,7 @@
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Paragraph, Widget},
 };
@@ -11,6 +11,7 @@ use ratatui::{
 use super::overview::format_number;
 use super::tabs::{Tab, TabBar};
 use crate::services::Aggregator;
+use crate::tui::theme::Theme;
 use crate::types::DailySummary;
 
 /// View mode within the Daily tab
@@ -116,11 +117,54 @@ impl DailyData {
 /// Maximum content width for Daily view (consistent with Overview/Models)
 const MAX_CONTENT_WIDTH: u16 = 170;
 
-/// Table width: Date(12) + Model(25) + Input(18) + Output(18) + Cache(18) + Total(18) + Cost(12) + Usage(18) = 139
-const TABLE_WIDTH: u16 = 139;
-
 /// Visible rows for scrolling (excluding header)
 const VISIBLE_ROWS: usize = 15;
+
+/// Column index constants for clarity
+const COL_DATE: usize = 0;
+const COL_MODEL: usize = 1;
+const COL_TOTAL: usize = 2;
+const COL_COST: usize = 3;
+const COL_INPUT: usize = 4;
+const COL_OUTPUT: usize = 5;
+const COL_CACHE: usize = 6;
+const COL_USAGE: usize = 7;
+
+/// Column definition: (label, width). Core columns (0-3) are never hidden.
+const COLUMNS: [(&str, u16); 8] = [
+    ("Date", 12),   // 0: COL_DATE
+    ("Model", 25),  // 1: COL_MODEL
+    ("Total", 18),  // 2: COL_TOTAL
+    ("Cost", 12),   // 3: COL_COST
+    ("Input", 18),  // 4: COL_INPUT
+    ("Output", 18), // 5: COL_OUTPUT
+    ("Cache", 18),  // 6: COL_CACHE
+    ("Usage", 18),  // 7: COL_USAGE
+];
+
+/// Determine which column indices are visible for a given terminal width.
+/// Columns are hidden in reverse priority order: Usage first, then Cache, Output, Input.
+fn visible_columns(width: u16) -> Vec<usize> {
+    // Ordered by hide priority: last element is hidden first
+    const HIDE_ORDER: [usize; 4] = [COL_USAGE, COL_CACHE, COL_OUTPUT, COL_INPUT];
+
+    let mut visible: Vec<usize> = (0..COLUMNS.len()).collect();
+
+    for &col_idx in &HIDE_ORDER {
+        let total: u16 = visible.iter().map(|&i| COLUMNS[i].1).sum();
+        if total <= width {
+            return visible;
+        }
+        visible.retain(|&i| i != col_idx);
+    }
+
+    visible
+}
+
+/// Calculate total table width for a set of visible column indices.
+fn table_width_for(visible: &[usize]) -> u16 {
+    visible.iter().map(|&i| COLUMNS[i].1).sum()
+}
 
 /// Daily view widget
 pub struct DailyView<'a> {
@@ -128,15 +172,22 @@ pub struct DailyView<'a> {
     scroll_offset: usize,
     selected_tab: Tab,
     view_mode: DailyViewMode,
+    theme: Theme,
 }
 
 impl<'a> DailyView<'a> {
-    pub fn new(data: &'a DailyData, scroll_offset: usize, view_mode: DailyViewMode) -> Self {
+    pub fn new(
+        data: &'a DailyData,
+        scroll_offset: usize,
+        view_mode: DailyViewMode,
+        theme: Theme,
+    ) -> Self {
         Self {
             data,
             scroll_offset,
             selected_tab: Tab::Daily,
             view_mode,
+            theme,
         }
     }
 
@@ -163,6 +214,9 @@ impl Widget for DailyView<'_> {
             width: content_width,
             height: area.height,
         };
+
+        // Determine visible columns based on available width
+        let visible = visible_columns(centered_area.width);
 
         let (summaries, _) = self.data.for_mode(self.view_mode);
 
@@ -191,10 +245,10 @@ impl Widget for DailyView<'_> {
         self.render_mode_indicator(chunks[3], buf);
 
         // Render header
-        self.render_header(chunks[4], buf);
+        self.render_header(chunks[4], buf, &visible);
 
         // Render daily rows
-        self.render_daily_rows(chunks[5], buf);
+        self.render_daily_rows(chunks[5], buf, &visible);
 
         // Render separator
         self.render_separator(chunks[6], buf);
@@ -206,18 +260,23 @@ impl Widget for DailyView<'_> {
 
 impl DailyView<'_> {
     /// Calculate horizontal offset to center the table
-    fn calculate_table_offset(&self, area_width: u16) -> u16 {
-        area_width.saturating_sub(TABLE_WIDTH) / 2
+    fn calculate_table_offset(area_width: u16, tw: u16) -> u16 {
+        area_width.saturating_sub(tw) / 2
     }
 
     fn render_tabs(&self, area: Rect, buf: &mut Buffer) {
-        let tab_bar = TabBar::new(self.selected_tab);
+        let tab_bar = TabBar::new(self.selected_tab, self.theme);
         tab_bar.render(area, buf);
     }
 
     fn render_separator(&self, area: Rect, buf: &mut Buffer) {
         let line = "─".repeat(area.width as usize);
-        buf.set_string(area.x, area.y, &line, Style::default().fg(Color::DarkGray));
+        buf.set_string(
+            area.x,
+            area.y,
+            &line,
+            Style::default().fg(self.theme.muted()),
+        );
     }
 
     fn render_mode_indicator(&self, area: Rect, buf: &mut Buffer) {
@@ -235,10 +294,10 @@ impl DailyView<'_> {
             let is_active = *mode == self.view_mode;
             let style = if is_active {
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(self.theme.accent())
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(self.theme.muted())
             };
             spans.push(Span::styled(format!("{}:{}", key, mode.label()), style));
         }
@@ -247,77 +306,42 @@ impl DailyView<'_> {
         indicator.render(area, buf);
     }
 
-    fn render_header(&self, area: Rect, buf: &mut Buffer) {
-        let offset = self.calculate_table_offset(area.width);
-
+    fn render_header(&self, area: Rect, buf: &mut Buffer, visible: &[usize]) {
+        let tw = table_width_for(visible);
+        let offset = Self::calculate_table_offset(area.width, tw);
         let date_label = self.view_mode.date_column_label();
+        let header_style = Style::default()
+            .fg(self.theme.text())
+            .add_modifier(Modifier::BOLD);
 
-        // Column widths: Date(12), Model(25), Input(18), Output(18), Cache(18), Total(18), Cost(12), Usage(18)
-        let header = Line::from(vec![
-            Span::styled(
-                format!("{:<12}", date_label),
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("{:<25}", "Model"),
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("{:>18}", "Input"),
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("{:>18}", "Output"),
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("{:>18}", "Cache"),
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("{:>18}", "Total"),
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("{:>12}", "Cost"),
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("{:>18}", "Usage"),
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]);
+        let mut spans = Vec::new();
+        for &col in visible {
+            let (label, width) = COLUMNS[col];
+            let label = if col == COL_DATE { date_label } else { label };
+            let formatted = if col == COL_DATE || col == COL_MODEL {
+                format!("{:<width$}", label, width = width as usize)
+            } else {
+                format!("{:>width$}", label, width = width as usize)
+            };
+            spans.push(Span::styled(formatted, header_style));
+        }
 
+        let header = Line::from(spans);
         let paragraph = Paragraph::new(header).alignment(Alignment::Left);
         paragraph.render(
             Rect {
                 x: area.x + offset,
                 y: area.y,
-                width: TABLE_WIDTH.min(area.width),
+                width: tw.min(area.width),
                 height: area.height,
             },
             buf,
         );
     }
 
-    fn render_daily_rows(&self, area: Rect, buf: &mut Buffer) {
-        let offset = self.calculate_table_offset(area.width);
+    fn render_daily_rows(&self, area: Rect, buf: &mut Buffer, visible: &[usize]) {
+        let tw = table_width_for(visible);
+        let offset = Self::calculate_table_offset(area.width, tw);
         let (summaries, max_tokens) = self.data.for_mode(self.view_mode);
         let start = self.scroll_offset;
         let end = (start + area.height as usize).min(summaries.len());
@@ -332,12 +356,13 @@ impl DailyView<'_> {
                 Rect {
                     x: area.x + offset,
                     y,
-                    width: TABLE_WIDTH.min(area.width),
+                    width: tw.min(area.width),
                     height: 1,
                 },
                 buf,
                 summary,
                 max_tokens,
+                visible,
             );
         }
     }
@@ -348,6 +373,7 @@ impl DailyView<'_> {
         buf: &mut Buffer,
         summary: &DailySummary,
         max_tokens: u64,
+        visible: &[usize],
     ) {
         let total_tokens = summary.total_input_tokens
             + summary.total_output_tokens
@@ -387,61 +413,67 @@ impl DailyView<'_> {
             DailyViewMode::Monthly => summary.date.format("%Y-%m").to_string(),
         };
 
-        let row = Line::from(vec![
-            Span::styled(
-                format!("{:<12}", date_str),
-                Style::default().fg(Color::Yellow),
-            ),
-            Span::styled(
-                format!("{:<25}", model_display),
-                Style::default().fg(Color::Cyan),
-            ),
-            Span::styled(
-                format!("{:>18}", format_number(summary.total_input_tokens)),
-                Style::default().fg(Color::White),
-            ),
-            Span::styled(
-                format!("{:>18}", format_number(summary.total_output_tokens)),
-                Style::default().fg(Color::White),
-            ),
-            Span::styled(
-                format!("{:>18}", format_number(cache_tokens)),
-                Style::default().fg(Color::White),
-            ),
-            Span::styled(
-                format!("{:>18}", format_number(total_tokens)),
-                Style::default().fg(Color::White),
-            ),
-            Span::styled(
-                format!("{:>12}", format!("${:.2}", summary.total_cost_usd)),
-                Style::default().fg(Color::Magenta),
-            ),
-            Span::styled(
-                format!("{:>18}", sparkline),
-                Style::default().fg(Color::Green),
-            ),
-        ]);
+        let mut spans = Vec::new();
+        for &col in visible {
+            let (text, style) = match col {
+                COL_DATE => (
+                    format!("{:<12}", date_str),
+                    Style::default().fg(self.theme.date()),
+                ),
+                COL_MODEL => (
+                    format!("{:<25}", model_display),
+                    Style::default().fg(self.theme.accent()),
+                ),
+                COL_INPUT => (
+                    format!("{:>18}", format_number(summary.total_input_tokens)),
+                    Style::default().fg(self.theme.text()),
+                ),
+                COL_OUTPUT => (
+                    format!("{:>18}", format_number(summary.total_output_tokens)),
+                    Style::default().fg(self.theme.text()),
+                ),
+                COL_CACHE => (
+                    format!("{:>18}", format_number(cache_tokens)),
+                    Style::default().fg(self.theme.text()),
+                ),
+                COL_TOTAL => (
+                    format!("{:>18}", format_number(total_tokens)),
+                    Style::default().fg(self.theme.text()),
+                ),
+                COL_COST => (
+                    format!("{:>12}", format!("${:.2}", summary.total_cost_usd)),
+                    Style::default().fg(self.theme.cost()),
+                ),
+                COL_USAGE => (
+                    format!("{:>18}", sparkline),
+                    Style::default().fg(self.theme.bar()),
+                ),
+                _ => unreachable!(),
+            };
+            spans.push(Span::styled(text, style));
+        }
 
+        let row = Line::from(spans);
         let paragraph = Paragraph::new(row).alignment(Alignment::Left);
         paragraph.render(area, buf);
     }
 
     fn render_keybindings(&self, area: Rect, buf: &mut Buffer) {
         let bindings = Paragraph::new(Line::from(vec![
-            Span::styled("↑↓", Style::default().fg(Color::Cyan)),
-            Span::styled(": Scroll", Style::default().fg(Color::DarkGray)),
+            Span::styled("↑↓", Style::default().fg(self.theme.accent())),
+            Span::styled(": Scroll", Style::default().fg(self.theme.muted())),
             Span::raw("  "),
-            Span::styled("d/w/m", Style::default().fg(Color::Cyan)),
-            Span::styled(": View mode", Style::default().fg(Color::DarkGray)),
+            Span::styled("d/w/m", Style::default().fg(self.theme.accent())),
+            Span::styled(": View mode", Style::default().fg(self.theme.muted())),
             Span::raw("  "),
-            Span::styled("q", Style::default().fg(Color::Cyan)),
-            Span::styled(": Quit", Style::default().fg(Color::DarkGray)),
+            Span::styled("q", Style::default().fg(self.theme.accent())),
+            Span::styled(": Quit", Style::default().fg(self.theme.muted())),
             Span::raw("  "),
-            Span::styled("Tab", Style::default().fg(Color::Cyan)),
-            Span::styled(": Switch view", Style::default().fg(Color::DarkGray)),
+            Span::styled("Tab", Style::default().fg(self.theme.accent())),
+            Span::styled(": Switch view", Style::default().fg(self.theme.muted())),
             Span::raw("  "),
-            Span::styled("?", Style::default().fg(Color::Cyan)),
-            Span::styled(": Help", Style::default().fg(Color::DarkGray)),
+            Span::styled("?", Style::default().fg(self.theme.accent())),
+            Span::styled(": Help", Style::default().fg(self.theme.muted())),
         ]))
         .alignment(Alignment::Center);
 
@@ -628,5 +660,69 @@ mod tests {
         assert_eq!(DailyViewMode::Daily.date_column_label(), "Date");
         assert_eq!(DailyViewMode::Weekly.date_column_label(), "Week");
         assert_eq!(DailyViewMode::Monthly.date_column_label(), "Month");
+    }
+
+    // ========== Responsive column tests ==========
+
+    #[test]
+    fn test_visible_columns_full_width() {
+        // >= 139: all 8 columns visible
+        let cols = visible_columns(139);
+        assert_eq!(cols.len(), 8);
+        assert_eq!(cols, vec![0, 1, 2, 3, 4, 5, 6, 7]);
+    }
+
+    #[test]
+    fn test_visible_columns_hide_usage() {
+        // 121..138: 7 columns (Usage hidden)
+        let cols = visible_columns(121);
+        assert_eq!(cols.len(), 7);
+        assert!(!cols.contains(&COL_USAGE));
+    }
+
+    #[test]
+    fn test_visible_columns_hide_usage_and_cache() {
+        // 103..120: 6 columns (Usage + Cache hidden)
+        let cols = visible_columns(103);
+        assert_eq!(cols.len(), 6);
+        assert!(!cols.contains(&COL_USAGE));
+        assert!(!cols.contains(&COL_CACHE));
+    }
+
+    #[test]
+    fn test_visible_columns_hide_three() {
+        // 85..102: 5 columns (Usage + Cache + Output hidden)
+        let cols = visible_columns(85);
+        assert_eq!(cols.len(), 5);
+        assert!(!cols.contains(&COL_USAGE));
+        assert!(!cols.contains(&COL_CACHE));
+        assert!(!cols.contains(&COL_OUTPUT));
+    }
+
+    #[test]
+    fn test_visible_columns_minimum() {
+        // < 85: 4 columns (Date + Model + Total + Cost)
+        let cols = visible_columns(67);
+        assert_eq!(cols.len(), 4);
+        assert_eq!(cols, vec![COL_DATE, COL_MODEL, COL_TOTAL, COL_COST]);
+    }
+
+    #[test]
+    fn test_table_width_for_all_columns() {
+        let all: Vec<usize> = (0..8).collect();
+        assert_eq!(table_width_for(&all), 139);
+    }
+
+    #[test]
+    fn test_table_width_for_minimum_columns() {
+        let min = vec![COL_DATE, COL_MODEL, COL_TOTAL, COL_COST];
+        assert_eq!(table_width_for(&min), 67);
+    }
+
+    #[test]
+    fn test_visible_columns_wide_terminal() {
+        // Very wide terminal should still show all 8
+        let cols = visible_columns(200);
+        assert_eq!(cols.len(), 8);
     }
 }

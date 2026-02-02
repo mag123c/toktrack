@@ -8,6 +8,8 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Widget},
 };
 
+use crate::tui::theme::Theme;
+
 /// Width and height of the update popup
 const POPUP_WIDTH: u16 = 48;
 const POPUP_HEIGHT: u16 = 11;
@@ -17,14 +19,16 @@ pub struct UpdatePopup<'a> {
     current: &'a str,
     latest: &'a str,
     selection: u8, // 0 = Update now, 1 = Skip
+    theme: Theme,
 }
 
 impl<'a> UpdatePopup<'a> {
-    pub fn new(current: &'a str, latest: &'a str, selection: u8) -> Self {
+    pub fn new(current: &'a str, latest: &'a str, selection: u8, theme: Theme) -> Self {
         Self {
             current,
             latest,
             selection,
+            theme,
         }
     }
 
@@ -51,7 +55,7 @@ impl<'a> Widget for UpdatePopup<'a> {
             .title(" Update Available ")
             .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Yellow));
+            .border_style(Style::default().fg(self.theme.date()));
 
         let inner = block.inner(area);
         block.render(area, buf);
@@ -72,17 +76,19 @@ impl<'a> Widget for UpdatePopup<'a> {
 
         // Version info line
         let version_line = Line::from(vec![
-            Span::styled("  v", Style::default().fg(Color::White)),
+            Span::styled("  v", Style::default().fg(self.theme.text())),
             Span::styled(
                 self.current,
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(self.theme.error())
+                    .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("  →  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("v", Style::default().fg(Color::White)),
+            Span::styled("  →  ", Style::default().fg(self.theme.muted())),
+            Span::styled("v", Style::default().fg(self.theme.text())),
             Span::styled(
                 self.latest,
                 Style::default()
-                    .fg(Color::Green)
+                    .fg(self.theme.bar())
                     .add_modifier(Modifier::BOLD),
             ),
         ]);
@@ -96,7 +102,7 @@ impl<'a> Widget for UpdatePopup<'a> {
             chunks[3].x,
             chunks[3].y,
             &sep,
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(self.theme.muted()),
         );
 
         // Selection items
@@ -104,11 +110,11 @@ impl<'a> Widget for UpdatePopup<'a> {
             (
                 "▸ ",
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(self.theme.accent())
                     .add_modifier(Modifier::BOLD),
             )
         } else {
-            ("  ", Style::default().fg(Color::DarkGray))
+            ("  ", Style::default().fg(self.theme.muted()))
         };
         let update_line = Line::from(vec![
             Span::styled(update_marker, update_style),
@@ -122,11 +128,11 @@ impl<'a> Widget for UpdatePopup<'a> {
             (
                 "▸ ",
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(self.theme.accent())
                     .add_modifier(Modifier::BOLD),
             )
         } else {
-            ("  ", Style::default().fg(Color::DarkGray))
+            ("  ", Style::default().fg(self.theme.muted()))
         };
         let skip_line = Line::from(vec![
             Span::styled(skip_marker, skip_style),
@@ -141,17 +147,17 @@ impl<'a> Widget for UpdatePopup<'a> {
             Span::styled(
                 "↑↓",
                 Style::default()
-                    .fg(Color::DarkGray)
+                    .fg(self.theme.muted())
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(" Select  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(" Select  ", Style::default().fg(self.theme.muted())),
             Span::styled(
                 "Enter",
                 Style::default()
-                    .fg(Color::DarkGray)
+                    .fg(self.theme.muted())
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(" Confirm", Style::default().fg(Color::DarkGray)),
+            Span::styled(" Confirm", Style::default().fg(self.theme.muted())),
         ]);
         Paragraph::new(hint_line)
             .alignment(Alignment::Center)
@@ -239,7 +245,7 @@ mod tests {
         let area = Rect::new(0, 0, 60, 20);
         let popup_area = UpdatePopup::centered_area(area);
         let mut buf = Buffer::empty(area);
-        let popup = UpdatePopup::new("0.1.14", "0.2.0", 0);
+        let popup = UpdatePopup::new("0.1.14", "0.2.0", 0, Theme::Dark);
         popup.render(popup_area, &mut buf);
     }
 

@@ -4,7 +4,7 @@ use chrono::NaiveDate;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Paragraph, Widget},
 };
@@ -12,6 +12,7 @@ use ratatui::{
 use super::heatmap::Heatmap;
 use super::legend::Legend;
 use super::tabs::{Tab, TabBar};
+use crate::tui::theme::Theme;
 use crate::types::TotalSummary;
 
 /// Format a number with thousand separators (e.g., 1234567 -> "1,234,567")
@@ -52,14 +53,16 @@ pub struct Overview<'a> {
     data: OverviewData<'a>,
     today: NaiveDate,
     selected_tab: Tab,
+    theme: Theme,
 }
 
 impl<'a> Overview<'a> {
-    pub fn new(data: OverviewData<'a>, today: NaiveDate) -> Self {
+    pub fn new(data: OverviewData<'a>, today: NaiveDate, theme: Theme) -> Self {
         Self {
             data,
             today,
             selected_tab: Tab::Overview,
+            theme,
         }
     }
 
@@ -126,32 +129,38 @@ impl Widget for Overview<'_> {
 
 impl Overview<'_> {
     fn render_tabs(&self, area: Rect, buf: &mut Buffer) {
-        let tab_bar = TabBar::new(self.selected_tab);
+        let tab_bar = TabBar::new(self.selected_tab, self.theme);
         tab_bar.render(area, buf);
     }
 
     fn render_separator(&self, area: Rect, buf: &mut Buffer) {
         let line = "─".repeat(area.width as usize);
-        buf.set_string(area.x, area.y, &line, Style::default().fg(Color::DarkGray));
+        buf.set_string(
+            area.x,
+            area.y,
+            &line,
+            Style::default().fg(self.theme.muted()),
+        );
     }
 
     fn render_hero_stat(&self, area: Rect, buf: &mut Buffer) {
-        // Include all token types: input + output + cache_read + cache_creation
         let total_tokens = self.data.total.total_input_tokens
             + self.data.total.total_output_tokens
             + self.data.total.total_cache_read_tokens
             + self.data.total.total_cache_creation_tokens;
         let formatted = format_number(total_tokens);
 
-        // Center the hero number
         let hero = Paragraph::new(vec![
             Line::from(Span::styled(
                 &formatted,
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(self.theme.accent())
                     .add_modifier(Modifier::BOLD),
             )),
-            Line::from(Span::styled("tokens", Style::default().fg(Color::DarkGray))),
+            Line::from(Span::styled(
+                "tokens",
+                Style::default().fg(self.theme.muted()),
+            )),
         ])
         .alignment(Alignment::Center);
 
@@ -163,7 +172,7 @@ impl Overview<'_> {
 
         let stats = Paragraph::new(Line::from(vec![Span::styled(
             cost_str,
-            Style::default().fg(Color::Magenta),
+            Style::default().fg(self.theme.cost()),
         )]))
         .alignment(Alignment::Center);
 
@@ -171,8 +180,7 @@ impl Overview<'_> {
     }
 
     fn render_heatmap_section(&self, area: Rect, buf: &mut Buffer) {
-        // Layout constants for heatmap section (borderless)
-        const HEATMAP_GRID_ROWS: u16 = 7; // 7 weekdays (no borders)
+        const HEATMAP_GRID_ROWS: u16 = 7;
         const MONTH_LABEL_ROWS: u16 = 1;
         const BLANK_ROWS: u16 = 1;
         const LEGEND_ROWS: u16 = 1;
@@ -180,18 +188,15 @@ impl Overview<'_> {
         const REQUIRED_HEIGHT: u16 = LEGEND_Y_OFFSET + LEGEND_ROWS;
 
         let weeks = Heatmap::weeks_for_width(area.width);
-        let heatmap = Heatmap::new(self.data.daily_tokens, self.today, weeks);
+        let heatmap = Heatmap::new(self.data.daily_tokens, self.today, weeks, self.theme);
         heatmap.render(area, buf);
 
-        // Legend on last row - aligned to heatmap grid right edge (with 1 blank row gap)
         if area.height >= REQUIRED_HEIGHT {
-            // Calculate heatmap dimensions (must match heatmap.rs constants)
             const LABEL_WIDTH: u16 = 4;
             const CELL_WIDTH: u16 = 2;
             let heatmap_width = LABEL_WIDTH + (weeks as u16 * CELL_WIDTH);
             let x_offset = area.width.saturating_sub(heatmap_width) / 2;
 
-            // Position legend at heatmap's right edge
             let legend_width = Legend::min_width();
             let legend_x = area.x + x_offset + heatmap_width.saturating_sub(legend_width);
 
@@ -201,20 +206,20 @@ impl Overview<'_> {
                 width: legend_width.min(area.width),
                 height: LEGEND_ROWS,
             };
-            Legend::new().render(legend_area, buf);
+            Legend::new(self.theme).render(legend_area, buf);
         }
     }
 
     fn render_keybindings(&self, area: Rect, buf: &mut Buffer) {
         let bindings = Paragraph::new(Line::from(vec![
-            Span::styled("q", Style::default().fg(Color::Cyan)),
-            Span::styled(": Quit", Style::default().fg(Color::DarkGray)),
+            Span::styled("q", Style::default().fg(self.theme.accent())),
+            Span::styled(": Quit", Style::default().fg(self.theme.muted())),
             Span::raw("  "),
-            Span::styled("Tab", Style::default().fg(Color::Cyan)),
-            Span::styled(": Switch view", Style::default().fg(Color::DarkGray)),
+            Span::styled("Tab", Style::default().fg(self.theme.accent())),
+            Span::styled(": Switch view", Style::default().fg(self.theme.muted())),
             Span::raw("  "),
-            Span::styled("?", Style::default().fg(Color::Cyan)),
-            Span::styled(": Help", Style::default().fg(Color::DarkGray)),
+            Span::styled("?", Style::default().fg(self.theme.accent())),
+            Span::styled(": Help", Style::default().fg(self.theme.muted())),
         ]))
         .alignment(Alignment::Center);
 

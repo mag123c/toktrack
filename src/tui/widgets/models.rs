@@ -5,13 +5,14 @@ use std::collections::HashMap;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Paragraph, Widget},
 };
 
 use super::overview::format_number;
 use super::tabs::{Tab, TabBar};
+use crate::tui::theme::Theme;
 use crate::types::ModelUsage;
 
 /// Format a percentage bar with filled/empty blocks
@@ -80,13 +81,15 @@ const TABLE_WIDTH: u16 = 78;
 pub struct ModelsView<'a> {
     data: &'a ModelsData,
     selected_tab: Tab,
+    theme: Theme,
 }
 
 impl<'a> ModelsView<'a> {
-    pub fn new(data: &'a ModelsData) -> Self {
+    pub fn new(data: &'a ModelsData, theme: Theme) -> Self {
         Self {
             data,
             selected_tab: Tab::Models,
+            theme,
         }
     }
 
@@ -149,13 +152,18 @@ impl ModelsView<'_> {
     }
 
     fn render_tabs(&self, area: Rect, buf: &mut Buffer) {
-        let tab_bar = TabBar::new(self.selected_tab);
+        let tab_bar = TabBar::new(self.selected_tab, self.theme);
         tab_bar.render(area, buf);
     }
 
     fn render_separator(&self, area: Rect, buf: &mut Buffer) {
         let line = "─".repeat(area.width as usize);
-        buf.set_string(area.x, area.y, &line, Style::default().fg(Color::DarkGray));
+        buf.set_string(
+            area.x,
+            area.y,
+            &line,
+            Style::default().fg(self.theme.muted()),
+        );
     }
 
     fn render_header(&self, area: Rect, buf: &mut Buffer) {
@@ -166,25 +174,25 @@ impl ModelsView<'_> {
             Span::styled(
                 format!("{:<30}", "Model"),
                 Style::default()
-                    .fg(Color::White)
+                    .fg(self.theme.text())
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 format!("{:>18}", "Tokens"),
                 Style::default()
-                    .fg(Color::White)
+                    .fg(self.theme.text())
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 format!("{:>12}", "Cost"),
                 Style::default()
-                    .fg(Color::White)
+                    .fg(self.theme.text())
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 format!("{:>18}", "Usage"),
                 Style::default()
-                    .fg(Color::White)
+                    .fg(self.theme.text())
                     .add_modifier(Modifier::BOLD),
             ),
         ]);
@@ -232,16 +240,22 @@ impl ModelsView<'_> {
             };
 
             let row = Line::from(vec![
-                Span::styled(format!("{:<30}", name), Style::default().fg(Color::Cyan)),
+                Span::styled(
+                    format!("{:<30}", name),
+                    Style::default().fg(self.theme.accent()),
+                ),
                 Span::styled(
                     format!("{:>18}", format_number(model.total_tokens)),
-                    Style::default().fg(Color::White),
+                    Style::default().fg(self.theme.text()),
                 ),
                 Span::styled(
                     format!("{:>12}", format!("${:.2}", model.cost_usd)),
-                    Style::default().fg(Color::Magenta),
+                    Style::default().fg(self.theme.cost()),
                 ),
-                Span::styled(format!("{:>18}", bar), Style::default().fg(Color::Green)),
+                Span::styled(
+                    format!("{:>18}", bar),
+                    Style::default().fg(self.theme.bar()),
+                ),
             ]);
 
             let paragraph = Paragraph::new(row).alignment(Alignment::Left);
@@ -259,14 +273,14 @@ impl ModelsView<'_> {
 
     fn render_keybindings(&self, area: Rect, buf: &mut Buffer) {
         let bindings = Paragraph::new(Line::from(vec![
-            Span::styled("q", Style::default().fg(Color::Cyan)),
-            Span::styled(": Quit", Style::default().fg(Color::DarkGray)),
+            Span::styled("q", Style::default().fg(self.theme.accent())),
+            Span::styled(": Quit", Style::default().fg(self.theme.muted())),
             Span::raw("  "),
-            Span::styled("Tab", Style::default().fg(Color::Cyan)),
-            Span::styled(": Switch view", Style::default().fg(Color::DarkGray)),
+            Span::styled("Tab", Style::default().fg(self.theme.accent())),
+            Span::styled(": Switch view", Style::default().fg(self.theme.muted())),
             Span::raw("  "),
-            Span::styled("?", Style::default().fg(Color::Cyan)),
-            Span::styled(": Help", Style::default().fg(Color::DarkGray)),
+            Span::styled("?", Style::default().fg(self.theme.accent())),
+            Span::styled(": Help", Style::default().fg(self.theme.muted())),
         ]))
         .alignment(Alignment::Center);
 

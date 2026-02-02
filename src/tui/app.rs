@@ -7,12 +7,10 @@ use std::time::Duration;
 use chrono::{Local, NaiveDate};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-    style::{Color, Style},
-    widgets::Widget,
-    DefaultTerminal, Frame,
+    buffer::Buffer, layout::Rect, style::Style, widgets::Widget, DefaultTerminal, Frame,
 };
+
+use super::theme::Theme;
 
 use crate::parsers::ParserRegistry;
 use crate::services::update_checker::{check_for_update, execute_update, UpdateCheckResult};
@@ -102,11 +100,12 @@ pub struct App {
     update_status: UpdateStatus,
     update_selection: u8, // 0 = Update now, 1 = Skip
     pending_data: Option<Result<Box<AppData>, String>>,
+    theme: Theme,
 }
 
 impl App {
     /// Create a new app in loading state with the given configuration
-    pub fn new(config: TuiConfig) -> Self {
+    pub fn new(config: TuiConfig, theme: Theme) -> Self {
         Self {
             state: AppState::Loading {
                 spinner_frame: 0,
@@ -122,6 +121,7 @@ impl App {
             update_status: UpdateStatus::Checking,
             update_selection: 0,
             pending_data: None,
+            theme,
         }
     }
 
@@ -294,7 +294,7 @@ impl App {
 
 impl Default for App {
     fn default() -> Self {
-        Self::new(TuiConfig::default())
+        Self::new(TuiConfig::default(), Theme::default())
     }
 }
 
@@ -305,7 +305,7 @@ impl Widget for &App {
                 spinner_frame,
                 stage,
             } => {
-                let spinner = Spinner::new(*spinner_frame, *stage);
+                let spinner = Spinner::new(*spinner_frame, *stage, self.theme);
                 spinner.render(area, buf);
             }
             AppState::Ready { data } => {
@@ -317,13 +317,13 @@ impl Widget for &App {
                             total: &data.total,
                             daily_tokens: &data.daily_tokens,
                         };
-                        let overview =
-                            Overview::new(overview_data, today).with_tab(self.current_tab);
+                        let overview = Overview::new(overview_data, today, self.theme)
+                            .with_tab(self.current_tab);
                         overview.render(area, buf);
                     }
                     Tab::Models => {
-                        let models_view =
-                            ModelsView::new(&data.models_data).with_tab(self.current_tab);
+                        let models_view = ModelsView::new(&data.models_data, self.theme)
+                            .with_tab(self.current_tab);
                         models_view.render(area, buf);
                     }
                     Tab::Daily => {
@@ -331,13 +331,14 @@ impl Widget for &App {
                             &data.daily_data,
                             self.active_scroll(),
                             self.daily_view_mode,
+                            self.theme,
                         )
                         .with_tab(self.current_tab);
                         daily_view.render(area, buf);
                     }
                     Tab::Stats => {
                         let stats_view =
-                            StatsView::new(&data.stats_data).with_tab(self.current_tab);
+                            StatsView::new(&data.stats_data, self.theme).with_tab(self.current_tab);
                         stats_view.render(area, buf);
                     }
                 }
@@ -345,14 +346,14 @@ impl Widget for &App {
                 // Render help popup overlay if active
                 if self.show_help {
                     let popup_area = HelpPopup::centered_area(area);
-                    HelpPopup::new().render(popup_area, buf);
+                    HelpPopup::new(self.theme).render(popup_area, buf);
                 }
             }
             AppState::Error { message } => {
                 let y = area.y + area.height / 2;
                 let text = format!("Error: {}", message);
                 let x = area.x + (area.width.saturating_sub(text.len() as u16)) / 2;
-                buf.set_string(x, y, &text, Style::default().fg(Color::Red));
+                buf.set_string(x, y, &text, Style::default().fg(self.theme.error()));
             }
         }
 
@@ -360,16 +361,21 @@ impl Widget for &App {
         match &self.update_status {
             UpdateStatus::Available { current, latest } => {
                 let popup_area = UpdatePopup::centered_area(area);
-                UpdatePopup::new(current, latest, self.update_selection).render(popup_area, buf);
+                UpdatePopup::new(current, latest, self.update_selection, self.theme)
+                    .render(popup_area, buf);
             }
             UpdateStatus::Updating => {
                 let popup_area = UpdateMessagePopup::centered_area(area);
-                UpdateMessagePopup::new("Running npm update -g toktrack...", Color::Yellow)
+                UpdateMessagePopup::new("Running npm update -g toktrack...", self.theme.date())
                     .render(popup_area, buf);
             }
             UpdateStatus::UpdateDone { success, message } => {
                 let popup_area = UpdateMessagePopup::centered_area(area);
-                let color = if *success { Color::Green } else { Color::Red };
+                let color = if *success {
+                    self.theme.bar()
+                } else {
+                    self.theme.error()
+                };
                 UpdateMessagePopup::new(message, color).render(popup_area, buf);
             }
             UpdateStatus::Checking | UpdateStatus::Resolved => {}
@@ -379,8 +385,10 @@ impl Widget for &App {
 
 /// Run the TUI application with the given configuration
 pub fn run(config: TuiConfig) -> anyhow::Result<()> {
+    // Detect theme before entering raw mode (escape-sequence detection needs normal stdin)
+    let theme = Theme::detect();
     let mut terminal = ratatui::init();
-    let result = run_app(&mut terminal, config);
+    let result = run_app(&mut terminal, config, theme);
     ratatui::restore();
     result
 }
@@ -587,8 +595,8 @@ fn build_app_data_from_summaries(
     }))
 }
 
-fn run_app(terminal: &mut DefaultTerminal, config: TuiConfig) -> anyhow::Result<()> {
-    let mut app = App::new(config);
+fn run_app(terminal: &mut DefaultTerminal, config: TuiConfig, theme: Theme) -> anyhow::Result<()> {
+    let mut app = App::new(config, theme);
 
     // Spawn background thread for data loading
     let (data_tx, data_rx) = mpsc::channel();
@@ -1120,7 +1128,7 @@ mod tests {
             initial_tab: Tab::Daily,
             initial_view_mode: DailyViewMode::Weekly,
         };
-        let app = App::new(config);
+        let app = App::new(config, Theme::Dark);
 
         // Config-driven fields
         assert_eq!(app.current_tab, Tab::Daily);

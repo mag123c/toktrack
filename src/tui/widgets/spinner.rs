@@ -3,9 +3,11 @@
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     widgets::Widget,
 };
+
+use crate::tui::theme::Theme;
 
 /// Spinner animation frames
 const SPINNER_FRAMES: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -38,11 +40,16 @@ impl LoadingStage {
 pub struct Spinner {
     frame: usize,
     stage: LoadingStage,
+    theme: Theme,
 }
 
 impl Spinner {
-    pub fn new(frame: usize, stage: LoadingStage) -> Self {
-        Self { frame, stage }
+    pub fn new(frame: usize, stage: LoadingStage, theme: Theme) -> Self {
+        Self {
+            frame,
+            stage,
+            theme,
+        }
     }
 
     /// Get the current spinner character
@@ -65,7 +72,7 @@ impl Widget for Spinner {
         // Calculate center Y (4 lines: name, tagline, empty, spinner)
         let center_y = area.y + area.height / 2;
 
-        // App name with version (bold, white)
+        // App name with version (bold)
         let name_with_version = format!("{} v{}", APP_NAME, VERSION);
         let name_y = center_y.saturating_sub(2);
         let name_x = area.x + (area.width.saturating_sub(name_with_version.len() as u16)) / 2;
@@ -74,16 +81,21 @@ impl Widget for Spinner {
             name_y,
             &name_with_version,
             Style::default()
-                .fg(Color::White)
+                .fg(self.theme.text())
                 .add_modifier(Modifier::BOLD),
         );
 
-        // Tagline (dim gray)
+        // Tagline (muted)
         let tag_y = name_y + 1;
         let tag_x = area.x + (area.width.saturating_sub(TAGLINE.len() as u16)) / 2;
-        buf.set_string(tag_x, tag_y, TAGLINE, Style::default().fg(Color::DarkGray));
+        buf.set_string(
+            tag_x,
+            tag_y,
+            TAGLINE,
+            Style::default().fg(self.theme.muted()),
+        );
 
-        // Spinner (cyan) - 1 blank line after tagline
+        // Spinner (accent) - 1 blank line after tagline
         let spinner_text = format!("{} {}", self.current_char(), self.stage.message());
         let spinner_y = tag_y + 2;
         let spinner_x = area.x + (area.width.saturating_sub(spinner_text.len() as u16)) / 2;
@@ -91,7 +103,7 @@ impl Widget for Spinner {
             spinner_x,
             spinner_y,
             &spinner_text,
-            Style::default().fg(Color::Cyan),
+            Style::default().fg(self.theme.accent()),
         );
     }
 }
@@ -107,16 +119,16 @@ mod tests {
 
     #[test]
     fn test_spinner_current_char() {
-        let spinner = Spinner::new(0, LoadingStage::Scanning);
+        let spinner = Spinner::new(0, LoadingStage::Scanning, Theme::Dark);
         assert_eq!(spinner.current_char(), '⠋');
 
-        let spinner = Spinner::new(5, LoadingStage::Scanning);
+        let spinner = Spinner::new(5, LoadingStage::Scanning, Theme::Dark);
         assert_eq!(spinner.current_char(), '⠴');
     }
 
     #[test]
     fn test_spinner_wraps() {
-        let spinner = Spinner::new(10, LoadingStage::Scanning);
+        let spinner = Spinner::new(10, LoadingStage::Scanning, Theme::Dark);
         assert_eq!(spinner.current_char(), '⠋'); // 10 % 10 = 0
     }
 

@@ -3,10 +3,12 @@
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Widget},
 };
+
+use crate::tui::theme::Theme;
 
 /// Version from Cargo.toml
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -16,11 +18,13 @@ const POPUP_WIDTH: u16 = 42;
 const POPUP_HEIGHT: u16 = 17;
 
 /// Help popup widget showing keyboard shortcuts
-pub struct HelpPopup;
+pub struct HelpPopup {
+    theme: Theme,
+}
 
 impl HelpPopup {
-    pub fn new() -> Self {
-        Self
+    pub fn new(theme: Theme) -> Self {
+        Self { theme }
     }
 
     /// Calculate centered popup area
@@ -38,7 +42,7 @@ impl HelpPopup {
 
 impl Default for HelpPopup {
     fn default() -> Self {
-        Self::new()
+        Self::new(Theme::default())
     }
 }
 
@@ -53,7 +57,7 @@ impl Widget for HelpPopup {
             .title(title)
             .title_alignment(Alignment::Center)
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan));
+            .border_style(Style::default().fg(self.theme.accent()));
 
         let inner = block.inner(area);
         block.render(area, buf);
@@ -82,7 +86,7 @@ impl Widget for HelpPopup {
         let nav_header = Line::from(vec![Span::styled(
             "Navigation",
             Style::default()
-                .fg(Color::Yellow)
+                .fg(self.theme.date())
                 .add_modifier(Modifier::BOLD),
         )]);
         Paragraph::new(nav_header)
@@ -95,20 +99,32 @@ impl Widget for HelpPopup {
             chunks[2].x,
             chunks[2].y,
             &sep,
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(self.theme.muted()),
         );
 
         // Keybindings
-        render_keybinding(chunks[3], buf, "Tab / Shift+Tab", "Switch view");
-        render_keybinding(chunks[4], buf, "1-4", "Jump to view");
-        render_keybinding(chunks[5], buf, "Up/Down or j/k", "Scroll (Daily)");
-        render_keybinding(chunks[6], buf, "d / w / m", "Daily/Weekly/Monthly");
+        render_keybinding(chunks[3], buf, "Tab / Shift+Tab", "Switch view", self.theme);
+        render_keybinding(chunks[4], buf, "1-4", "Jump to view", self.theme);
+        render_keybinding(
+            chunks[5],
+            buf,
+            "Up/Down or j/k",
+            "Scroll (Daily)",
+            self.theme,
+        );
+        render_keybinding(
+            chunks[6],
+            buf,
+            "d / w / m",
+            "Daily/Weekly/Monthly",
+            self.theme,
+        );
 
         // General section
         let gen_header = Line::from(vec![Span::styled(
             "General",
             Style::default()
-                .fg(Color::Yellow)
+                .fg(self.theme.date())
                 .add_modifier(Modifier::BOLD),
         )]);
         Paragraph::new(gen_header)
@@ -120,16 +136,16 @@ impl Widget for HelpPopup {
             chunks[9].x,
             chunks[9].y,
             &sep,
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(self.theme.muted()),
         );
 
-        render_keybinding(chunks[10], buf, "q / Esc", "Quit");
-        render_keybinding(chunks[11], buf, "?", "Toggle help");
+        render_keybinding(chunks[10], buf, "q / Esc", "Quit", self.theme);
+        render_keybinding(chunks[11], buf, "?", "Toggle help", self.theme);
 
         // Close hint
         let hint = Line::from(vec![Span::styled(
             "Press ? or Esc to close",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(self.theme.muted()),
         )]);
         Paragraph::new(hint)
             .alignment(Alignment::Center)
@@ -138,10 +154,13 @@ impl Widget for HelpPopup {
 }
 
 /// Render a single keybinding line
-fn render_keybinding(area: Rect, buf: &mut Buffer, key: &str, desc: &str) {
+fn render_keybinding(area: Rect, buf: &mut Buffer, key: &str, desc: &str, theme: Theme) {
     let line = Line::from(vec![
-        Span::styled(format!("  {:<18}", key), Style::default().fg(Color::Cyan)),
-        Span::styled(desc, Style::default().fg(Color::White)),
+        Span::styled(
+            format!("  {:<18}", key),
+            Style::default().fg(theme.accent()),
+        ),
+        Span::styled(desc, Style::default().fg(theme.text())),
     ]);
     Paragraph::new(line)
         .alignment(Alignment::Left)

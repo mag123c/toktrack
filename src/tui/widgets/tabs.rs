@@ -3,9 +3,11 @@
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     widgets::Widget,
 };
+
+use crate::tui::theme::Theme;
 
 /// Available tabs in the application
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -68,11 +70,12 @@ impl Tab {
 /// Tab bar widget showing available views
 pub struct TabBar {
     selected: Tab,
+    theme: Theme,
 }
 
 impl TabBar {
-    pub fn new(selected: Tab) -> Self {
-        Self { selected }
+    pub fn new(selected: Tab, theme: Theme) -> Self {
+        Self { selected, theme }
     }
 }
 
@@ -120,10 +123,10 @@ impl Widget for TabBar {
             // Style based on selection
             let style = if is_selected {
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(self.theme.accent())
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(self.theme.muted())
             };
 
             buf.set_string(x, area.y, &display, style);

@@ -6,7 +6,7 @@ TUI[ratatui] → CLI[clap] → Services → Parsers[trait] → Cache
 ```
 
 ## Paths
-- `src/tui/` - TUI (app.rs, widgets/)
+- `src/tui/` - TUI (app.rs, theme.rs, widgets/)
 - `src/cli/` - CLI commands
 - `src/services/` - aggregator, pricing, cache, update_checker
 - `src/parsers/` - CLIParser trait + impls
@@ -15,12 +15,13 @@ TUI[ratatui] → CLI[clap] → Services → Parsers[trait] → Cache
 ## TUI Widgets
 | Widget | Purpose |
 |--------|---------|
-| `app.rs` | AppState enum, TuiConfig (initial_tab, initial_view_mode), event loop |
+| `theme.rs` | Theme enum (Dark/Light), auto-detect via `terminal-light`, 10 semantic color methods + heatmap_color |
+| `app.rs` | AppState enum, TuiConfig (initial_tab, initial_view_mode), event loop, Theme::detect() before raw mode |
 | `widgets/spinner.rs` | Loading animation (dots/braille) |
 | `widgets/heatmap.rs` | 52-week heatmap (2x2 blocks, 14 rows, responsive, colorblind-accessible) |
 | `widgets/overview.rs` | Overview layout (hero stat, sub-stats, keybindings) |
 | `widgets/models.rs` | Models view (per-model breakdown, cost %, percentage bar) |
-| `widgets/daily.rs` | Daily view (daily/weekly/monthly modes via `DailyViewMode`, sparklines, scroll) |
+| `widgets/daily.rs` | Daily view (daily/weekly/monthly modes, sparklines, scroll, responsive columns) |
 | `widgets/help.rs` | Help popup (keyboard shortcuts overlay, `?` toggle) |
 | `widgets/stats.rs` | Stats view (6 cards: total/avg tokens, peak day, costs, active days) |
 | `widgets/legend.rs` | Heatmap intensity legend |
@@ -80,7 +81,7 @@ cache/
 
 ## Deps
 ```toml
-simd-json, ratatui, crossterm, clap, rayon, chrono, directories, serde, reqwest, tokio, fs2
+simd-json, ratatui, crossterm, clap, rayon, chrono, directories, serde, reqwest, tokio, fs2, terminal-light
 dev: criterion, tempfile
 ```
 

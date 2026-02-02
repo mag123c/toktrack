@@ -1,12 +1,9 @@
 //! 52-week heatmap widget
 
 use chrono::NaiveDate;
-use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-    style::{Color, Style},
-    widgets::Widget,
-};
+use ratatui::{buffer::Buffer, layout::Rect, style::Style, widgets::Widget};
+
+use crate::tui::theme::{HeatmapLevel, Theme};
 
 /// Heatmap intensity level based on percentiles
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,15 +46,16 @@ impl HeatmapIntensity {
         }
     }
 
-    /// Get color for this intensity (GitHub-style green gradient using ANSI 256)
-    pub fn color(self) -> Color {
-        match self {
-            Self::None => Color::Indexed(236),  // Dark gray (empty cell)
-            Self::Low => Color::Indexed(22),    // DarkGreen
-            Self::Medium => Color::Indexed(28), // Green4
-            Self::High => Color::Indexed(34),   // Green3
-            Self::Max => Color::Indexed(40),    // Green3 (bright)
-        }
+    /// Get color for this intensity using the active theme
+    pub fn color(self, theme: Theme) -> ratatui::style::Color {
+        let level = match self {
+            Self::None => HeatmapLevel::None,
+            Self::Low => HeatmapLevel::Low,
+            Self::Medium => HeatmapLevel::Medium,
+            Self::High => HeatmapLevel::High,
+            Self::Max => HeatmapLevel::Max,
+        };
+        theme.heatmap_color(level)
     }
 }
 
@@ -181,13 +179,20 @@ const LABEL_WIDTH: u16 = 4; // "Mon " prefix
 pub struct Heatmap {
     grid: Vec<Vec<Option<HeatmapCell>>>,
     weeks_to_show: usize,
+    theme: Theme,
 }
 
 impl Heatmap {
-    pub fn new(daily_tokens: &[(NaiveDate, u64)], today: NaiveDate, weeks_to_show: usize) -> Self {
+    pub fn new(
+        daily_tokens: &[(NaiveDate, u64)],
+        today: NaiveDate,
+        weeks_to_show: usize,
+        theme: Theme,
+    ) -> Self {
         Self {
             grid: build_grid(daily_tokens, today, weeks_to_show),
             weeks_to_show,
+            theme,
         }
     }
 
@@ -231,7 +236,7 @@ impl Heatmap {
             area.x + x_offset,
             y,
             label,
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(self.theme.muted()),
         );
 
         // Cells (no borders)
@@ -247,7 +252,7 @@ impl Heatmap {
 
             // Cell content (2 chars)
             if let Some(cell) = cell {
-                let style = Style::default().fg(cell.intensity.color());
+                let style = Style::default().fg(cell.intensity.color(self.theme));
                 buf.set_string(x, y, "██", style);
             }
         }
@@ -319,7 +324,7 @@ impl Heatmap {
                 let month = cell.date.month();
                 if last_month.is_none_or(|m| m != month) {
                     let label = month_names[month as usize];
-                    buf.set_string(x, y, label, Style::default().fg(Color::DarkGray));
+                    buf.set_string(x, y, label, Style::default().fg(self.theme.muted()));
                     last_month = Some(month);
                 }
             }
@@ -354,13 +359,25 @@ mod tests {
     }
 
     #[test]
-    fn test_intensity_color() {
-        // GitHub-style green gradient using ANSI 256 colors
-        assert_eq!(HeatmapIntensity::None.color(), Color::Indexed(236)); // dark gray
-        assert_eq!(HeatmapIntensity::Low.color(), Color::Indexed(22)); // DarkGreen
-        assert_eq!(HeatmapIntensity::Medium.color(), Color::Indexed(28)); // Green4
-        assert_eq!(HeatmapIntensity::High.color(), Color::Indexed(34)); // Green3
-        assert_eq!(HeatmapIntensity::Max.color(), Color::Indexed(40)); // Green3 (bright)
+    fn test_intensity_color_dark() {
+        use ratatui::style::Color;
+        let theme = Theme::Dark;
+        assert_eq!(HeatmapIntensity::None.color(theme), Color::Indexed(236));
+        assert_eq!(HeatmapIntensity::Low.color(theme), Color::Indexed(22));
+        assert_eq!(HeatmapIntensity::Medium.color(theme), Color::Indexed(28));
+        assert_eq!(HeatmapIntensity::High.color(theme), Color::Indexed(34));
+        assert_eq!(HeatmapIntensity::Max.color(theme), Color::Indexed(40));
+    }
+
+    #[test]
+    fn test_intensity_color_light() {
+        use ratatui::style::Color;
+        let theme = Theme::Light;
+        assert_eq!(HeatmapIntensity::None.color(theme), Color::Indexed(254));
+        assert_eq!(HeatmapIntensity::Low.color(theme), Color::Indexed(194));
+        assert_eq!(HeatmapIntensity::Medium.color(theme), Color::Indexed(157));
+        assert_eq!(HeatmapIntensity::High.color(theme), Color::Indexed(71));
+        assert_eq!(HeatmapIntensity::Max.color(theme), Color::Indexed(28));
     }
 
     // ========== calculate_percentiles tests ==========
@@ -551,7 +568,7 @@ mod tests {
             (NaiveDate::from_ymd_opt(2024, 6, 15).unwrap(), 1000),
             (NaiveDate::from_ymd_opt(2024, 6, 14).unwrap(), 500),
         ];
-        let heatmap = Heatmap::new(&daily_tokens, today, weeks);
+        let heatmap = Heatmap::new(&daily_tokens, today, weeks, Theme::Dark);
 
         // Create area large enough for grid: label(4) + weeks*2
         let width = LABEL_WIDTH + (weeks as u16 * CELL_WIDTH);
