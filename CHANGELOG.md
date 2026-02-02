@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.27](https://github.com/mag123c/toktrack/compare/v0.1.26...v0.1.27) (2026-02-02)
+
+
+### Features
+
+* **tui:** add theme auto-detection and responsive daily columns ([d2c162a](https://github.com/mag123c/toktrack/commit/d2c162a72c75bc5a6a0fe029c7becd1e6cbe4f48))
+
 ## [0.1.26](https://github.com/mag123c/toktrack/compare/v0.1.25...v0.1.26) (2026-02-01)
 
 
