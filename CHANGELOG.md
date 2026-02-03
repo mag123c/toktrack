@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.30](https://github.com/mag123c/toktrack/compare/v0.1.29...v0.1.30) (2026-02-03)
+
+
+### Bug Fixes
+
+* **docs:** trigger release for readme updates ([25840e8](https://github.com/mag123c/toktrack/commit/25840e82a92091924c3eae62dcedfd9aa35475d9))
+
 ## [0.1.29](https://github.com/mag123c/toktrack/compare/v0.1.28...v0.1.29) (2026-02-02)
 
 
