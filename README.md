@@ -16,7 +16,7 @@ Track token usage and costs across **all your AI coding CLIs** — Claude Code, 
 
 Built with Rust + simd-json + ratatui for ultra-fast performance.
 
-![toktrack overview](demo.gif)
+![toktrack overview](assets/demo.gif)
 
 > *"How much am I spending on Claude Code?"* — If you've ever wondered, toktrack gives you the answer in under a second. Scanning 2,000+ session files (3 GB) took over 40 seconds with existing tools — toktrack does it in ~1 second.
 
@@ -166,33 +166,7 @@ The next run will rebuild the cache from available session data.
 
 ## How It Works
 
-```
-┌─────────────────────────────────────────────────┐
-│                   CLI / TUI                     │
-└──────────────────────┬──────────────────────────┘
-                       │
-              ┌────────▼────────┐
-              │   Aggregator    │
-              └────────┬────────┘
-                       │
-         ┌─────────────┼─────────────┐
-         ▼             ▼             ▼
-   ┌──────────┐  ┌──────────┐  ┌──────────┐
-   │  Claude  │  │  Codex   │  │  Gemini  │
-   │  Parser  │  │  Parser  │  │  Parser  │
-   └────┬─────┘  └────┬─────┘  └────┬─────┘
-        │              │              │
-        ▼              ▼              ▼
-   simd-json     simd-json      simd-json
-   + rayon       + rayon        + rayon
-        │              │              │
-        └──────────────┼──────────────┘
-                       ▼
-              ┌────────────────┐
-              │     Cache      │
-              │ ~/.toktrack/   │
-              └────────────────┘
-```
+![architecture](assets/architecture.png)
 
 **Cold path** (first run): Full glob scan → parallel SIMD parsing → build cache → aggregate.
 

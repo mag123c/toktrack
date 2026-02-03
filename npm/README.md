@@ -7,7 +7,7 @@
 
 Ultra-fast token & cost tracker for Claude Code, Codex CLI, and Gemini CLI. Built with Rust + simd-json + ratatui.
 
-![toktrack overview](https://raw.githubusercontent.com/mag123c/toktrack/main/demo.gif)
+![toktrack overview](https://raw.githubusercontent.com/mag123c/toktrack/main/assets/demo.gif)
 
 > Scanning 2,000+ session files (3 GB) took over 40 seconds with existing tools — toktrack does it in ~1 second.
 

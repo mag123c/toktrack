@@ -10,7 +10,7 @@
 
 Rust + simd-json + ratatui 기반 초고속 성능.
 
-![toktrack overview](demo.gif)
+![toktrack overview](assets/demo.gif)
 
 > *"Claude Code에 얼마나 쓰고 있지?"* — 궁금했다면, toktrack이 1초 안에 답을 줍니다. 기존 도구로 2,000개 이상의 세션 파일(3 GB)을 스캔하면 40초 이상 걸렸습니다 — toktrack은 ~1초면 됩니다.
 
@@ -160,33 +160,7 @@ rm -rf ~/.toktrack/cache/
 
 ## 동작 방식
 
-```
-┌─────────────────────────────────────────────────┐
-│                   CLI / TUI                     │
-└──────────────────────┬──────────────────────────┘
-                       │
-              ┌────────▼────────┐
-              │   Aggregator    │
-              └────────┬────────┘
-                       │
-         ┌─────────────┼─────────────┐
-         ▼             ▼             ▼
-   ┌──────────┐  ┌──────────┐  ┌──────────┐
-   │  Claude  │  │  Codex   │  │  Gemini  │
-   │  Parser  │  │  Parser  │  │  Parser  │
-   └────┬─────┘  └────┬─────┘  └────┬─────┘
-        │              │              │
-        ▼              ▼              ▼
-   simd-json     simd-json      simd-json
-   + rayon       + rayon        + rayon
-        │              │              │
-        └──────────────┼──────────────┘
-                       ▼
-              ┌────────────────┐
-              │     Cache      │
-              │ ~/.toktrack/   │
-              └────────────────┘
-```
+![architecture](assets/architecture.png)
 
 **콜드 경로** (첫 실행): 전체 glob 스캔 → 병렬 SIMD 파싱 → 캐시 구축 → 집계.
 
