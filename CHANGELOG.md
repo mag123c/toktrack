@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.31](https://github.com/mag123c/toktrack/compare/v0.1.30...v0.1.31) (2026-02-03)
+
+
+### Features
+
+* **tui:** add dim overlay for update popups ([dfa13ba](https://github.com/mag123c/toktrack/commit/dfa13babc1d88f8a8a37b4116013213e8b5095d2))
+
 ## [0.1.30](https://github.com/mag123c/toktrack/compare/v0.1.29...v0.1.30) (2026-02-03)
 
 
