@@ -7,9 +7,17 @@
 
 Ultra-fast token & cost tracker for Claude Code, Codex CLI, and Gemini CLI. Built with Rust + simd-json + ratatui.
 
+> **⚠️ Did you know?** Claude Code **deletes your session data after 30 days** by default. Once deleted, your token usage and cost history are gone forever — unless you preserve them.
+
 ![toktrack overview](https://raw.githubusercontent.com/mag123c/toktrack/main/assets/demo.gif)
 
-> Scanning 2,000+ session files (3 GB) took over 40 seconds with existing tools — toktrack does it in ~1 second.
+## Why toktrack?
+
+| Problem | Solution |
+|---------|----------|
+| 🐌 **Existing tools are slow** — 40+ seconds | ⚡ **1000x faster** — cached queries in ~0.04s |
+| 🗑️ **Claude Code deletes data after 30 days** | 💾 **Persistent cache** — history survives |
+| 📊 **No unified view** — each CLI has separate data | 🎯 **One dashboard** — all CLIs in one place |
 
 ## Installation
 
@@ -58,12 +66,13 @@ npx toktrack stats --json
 
 ## Performance
 
-| Mode | Time |
-|------|------|
-| Cold start (no cache) | **~1.0s** |
-| Warm start (cached) | **~0.04s** |
+| Tool | Time | Speedup |
+|------|------|---------|
+| Existing tools | 40s+ | baseline |
+| **toktrack** (cold) | **~1.0s** | **40x faster** |
+| **toktrack** (cached) | **~0.04s** | **1000x faster** |
 
-> Measured on Apple Silicon (9,000+ files / 3.4 GB).
+> Measured on Apple Silicon with 2,000+ JSONL files (3.4 GB).
 
 ## Links
 

@@ -12,13 +12,33 @@
 
 **English** | [한국어](README.ko.md)
 
+> **⚠️ Did you know?** Claude Code **deletes your session data after 30 days** by default. Once deleted, your token usage and cost history are gone forever — unless you preserve them.
+
 Track token usage and costs across **all your AI coding CLIs** — Claude Code, Codex CLI, and Gemini CLI — in one dashboard.
 
 Built with Rust + simd-json + ratatui for ultra-fast performance.
 
 ![toktrack overview](assets/demo.gif)
 
-> *"How much am I spending on Claude Code?"* — If you've ever wondered, toktrack gives you the answer in under a second. Scanning 2,000+ session files (3 GB) took over 40 seconds with existing tools — toktrack does it in ~1 second.
+## Why toktrack?
+
+| Problem | Solution |
+|---------|----------|
+| 🐌 **Existing tools are slow** — 40+ seconds on large datasets | ⚡ **1000x faster** — cached queries in ~0.04s |
+| 🗑️ **Claude Code deletes data after 30 days** — your cost history disappears | 💾 **Persistent cache** — history survives even after CLI deletes files |
+| 📊 **No unified view** — each CLI has separate data | 🎯 **One dashboard** — Claude Code, Codex CLI, Gemini CLI in one place |
+
+### Performance Comparison
+
+```
+Dataset: 2,000+ JSONL files, 3.4 GB total
+
+Existing tools:     ████████████████████████████████████████ 40s+
+toktrack (cold):    █ ~1s (first run)
+toktrack (cached):  ▏ ~0.04s (daily use)
+
+                    └── up to 1000x faster
+```
 
 ## Features
 
@@ -115,18 +135,23 @@ toktrack stats --json
 
 ## Performance
 
-| Mode | Time |
-|------|------|
-| Cold start (no cache) | **~1.0s** |
-| Warm start (cached) | **~0.04s** |
+| Tool | Time | Speedup |
+|------|------|---------|
+| Existing tools | 40s+ | baseline |
+| **toktrack** (cold) | **~1.0s** | **40x faster** |
+| **toktrack** (cached) | **~0.04s** | **1000x faster** |
 
-> Measured on Apple Silicon (9,000+ files / 3.4 GB).
+> Measured on Apple Silicon with 2,000+ JSONL files (3.4 GB).
+>
+> **Why so fast?** SIMD JSON parsing ([simd-json](https://github.com/simd-lite/simd-json)) + parallel processing ([rayon](https://github.com/rayon-rs/rayon)) = ~3 GiB/s throughput.
 
 ## Data Preservation
 
-AI CLIs delete or rotate session data on their own schedules. toktrack caches daily cost summaries independently, so your usage history survives even after the original data is gone.
+> **The Problem:** You've been using Claude Code for 3 months, spending hundreds of dollars. One day you want to check your total spending — but Claude Code already deleted your session files from 2 months ago. That cost data is gone forever.
 
-### CLI Data Retention Policies
+**toktrack solves this.** It caches daily cost summaries independently, so your usage history survives even after the CLI deletes the original files.
+
+### CLI Data Retention Policies (The Hidden Risk)
 
 | CLI | Default Retention | Policy |
 |-----|-------------------|--------|
