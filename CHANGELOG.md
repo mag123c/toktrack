@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.32](https://github.com/mag123c/toktrack/compare/v0.1.31...v0.1.32) (2026-02-04)
+
+
+### Bug Fixes
+
+* **docs:** improve README with 1000x performance highlight and data preservation warning ([b2c81b5](https://github.com/mag123c/toktrack/commit/b2c81b587feeb24b65ece15a54bd76138c41c592))
+
 ## [0.1.31](https://github.com/mag123c/toktrack/compare/v0.1.30...v0.1.31) (2026-02-03)
 
 
