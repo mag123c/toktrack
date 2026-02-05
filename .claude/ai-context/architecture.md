@@ -67,6 +67,7 @@ trait CLIParser: Send + Sync {
 
 [Aggregation]
 - normalize_model_name()       → date suffix removal, dot→hyphen
+- display_name()               → TUI friendly: "claude-opus-4-5"→"Opus 4.5"
 - Aggregator::merge_by_date()  → combine multi-source summaries
 - Aggregator::by_source()      → SourceUsage per CLI
 - is_copilot_provider()        → github-copilot cost=0

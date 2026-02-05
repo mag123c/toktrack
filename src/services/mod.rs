@@ -9,5 +9,5 @@ pub mod update_checker;
 
 pub use aggregator::Aggregator;
 pub use cache::DailySummaryCacheService;
-pub use normalizer::normalize_model_name;
+pub use normalizer::{display_name, normalize_model_name};
 pub use pricing::PricingService;

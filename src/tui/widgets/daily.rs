@@ -10,7 +10,7 @@ use ratatui::{
 
 use super::overview::format_number;
 use super::tabs::{Tab, TabBar};
-use crate::services::Aggregator;
+use crate::services::{display_name, Aggregator};
 use crate::tui::theme::Theme;
 use crate::types::DailySummary;
 
@@ -384,12 +384,13 @@ impl DailyView<'_> {
 
         // Get primary model (first one, or "mixed" if multiple)
         let model_name = if summary.models.len() == 1 {
-            summary
+            let raw_name = summary
                 .models
                 .keys()
                 .next()
                 .cloned()
-                .unwrap_or_else(|| "unknown".to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            display_name(&raw_name)
         } else if summary.models.is_empty() {
             "unknown".to_string()
         } else {

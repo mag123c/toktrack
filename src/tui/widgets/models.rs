@@ -12,6 +12,7 @@ use ratatui::{
 
 use super::overview::format_number;
 use super::tabs::{Tab, TabBar};
+use crate::services::display_name;
 use crate::tui::theme::Theme;
 use crate::types::ModelUsage;
 
@@ -232,11 +233,12 @@ impl ModelsView<'_> {
 
             let bar = format_percentage_bar(percent, 14);
 
-            // Truncate model name if too long (UTF-8 safe)
-            let name = if model.name.chars().count() > 28 {
-                format!("{}…", model.name.chars().take(27).collect::<String>())
+            // Convert to display name and truncate if too long (UTF-8 safe)
+            let name = display_name(&model.name);
+            let name = if name.chars().count() > 28 {
+                format!("{}…", name.chars().take(27).collect::<String>())
             } else {
-                model.name.clone()
+                name
             };
 
             let row = Line::from(vec![
