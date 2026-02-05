@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.34](https://github.com/mag123c/toktrack/compare/v0.1.33...v0.1.34) (2026-02-05)
+
+
+### Bug Fixes
+
+* **parser:** use XDG standard path for OpenCode data directory ([9f48c99](https://github.com/mag123c/toktrack/commit/9f48c993837faaf84b4c7fd8f814173ec3de3232))
+
 ## [0.1.33](https://github.com/mag123c/toktrack/compare/v0.1.32...v0.1.33) (2026-02-05)
 
 
