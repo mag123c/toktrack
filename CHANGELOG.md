@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.39](https://github.com/mag123c/toktrack/compare/v0.1.38...v0.1.39) (2026-02-05)
+
+
+### Bug Fixes
+
+* **tui:** update popup styling - LightGreen selection, two-line hints ([85a175b](https://github.com/mag123c/toktrack/commit/85a175bf2efab097ccd041fcab871c8f524f9323))
+
 ## [0.1.38](https://github.com/mag123c/toktrack/compare/v0.1.37...v0.1.38) (2026-02-05)
 
 
