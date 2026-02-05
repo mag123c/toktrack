@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.35](https://github.com/mag123c/toktrack/compare/v0.1.34...v0.1.35) (2026-02-05)
+
+
+### Features
+
+* **services:** add model normalizer and source usage aggregation ([ad1eab8](https://github.com/mag123c/toktrack/commit/ad1eab814a238e39f69aae9beff55a511c277dae))
+
+
+### Refactoring
+
+* **assets:** replace logo with pixel-style SVG ([f8addcd](https://github.com/mag123c/toktrack/commit/f8addcdf3fb29f67a7148ec86ab6986040f22ee4))
+
 ## [0.1.34](https://github.com/mag123c/toktrack/compare/v0.1.33...v0.1.34) (2026-02-05)
 
 
