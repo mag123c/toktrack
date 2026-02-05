@@ -1,0 +1,38 @@
+{
+  "sessionId": "no-session-model",
+  "createdAt": "2026-01-28T10:00:00Z",
+  "messages": [
+    {
+      "id": "msg-001",
+      "type": "user",
+      "content": "Hello",
+      "timestamp": "2026-01-28T10:00:00Z"
+    },
+    {
+      "id": "msg-002",
+      "type": "gemini",
+      "model": "gemini-2.5-pro",
+      "content": "Hi there!",
+      "timestamp": "2026-01-28T10:00:01Z",
+      "tokens": {
+        "input": 500,
+        "output": 100,
+        "cached": 0,
+        "thoughts": 0
+      }
+    },
+    {
+      "id": "msg-003",
+      "type": "gemini",
+      "model": "gemini-2.5-flash",
+      "content": "Sure thing!",
+      "timestamp": "2026-01-28T10:01:00Z",
+      "tokens": {
+        "input": 200,
+        "output": 50,
+        "cached": 10,
+        "thoughts": 20
+      }
+    }
+  ]
+}

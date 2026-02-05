@@ -27,6 +27,7 @@ struct GeminiMessage {
     timestamp: String,
     #[serde(default)]
     tokens: Option<GeminiTokens>,
+    model: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -114,7 +115,7 @@ impl CLIParser for GeminiParser {
 
             entries.push(UsageEntry {
                 timestamp,
-                model: session.model.clone(),
+                model: msg.model.clone().or_else(|| session.model.clone()),
                 input_tokens: tokens.input,
                 output_tokens: tokens.output,
                 cache_read_tokens: tokens.cached,
@@ -224,5 +225,35 @@ mod tests {
 
         // Second entry: 250 + 150 + 50 + 0 + 100 = 550
         assert_eq!(entries[1].total_tokens(), 550);
+    }
+
+    fn fixture_no_session_model_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("gemini")
+            .join("tmp456")
+            .join("chats")
+            .join("session-no-session-model.json")
+    }
+
+    #[test]
+    fn test_parse_msg_model_fallback_when_session_model_missing() {
+        let parser = GeminiParser::with_data_dir(PathBuf::from("tests/fixtures/gemini"));
+        let entries = parser.parse_file(&fixture_no_session_model_path()).unwrap();
+
+        // Should parse 2 gemini messages
+        assert_eq!(entries.len(), 2);
+
+        // First message has msg.model = "gemini-2.5-pro"
+        assert_eq!(entries[0].model, Some("gemini-2.5-pro".to_string()));
+
+        // Second message has msg.model = "gemini-2.5-flash"
+        assert_eq!(entries[1].model, Some("gemini-2.5-flash".to_string()));
+
+        // No "unknown" models
+        assert!(entries
+            .iter()
+            .all(|e| e.model.is_some() && e.model.as_deref() != Some("unknown")));
     }
 }
