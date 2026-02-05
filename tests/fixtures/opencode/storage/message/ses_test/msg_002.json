@@ -4,7 +4,7 @@
   "modelID": "claude-sonnet-4-20250514",
   "providerID": "anthropic",
   "time": {
-    "created": "2025-02-04T10:05:00Z"
+    "created": 1738666800000
   },
   "tokens": {
     "input": 2000,

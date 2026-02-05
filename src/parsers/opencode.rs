@@ -23,7 +23,7 @@ struct OpenCodeMessage {
 
 #[derive(Deserialize)]
 struct OpenCodeTime {
-    created: String,
+    created: u64, // Unix timestamp in milliseconds
 }
 
 #[derive(Deserialize)]
@@ -98,16 +98,14 @@ impl CLIParser for OpenCodeParser {
             None => return Ok(Vec::new()),
         };
 
-        let timestamp = match DateTime::parse_from_rfc3339(&message.time.created) {
-            Ok(dt) => dt.with_timezone(&Utc),
-            Err(_) => {
+        let timestamp = DateTime::from_timestamp_millis(message.time.created as i64)
+            .unwrap_or_else(|| {
                 eprintln!(
                     "[toktrack] Warning: Invalid timestamp '{}', using current time",
                     message.time.created
                 );
                 Utc::now()
-            }
-        };
+            });
 
         let (cache_read, cache_write) = match tokens.cache {
             Some(c) => (c.read, c.write),
