@@ -16,7 +16,7 @@
 
 Track token usage and costs across **all your AI coding CLIs** — Claude Code, Codex CLI, and Gemini CLI — in one dashboard.
 
-Built with Rust + simd-json + ratatui for ultra-fast performance.
+Built with Rust for ultra-fast performance (simd-json + rayon parallel processing).
 
 ![toktrack overview](assets/demo.gif)
 

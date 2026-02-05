@@ -5,7 +5,7 @@
 [![npm](https://img.shields.io/npm/v/toktrack)](https://www.npmjs.com/package/toktrack)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/mag123c/toktrack/blob/main/LICENSE)
 
-Ultra-fast token & cost tracker for Claude Code, Codex CLI, and Gemini CLI. Built with Rust + simd-json + ratatui.
+Ultra-fast token & cost tracker for Claude Code, Codex CLI, and Gemini CLI. Built with Rust for ultra-fast performance (simd-json + rayon).
 
 > **⚠️ Did you know?** Claude Code **deletes your session data after 30 days** by default. Once deleted, your token usage and cost history are gone forever — unless you preserve them.
 

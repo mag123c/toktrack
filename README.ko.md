@@ -10,7 +10,7 @@
 
 **모든 AI 코딩 CLI**의 토큰 사용량과 비용을 한 곳에서 — Claude Code, Codex CLI, Gemini CLI 통합 대시보드.
 
-Rust + simd-json + ratatui 기반 초고속 성능.
+Rust 기반 초고속 성능 (simd-json + rayon 병렬 처리).
 
 ![toktrack overview](assets/demo.gif)
 
