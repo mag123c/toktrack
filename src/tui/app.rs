@@ -20,6 +20,7 @@ use crate::types::{CacheWarning, SourceUsage, StatsData, TotalSummary};
 use super::widgets::{
     daily::{DailyData, DailyView, DailyViewMode},
     help::HelpPopup,
+    model_breakdown::{ModelBreakdownPopup, ModelBreakdownState},
     models::{ModelsData, ModelsView},
     overview::{Overview, OverviewData},
     quit_confirm::{QuitConfirmPopup, QuitConfirmState},
@@ -98,6 +99,9 @@ pub struct App {
     daily_scroll: usize,
     weekly_scroll: usize,
     monthly_scroll: usize,
+    daily_selected: Option<usize>,
+    weekly_selected: Option<usize>,
+    monthly_selected: Option<usize>,
     daily_view_mode: DailyViewMode,
     show_help: bool,
     update_status: UpdateStatus,
@@ -105,6 +109,7 @@ pub struct App {
     pending_data: Option<Result<Box<AppData>, String>>,
     theme: Theme,
     quit_confirm: Option<QuitConfirmState>,
+    model_breakdown: Option<ModelBreakdownState>,
 }
 
 impl App {
@@ -120,6 +125,9 @@ impl App {
             daily_scroll: 0,
             weekly_scroll: 0,
             monthly_scroll: 0,
+            daily_selected: None,
+            weekly_selected: None,
+            monthly_selected: None,
             daily_view_mode: config.initial_view_mode,
             show_help: false,
             update_status: UpdateStatus::Checking,
@@ -127,6 +135,7 @@ impl App {
             pending_data: None,
             theme,
             quit_confirm: None,
+            model_breakdown: None,
         }
     }
 
@@ -145,6 +154,24 @@ impl App {
             DailyViewMode::Daily => &mut self.daily_scroll,
             DailyViewMode::Weekly => &mut self.weekly_scroll,
             DailyViewMode::Monthly => &mut self.monthly_scroll,
+        }
+    }
+
+    /// Get selected index for the current daily view mode
+    fn active_selected(&self) -> Option<usize> {
+        match self.daily_view_mode {
+            DailyViewMode::Daily => self.daily_selected,
+            DailyViewMode::Weekly => self.weekly_selected,
+            DailyViewMode::Monthly => self.monthly_selected,
+        }
+    }
+
+    /// Get mutable reference to selected index for the current daily view mode
+    fn active_selected_mut(&mut self) -> &mut Option<usize> {
+        match self.daily_view_mode {
+            DailyViewMode::Daily => &mut self.daily_selected,
+            DailyViewMode::Weekly => &mut self.weekly_selected,
+            DailyViewMode::Monthly => &mut self.monthly_selected,
         }
     }
 
@@ -173,10 +200,15 @@ impl App {
                         self.current_tab = self.current_tab.prev();
                     }
                     KeyCode::Up | KeyCode::Char('k') => {
-                        self.scroll_up();
+                        self.select_prev();
                     }
                     KeyCode::Down | KeyCode::Char('j') => {
-                        self.scroll_down();
+                        self.select_next();
+                    }
+                    KeyCode::Enter => {
+                        if self.current_tab == Tab::Daily {
+                            self.open_model_breakdown();
+                        }
                     }
                     KeyCode::Char(c @ '1'..='4') => {
                         if let Some(tab) = Tab::from_number(c as u8 - b'0') {
@@ -230,6 +262,20 @@ impl App {
                     KeyCode::Char('y') | KeyCode::Char('Y') => {
                         self.should_quit = true;
                         self.quit_confirm = None;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// Handle keyboard events when model breakdown popup is displayed
+    pub fn handle_model_breakdown_event(&mut self, event: Event) {
+        if let Event::Key(key) = event {
+            if key.kind == KeyEventKind::Press {
+                match key.code {
+                    KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q') => {
+                        self.model_breakdown = None;
                     }
                     _ => {}
                 }
@@ -297,22 +343,122 @@ impl App {
         }
     }
 
-    /// Scroll up in the current view
-    fn scroll_up(&mut self) {
-        if self.current_tab == Tab::Daily {
-            let scroll = self.active_scroll_mut();
-            *scroll = scroll.saturating_sub(1);
+    /// Select previous row (move up) in Daily tab
+    fn select_prev(&mut self) {
+        if self.current_tab != Tab::Daily {
+            return;
+        }
+
+        // First, get the count from state (immutable borrow)
+        let count = match &self.state {
+            AppState::Ready { data } => {
+                let (summaries, _) = data.daily_data.for_mode(self.daily_view_mode);
+                summaries.len()
+            }
+            _ => return,
+        };
+
+        if count == 0 {
+            return;
+        }
+
+        // Now mutate (mutable borrow)
+        let current = self.active_selected();
+        let new_idx = match current {
+            None => count.saturating_sub(1), // Start from bottom (most recent)
+            Some(0) => 0,                    // Already at top
+            Some(idx) => idx.saturating_sub(1),
+        };
+        *self.active_selected_mut() = Some(new_idx);
+
+        // Adjust scroll to keep selection visible
+        self.adjust_scroll_for_selection();
+    }
+
+    /// Select next row (move down) in Daily tab
+    fn select_next(&mut self) {
+        if self.current_tab != Tab::Daily {
+            return;
+        }
+
+        // First, get the count from state (immutable borrow)
+        let count = match &self.state {
+            AppState::Ready { data } => {
+                let (summaries, _) = data.daily_data.for_mode(self.daily_view_mode);
+                summaries.len()
+            }
+            _ => return,
+        };
+
+        if count == 0 {
+            return;
+        }
+
+        let max_idx = count.saturating_sub(1);
+
+        // Now mutate (mutable borrow)
+        let current = self.active_selected();
+        let new_idx = match current {
+            None => count.saturating_sub(1), // Start from bottom (most recent)
+            Some(idx) if idx >= max_idx => max_idx, // Already at bottom
+            Some(idx) => idx + 1,
+        };
+        *self.active_selected_mut() = Some(new_idx);
+
+        // Adjust scroll to keep selection visible
+        self.adjust_scroll_for_selection();
+    }
+
+    /// Adjust scroll offset to keep the current selection visible
+    fn adjust_scroll_for_selection(&mut self) {
+        use super::widgets::daily::VISIBLE_ROWS;
+
+        let selected = match self.active_selected() {
+            Some(idx) => idx,
+            None => return,
+        };
+
+        let scroll = self.active_scroll();
+
+        // If selection is above visible area, scroll up
+        if selected < scroll {
+            *self.active_scroll_mut() = selected;
+        }
+        // If selection is below visible area, scroll down
+        else if selected >= scroll + VISIBLE_ROWS {
+            *self.active_scroll_mut() = selected.saturating_sub(VISIBLE_ROWS - 1);
         }
     }
 
-    /// Scroll down in the current view
-    fn scroll_down(&mut self) {
-        if self.current_tab == Tab::Daily {
-            let mode = self.daily_view_mode;
-            if let AppState::Ready { data } = &self.state {
-                let max = DailyView::max_scroll_offset(&data.daily_data, mode);
-                let scroll = self.active_scroll_mut();
-                *scroll = (*scroll + 1).min(max);
+    /// Open model breakdown popup for the currently selected row
+    fn open_model_breakdown(&mut self) {
+        if self.current_tab != Tab::Daily {
+            return;
+        }
+        let selected = match self.active_selected() {
+            Some(idx) => idx,
+            None => return,
+        };
+
+        if let AppState::Ready { data } = &self.state {
+            let (summaries, _) = data.daily_data.for_mode(self.daily_view_mode);
+            if let Some(summary) = summaries.get(selected) {
+                // Format date label based on view mode
+                let date_label = match self.daily_view_mode {
+                    DailyViewMode::Daily | DailyViewMode::Weekly => {
+                        summary.date.format("%Y-%m-%d").to_string()
+                    }
+                    DailyViewMode::Monthly => summary.date.format("%Y-%m").to_string(),
+                };
+
+                // Collect models as Vec
+                let models: Vec<_> = summary
+                    .models
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+
+                self.model_breakdown = Some(ModelBreakdownState::new(date_label, models));
             }
         }
     }
@@ -384,7 +530,8 @@ impl Widget for &App {
                             self.daily_view_mode,
                             self.theme,
                         )
-                        .with_tab(self.current_tab);
+                        .with_tab(self.current_tab)
+                        .with_selected_index(self.active_selected());
                         daily_view.render(area, buf);
                     }
                     Tab::Stats => {
@@ -398,6 +545,13 @@ impl Widget for &App {
                 if self.show_help {
                     let popup_area = HelpPopup::centered_area(area);
                     HelpPopup::new(self.theme).render(popup_area, buf);
+                }
+
+                // Render model breakdown popup if active
+                if let Some(ref state) = self.model_breakdown {
+                    DimOverlay.render(area, buf);
+                    let popup_area = ModelBreakdownPopup::centered_area(area, state.models.len());
+                    ModelBreakdownPopup::new(state, self.theme).render(popup_area, buf);
                 }
             }
             AppState::Error { message } => {
@@ -803,9 +957,11 @@ fn run_app(terminal: &mut DefaultTerminal, config: TuiConfig, theme: Theme) -> a
         // Poll for events with 100ms timeout for spinner animation
         if event::poll(Duration::from_millis(100))? {
             let ev = event::read()?;
-            // Priority chain: quit_confirm > update > main
+            // Priority chain: quit_confirm > model_breakdown > update > main
             if app.quit_confirm.is_some() {
                 app.handle_quit_confirm_event(ev);
+            } else if app.model_breakdown.is_some() {
+                app.handle_model_breakdown_event(ev);
             } else if app.update_status.shows_overlay() {
                 app.handle_update_event(ev);
             } else {
@@ -1080,26 +1236,33 @@ mod tests {
     }
 
     #[test]
-    fn test_independent_scroll_positions() {
+    fn test_independent_selection_positions() {
         let mut app = make_ready_app();
         app.current_tab = Tab::Daily;
 
-        // Record initial scroll positions (all at max)
-        let initial_daily = app.daily_scroll;
-        let initial_weekly = app.weekly_scroll;
+        // Initially no selection
+        assert!(app.daily_selected.is_none());
+        assert!(app.weekly_selected.is_none());
 
-        // Scroll up in Daily mode
+        // Select up in Daily mode (starts from bottom)
         app.handle_event(Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
-        assert_eq!(app.daily_scroll, initial_daily.saturating_sub(1));
-        // Weekly scroll should be unchanged
-        assert_eq!(app.weekly_scroll, initial_weekly);
+        assert!(app.daily_selected.is_some());
+        let daily_selected = app.daily_selected.unwrap();
 
-        // Switch to Weekly and scroll up
+        // Weekly selection should be unchanged (None)
+        assert!(app.weekly_selected.is_none());
+
+        // Select up again in Daily mode
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
+        assert_eq!(app.daily_selected, Some(daily_selected.saturating_sub(1)));
+
+        // Switch to Weekly and select
         app.daily_view_mode = DailyViewMode::Weekly;
         app.handle_event(Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
-        assert_eq!(app.weekly_scroll, initial_weekly.saturating_sub(1));
-        // Daily scroll should remain as modified
-        assert_eq!(app.daily_scroll, initial_daily.saturating_sub(1));
+        assert!(app.weekly_selected.is_some());
+
+        // Daily selection should remain as modified
+        assert_eq!(app.daily_selected, Some(daily_selected.saturating_sub(1)));
     }
 
     // ========== Update overlay tests ==========
@@ -1523,5 +1686,200 @@ mod tests {
     fn test_app_new_has_no_quit_confirm() {
         let app = App::new(TuiConfig::default(), Theme::Dark);
         assert!(app.quit_confirm.is_none());
+    }
+
+    // ========== Model breakdown popup tests ==========
+
+    #[test]
+    fn test_app_new_has_no_model_breakdown() {
+        let app = App::new(TuiConfig::default(), Theme::Dark);
+        assert!(app.model_breakdown.is_none());
+    }
+
+    #[test]
+    fn test_enter_without_selection_does_nothing() {
+        let mut app = make_ready_app();
+        app.current_tab = Tab::Daily;
+        // No selection
+        assert!(app.daily_selected.is_none());
+
+        // Press Enter
+        app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        )));
+
+        // Should not open model breakdown
+        assert!(app.model_breakdown.is_none());
+    }
+
+    #[test]
+    fn test_enter_with_selection_opens_popup() {
+        let mut app = make_ready_app_with_models();
+        app.current_tab = Tab::Daily;
+
+        // Select a row first
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
+        assert!(app.daily_selected.is_some());
+
+        // Press Enter
+        app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        )));
+
+        // Should open model breakdown
+        assert!(app.model_breakdown.is_some());
+    }
+
+    #[test]
+    fn test_model_breakdown_esc_closes_popup() {
+        let mut app = App {
+            model_breakdown: Some(ModelBreakdownState::new("2026-02-05".to_string(), vec![])),
+            ..App::default()
+        };
+
+        app.handle_model_breakdown_event(Event::Key(KeyEvent::new(
+            KeyCode::Esc,
+            KeyModifiers::NONE,
+        )));
+
+        assert!(app.model_breakdown.is_none());
+    }
+
+    #[test]
+    fn test_model_breakdown_enter_closes_popup() {
+        let mut app = App {
+            model_breakdown: Some(ModelBreakdownState::new("2026-02-05".to_string(), vec![])),
+            ..App::default()
+        };
+
+        app.handle_model_breakdown_event(Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        )));
+
+        assert!(app.model_breakdown.is_none());
+    }
+
+    #[test]
+    fn test_model_breakdown_q_closes_popup() {
+        let mut app = App {
+            model_breakdown: Some(ModelBreakdownState::new("2026-02-05".to_string(), vec![])),
+            ..App::default()
+        };
+
+        app.handle_model_breakdown_event(Event::Key(KeyEvent::new(
+            KeyCode::Char('q'),
+            KeyModifiers::NONE,
+        )));
+
+        assert!(app.model_breakdown.is_none());
+    }
+
+    #[test]
+    fn test_selection_starts_from_bottom() {
+        let mut app = make_ready_app();
+        app.current_tab = Tab::Daily;
+
+        // First selection should be at the bottom (most recent date)
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
+
+        // Should select last index (20 items, index 19)
+        assert_eq!(app.daily_selected, Some(19));
+    }
+
+    #[test]
+    fn test_selection_down_from_none_starts_from_bottom() {
+        let mut app = make_ready_app();
+        app.current_tab = Tab::Daily;
+
+        // Down should also start from bottom
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
+
+        assert_eq!(app.daily_selected, Some(19));
+    }
+
+    #[test]
+    fn test_selection_wraps_at_boundaries() {
+        let mut app = make_ready_app();
+        app.current_tab = Tab::Daily;
+        app.daily_selected = Some(0);
+
+        // Up at index 0 should stay at 0
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
+        assert_eq!(app.daily_selected, Some(0));
+    }
+
+    #[test]
+    fn test_selection_adjusts_scroll() {
+        let mut app = make_ready_app();
+        app.current_tab = Tab::Daily;
+        // Set selection above visible area
+        app.daily_scroll = 10;
+        app.daily_selected = Some(5);
+
+        // Adjust scroll should bring selection into view
+        app.adjust_scroll_for_selection();
+        assert_eq!(app.daily_scroll, 5);
+    }
+
+    /// Helper to create a ready app with model data in summaries
+    fn make_ready_app_with_models() -> App {
+        use crate::types::{DailySummary, ModelUsage};
+        use chrono::NaiveDate;
+
+        let summaries: Vec<DailySummary> = (1..=20)
+            .map(|d| {
+                let mut models = HashMap::new();
+                models.insert(
+                    "claude-sonnet-4-20250514".to_string(),
+                    ModelUsage {
+                        input_tokens: 100,
+                        output_tokens: 50,
+                        cache_read_tokens: 0,
+                        cache_creation_tokens: 0,
+                        cost_usd: 0.01,
+                        count: 1,
+                    },
+                );
+                DailySummary {
+                    date: NaiveDate::from_ymd_opt(2025, 1, d).unwrap(),
+                    total_input_tokens: 100,
+                    total_output_tokens: 50,
+                    total_cache_read_tokens: 0,
+                    total_cache_creation_tokens: 0,
+                    total_cost_usd: 0.01,
+                    models,
+                }
+            })
+            .collect();
+
+        let daily_tokens: Vec<(NaiveDate, u64)> = summaries.iter().map(|d| (d.date, 150)).collect();
+
+        let daily_data = DailyData::from_daily_summaries(summaries.clone());
+        let stats_data = crate::types::StatsData::from_daily_summaries(&summaries);
+        let models_data = super::ModelsData::from_model_usage(&HashMap::new());
+
+        let mut app = App::default();
+        let daily_scroll = DailyView::max_scroll_offset(&daily_data, DailyViewMode::Daily);
+        let weekly_scroll = DailyView::max_scroll_offset(&daily_data, DailyViewMode::Weekly);
+        let monthly_scroll = DailyView::max_scroll_offset(&daily_data, DailyViewMode::Monthly);
+
+        app.state = AppState::Ready {
+            data: Box::new(AppData {
+                total: crate::types::TotalSummary::default(),
+                daily_tokens,
+                models_data,
+                daily_data,
+                stats_data,
+                source_usage: vec![],
+                cache_warning: None,
+            }),
+        };
+        app.daily_scroll = daily_scroll;
+        app.weekly_scroll = weekly_scroll;
+        app.monthly_scroll = monthly_scroll;
+        app
     }
 }

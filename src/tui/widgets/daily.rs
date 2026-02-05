@@ -118,7 +118,7 @@ impl DailyData {
 const MAX_CONTENT_WIDTH: u16 = 170;
 
 /// Visible rows for scrolling (excluding header)
-const VISIBLE_ROWS: usize = 15;
+pub const VISIBLE_ROWS: usize = 15;
 
 /// Column index constants for clarity
 const COL_DATE: usize = 0;
@@ -170,6 +170,7 @@ fn table_width_for(visible: &[usize]) -> u16 {
 pub struct DailyView<'a> {
     data: &'a DailyData,
     scroll_offset: usize,
+    selected_index: Option<usize>,
     selected_tab: Tab,
     view_mode: DailyViewMode,
     theme: Theme,
@@ -185,6 +186,7 @@ impl<'a> DailyView<'a> {
         Self {
             data,
             scroll_offset,
+            selected_index: None,
             selected_tab: Tab::Daily,
             view_mode,
             theme,
@@ -193,6 +195,11 @@ impl<'a> DailyView<'a> {
 
     pub fn with_tab(mut self, tab: Tab) -> Self {
         self.selected_tab = tab;
+        self
+    }
+
+    pub fn with_selected_index(mut self, selected_index: Option<usize>) -> Self {
+        self.selected_index = selected_index;
         self
     }
 
@@ -352,6 +359,9 @@ impl DailyView<'_> {
                 break;
             }
 
+            let data_index = start + i;
+            let is_selected = self.selected_index == Some(data_index);
+
             self.render_daily_row(
                 Rect {
                     x: area.x + offset,
@@ -363,6 +373,7 @@ impl DailyView<'_> {
                 summary,
                 max_tokens,
                 visible,
+                is_selected,
             );
         }
     }
@@ -374,6 +385,7 @@ impl DailyView<'_> {
         summary: &DailySummary,
         max_tokens: u64,
         visible: &[usize],
+        is_selected: bool,
     ) {
         let total_tokens = summary.total_input_tokens
             + summary.total_output_tokens
@@ -414,13 +426,27 @@ impl DailyView<'_> {
             DailyViewMode::Monthly => summary.date.format("%Y-%m").to_string(),
         };
 
+        // Selection marker and style modifier
+        let selection_modifier = if is_selected {
+            Modifier::BOLD | Modifier::REVERSED
+        } else {
+            Modifier::empty()
+        };
+
         let mut spans = Vec::new();
-        for &col in visible {
-            let (text, style) = match col {
-                COL_DATE => (
-                    format!("{:<12}", date_str),
-                    Style::default().fg(self.theme.date()),
-                ),
+
+        // Add selection marker for first column
+        for (col_idx, &col) in visible.iter().enumerate() {
+            let (text, base_style) = match col {
+                COL_DATE => {
+                    // Prepend marker to date column
+                    let marker = if is_selected { "▸ " } else { "  " };
+                    // Adjust width: marker takes 2 chars, so date field is 10
+                    (
+                        format!("{}{:<10}", marker, date_str),
+                        Style::default().fg(self.theme.date()),
+                    )
+                }
                 COL_MODEL => (
                     format!("{:<25}", model_display),
                     Style::default().fg(self.theme.accent()),
@@ -451,6 +477,17 @@ impl DailyView<'_> {
                 ),
                 _ => unreachable!(),
             };
+
+            // Apply selection highlight to all columns except first (which has marker)
+            let style = if is_selected && col_idx > 0 {
+                base_style.add_modifier(selection_modifier)
+            } else if is_selected && col_idx == 0 {
+                // First column already has marker, just make it bold
+                base_style.add_modifier(Modifier::BOLD)
+            } else {
+                base_style
+            };
+
             spans.push(Span::styled(text, style));
         }
 
@@ -462,13 +499,13 @@ impl DailyView<'_> {
     fn render_keybindings(&self, area: Rect, buf: &mut Buffer) {
         let bindings = Paragraph::new(Line::from(vec![
             Span::styled("↑↓", Style::default().fg(self.theme.accent())),
-            Span::styled(": Scroll", Style::default().fg(self.theme.muted())),
+            Span::styled(": Select", Style::default().fg(self.theme.muted())),
+            Span::raw("  "),
+            Span::styled("Enter", Style::default().fg(self.theme.accent())),
+            Span::styled(": Details", Style::default().fg(self.theme.muted())),
             Span::raw("  "),
             Span::styled("d/w/m", Style::default().fg(self.theme.accent())),
             Span::styled(": View mode", Style::default().fg(self.theme.muted())),
-            Span::raw("  "),
-            Span::styled("q", Style::default().fg(self.theme.accent())),
-            Span::styled(": Quit", Style::default().fg(self.theme.muted())),
             Span::raw("  "),
             Span::styled("Tab", Style::default().fg(self.theme.accent())),
             Span::styled(": Switch view", Style::default().fg(self.theme.muted())),

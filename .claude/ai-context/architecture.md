@@ -23,7 +23,8 @@ TUI[ratatui] → CLI[clap] → Services → Parsers[trait] → Cache
 | `widgets/models.rs` | Models view (per-model breakdown, cost %, percentage bar) |
 | `widgets/daily.rs` | Daily view (daily/weekly/monthly modes, sparklines, scroll, responsive columns) |
 | `widgets/help.rs` | Help popup (keyboard shortcuts overlay, `?` toggle) |
-| `widgets/quit_confirm.rs` | Quit confirm popup (q/Esc/Ctrl+C trigger, y/n/Enter/Esc response) |
+| `widgets/quit_confirm.rs` | Quit confirm popup (Ctrl+C trigger, y/n/Enter/Esc response) |
+| `widgets/model_breakdown.rs` | Model breakdown popup (Enter on Daily row, shows per-model cost) |
 | `widgets/stats.rs` | Stats view (6 cards: total/avg tokens, peak day, costs, active days) |
 | `widgets/legend.rs` | Heatmap intensity legend |
 | `widgets/tabs.rs` | Tab enum, TabBar widget |

@@ -4,6 +4,7 @@ pub mod daily;
 pub mod heatmap;
 pub mod help;
 pub mod legend;
+pub mod model_breakdown;
 pub mod models;
 pub mod overview;
 pub mod quit_confirm;
