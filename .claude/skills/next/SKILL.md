@@ -16,7 +16,8 @@ Read Planning → Git Log → Analyze → Present → Suggest /clarify
 
 1. **Read Planning**
    ```bash
-   # Read docs/planning/*.md files
+   # Read ONLY the latest planning file (by date prefix YYYYMMDD-)
+   # e.g., 20260205-improvements.md > 20260128-cli-parsers.md
    # Check checkbox status: [ ] incomplete, [x] complete
    ```
 
@@ -56,6 +57,7 @@ Run `/clarify` to start: {task_summary}
 ```
 
 ## Rules
+- **Read only the latest dated planning file** (highest YYYYMMDD- prefix)
 - If no planning files → infer from git log + code state
 - Keep output concise (5-10 lines)
 - Always suggest /clarify connection
