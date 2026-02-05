@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.40](https://github.com/mag123c/toktrack/compare/v0.1.39...v0.1.40) (2026-02-05)
+
+
+### Bug Fixes
+
+* **tui:** color-separate model count - primary=accent, count=muted ([5354a12](https://github.com/mag123c/toktrack/commit/5354a12ad93fc5126e4212ab37af5ed75a9a992c))
+* **tui:** filter zero-token models in breakdown popup and daily list ([fb56e3c](https://github.com/mag123c/toktrack/commit/fb56e3cf75f0e799872b033a94d4b49bdddd3f8f))
+
 ## [0.1.39](https://github.com/mag123c/toktrack/compare/v0.1.38...v0.1.39) (2026-02-05)
 
 
