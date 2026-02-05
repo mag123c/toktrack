@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.38](https://github.com/mag123c/toktrack/compare/v0.1.37...v0.1.38) (2026-02-05)
+
+
+### Bug Fixes
+
+* **tui:** QA feedback - footer keys, help, quit colors, cache migration ([8adf0cd](https://github.com/mag123c/toktrack/commit/8adf0cd0cb9b72eaae319222c05054f2130763ce))
+* **tui:** QA Round 2 - quit popup, daily columns, model display ([2ecee53](https://github.com/mag123c/toktrack/commit/2ecee532eafa431e3dd3065d1c387b589c7947f4))
+
 ## [0.1.37](https://github.com/mag123c/toktrack/compare/v0.1.36...v0.1.37) (2026-02-05)
 
 
