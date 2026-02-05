@@ -49,9 +49,10 @@ pub struct OpenCodeParser {
 
 impl OpenCodeParser {
     /// Create a new parser with default data directory (~/.local/share/opencode/storage/message)
+    /// OpenCode uses XDG standard, so we use ~/.local/share on all platforms
     pub fn new() -> Self {
         let data_dir = directories::BaseDirs::new()
-            .map(|d| d.data_dir().to_path_buf())
+            .map(|d| d.home_dir().join(".local").join("share"))
             .unwrap_or_else(|| PathBuf::from("."))
             .join("opencode")
             .join("storage")
