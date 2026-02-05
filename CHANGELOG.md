@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.1.37](https://github.com/mag123c/toktrack/compare/v0.1.36...v0.1.37) (2026-02-05)
+
+
+### Features
+
+* **tui:** add display_name() for human-readable model names ([7b21c19](https://github.com/mag123c/toktrack/commit/7b21c19e24386d5fddad36e4cbe04f18441586e4))
+* **tui:** add model breakdown popup for Daily tab ([6b8ac4a](https://github.com/mag123c/toktrack/commit/6b8ac4ac2cb7015faf059c40bdcc62fd9ca750a3))
+
+
+### Bug Fixes
+
+* **parser:** use message-level model in Gemini parser ([d58d119](https://github.com/mag123c/toktrack/commit/d58d11946d07b71a3c3f43f7770b869873f69e5e))
+* **tui:** remove q/Esc quit triggers, use Ctrl+C only ([0a24603](https://github.com/mag123c/toktrack/commit/0a246030338081344bdc15c50d301f515355fea0))
+
+
+### Refactoring
+
+* **services:** add DataLoaderService to consolidate data loading ([9d42fa3](https://github.com/mag123c/toktrack/commit/9d42fa31cfd5829de310be4943740eb69bac9624))
+
 ## [0.1.36](https://github.com/mag123c/toktrack/compare/v0.1.35...v0.1.36) (2026-02-05)
 
 
