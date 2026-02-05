@@ -31,8 +31,17 @@ pub struct ModelBreakdownState {
 impl ModelBreakdownState {
     /// Create a new state from date label and model map
     pub fn new(date_label: String, models: Vec<(String, ModelUsage)>) -> Self {
-        // Sort by cost descending
-        let mut models = models;
+        // Filter out zero-token models and sort by cost descending
+        let mut models: Vec<_> = models
+            .into_iter()
+            .filter(|(_, usage)| {
+                let total = usage.input_tokens
+                    + usage.output_tokens
+                    + usage.cache_read_tokens
+                    + usage.cache_creation_tokens;
+                total > 0
+            })
+            .collect();
         models.sort_by(|a, b| {
             b.1.cost_usd
                 .partial_cmp(&a.1.cost_usd)

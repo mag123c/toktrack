@@ -399,21 +399,26 @@ impl DailyView<'_> {
 
         let cache_tokens = summary.total_cache_read_tokens + summary.total_cache_creation_tokens;
 
-        // Get primary model (highest cost) + count of others
-        let model_name = if summary.models.len() == 1 {
-            let raw_name = summary
-                .models
-                .keys()
-                .next()
-                .cloned()
-                .unwrap_or_else(|| "unknown".to_string());
-            display_name(&raw_name)
-        } else if summary.models.is_empty() {
+        // Get primary model (highest cost) + count of others, filtering out zero-token models
+        let non_zero_models: Vec<_> = summary
+            .models
+            .iter()
+            .filter(|(_, usage)| {
+                let total = usage.input_tokens
+                    + usage.output_tokens
+                    + usage.cache_read_tokens
+                    + usage.cache_creation_tokens;
+                total > 0
+            })
+            .collect();
+
+        let model_name = if non_zero_models.len() == 1 {
+            display_name(non_zero_models[0].0)
+        } else if non_zero_models.is_empty() {
             "unknown".to_string()
         } else {
-            // Find model with highest cost
-            let primary = summary
-                .models
+            // Find model with highest cost among non-zero models
+            let primary = non_zero_models
                 .iter()
                 .max_by(|a, b| {
                     a.1.cost_usd
@@ -422,7 +427,7 @@ impl DailyView<'_> {
                 })
                 .map(|(name, _)| display_name(name))
                 .unwrap_or_else(|| "unknown".to_string());
-            let others = summary.models.len() - 1;
+            let others = non_zero_models.len() - 1;
             format!("{} +{}", primary, others)
         };
 
