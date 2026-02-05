@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.36](https://github.com/mag123c/toktrack/compare/v0.1.35...v0.1.36) (2026-02-05)
+
+
+### Features
+
+* **tui:** add quit confirmation popup ([21a0f12](https://github.com/mag123c/toktrack/commit/21a0f12b6377fd4b0e0a80207b604038ad17627a))
+
 ## [0.1.35](https://github.com/mag123c/toktrack/compare/v0.1.34...v0.1.35) (2026-02-05)
 
 
