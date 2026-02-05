@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.33](https://github.com/mag123c/toktrack/compare/v0.1.32...v0.1.33) (2026-02-05)
+
+
+### Features
+
+* **parser:** add OpenCode CLI support ([cd503da](https://github.com/mag123c/toktrack/commit/cd503da77623fa9e57b9c512c661131a47007e18))
+
+
+### Bug Fixes
+
+* **docs:** correct performance stack description (simd-json + rayon, not ratatui) ([dd80b13](https://github.com/mag123c/toktrack/commit/dd80b13e1d3ef2e0f90bdd5f6b10cf78b7ecf12a))
+* **parser:** use Unix timestamp for OpenCode time.created ([4d0e28f](https://github.com/mag123c/toktrack/commit/4d0e28fb8696455ea01c89c2bef022d25520186e))
+
 ## [0.1.32](https://github.com/mag123c/toktrack/compare/v0.1.31...v0.1.32) (2026-02-04)
 
 
