@@ -8,7 +8,7 @@ TUI[ratatui] → CLI[clap] → Services → Parsers[trait] → Cache
 ## Paths
 - `src/tui/` - TUI (app.rs, theme.rs, widgets/)
 - `src/cli/` - CLI commands
-- `src/services/` - aggregator, pricing, cache, update_checker, normalizer
+- `src/services/` - aggregator, pricing, cache, update_checker, normalizer, data_loader
 - `src/parsers/` - CLIParser trait + impls
 - `src/types/` - UsageEntry, errors
 

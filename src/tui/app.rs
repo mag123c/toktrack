@@ -12,9 +12,8 @@ use ratatui::{
 
 use super::theme::Theme;
 
-use crate::parsers::ParserRegistry;
 use crate::services::update_checker::{check_for_update, execute_update, UpdateCheckResult};
-use crate::services::{Aggregator, DailySummaryCacheService, PricingService};
+use crate::services::{Aggregator, DataLoaderService};
 use crate::types::{CacheWarning, SourceUsage, StatsData, TotalSummary};
 
 use super::widgets::{
@@ -608,243 +607,12 @@ pub fn run(config: TuiConfig) -> anyhow::Result<()> {
     result
 }
 
-/// Check if provider is GitHub Copilot (free service).
-fn is_copilot_provider(provider: Option<&str>) -> bool {
-    matches!(
-        provider,
-        Some("github-copilot") | Some("github-copilot-enterprise")
-    )
-}
-
 /// Load data synchronously (extracted for background thread).
-/// Uses cache-first strategy: warm path parses only recent files,
-/// cold path falls back to full parse_all().
+/// Uses cache-first strategy via DataLoaderService.
 fn load_data_sync() -> Result<Box<AppData>, String> {
-    let registry = ParserRegistry::new();
-    let cache_service = DailySummaryCacheService::new().ok();
+    let result = DataLoaderService::new().load().map_err(|e| e.to_string())?;
 
-    // Determine if we have cache available (warm vs cold path)
-    let has_cache = cache_service.as_ref().is_some_and(|cs| {
-        registry
-            .parsers()
-            .iter()
-            .any(|p| cs.cache_path(p.name()).exists())
-    });
-
-    // Non-blocking pricing: load from cache only (no network call)
-    let pricing = PricingService::from_cache_only();
-
-    if has_cache {
-        // === WARM PATH: cache + recent files only ===
-        load_warm_path(&registry, cache_service.as_ref().unwrap(), pricing.as_ref())
-    } else {
-        // === COLD PATH: full parse, build cache for next run ===
-        load_cold_path(&registry, cache_service.as_ref(), pricing.as_ref())
-    }
-}
-
-/// Warm path: use cached DailySummaries + parse only recent files for today.
-fn load_warm_path(
-    registry: &ParserRegistry,
-    cache_service: &DailySummaryCacheService,
-    pricing: Option<&PricingService>,
-) -> Result<Box<AppData>, String> {
-    let since = std::time::SystemTime::now() - std::time::Duration::from_secs(24 * 3600);
-
-    let mut all_summaries = Vec::new();
-    let mut source_stats: std::collections::HashMap<String, (u64, f64)> =
-        std::collections::HashMap::new();
-    let mut cache_warning = None;
-
-    for parser in registry.parsers() {
-        // Parse only recently modified files
-        let entries = match parser.parse_recent_files(since) {
-            Ok(e) => e,
-            Err(e) => {
-                eprintln!("[toktrack] Warning: {} failed: {}", parser.name(), e);
-                continue;
-            }
-        };
-
-        // Apply pricing to entries missing cost
-        let entries: Vec<_> = entries
-            .into_iter()
-            .map(|mut entry| {
-                // GitHub Copilot is free, override cost to 0
-                if is_copilot_provider(entry.provider.as_deref()) {
-                    entry.cost_usd = Some(0.0);
-                } else if entry.cost_usd.is_none() {
-                    if let Some(p) = pricing {
-                        entry.cost_usd = Some(p.calculate_cost(&entry));
-                    }
-                }
-                entry
-            })
-            .collect();
-
-        // Merge with cache: cached past days + recomputed today
-        match cache_service.load_or_compute(parser.name(), &entries) {
-            Ok((summaries, warning)) => {
-                if warning.is_some() && cache_warning.is_none() {
-                    cache_warning = warning;
-                }
-                // Collect source stats from summaries
-                for s in &summaries {
-                    let tokens = s.total_input_tokens
-                        + s.total_output_tokens
-                        + s.total_cache_read_tokens
-                        + s.total_cache_creation_tokens;
-                    let stat = source_stats.entry(parser.name().to_string()).or_default();
-                    stat.0 = stat.0.saturating_add(tokens);
-                    stat.1 += s.total_cost_usd;
-                }
-                all_summaries.extend(summaries);
-            }
-            Err(e) => {
-                eprintln!(
-                    "[toktrack] Warning: cache for {} failed: {}",
-                    parser.name(),
-                    e
-                );
-            }
-        }
-    }
-
-    if all_summaries.is_empty() {
-        // Warm path produced nothing → fallback to cold path
-        return load_cold_path(registry, Some(cache_service), pricing);
-    }
-
-    // Merge summaries from different sources for the same date
-    let all_summaries = Aggregator::merge_by_date(all_summaries);
-
-    let source_usage = build_source_usage(source_stats);
-    build_app_data_from_summaries(all_summaries, source_usage, cache_warning)
-}
-
-/// Cold path: full parse_all() per parser + build cache for next run.
-fn load_cold_path(
-    registry: &ParserRegistry,
-    cache_service: Option<&DailySummaryCacheService>,
-    pricing: Option<&PricingService>,
-) -> Result<Box<AppData>, String> {
-    // Apply pricing (try cache-only first, fall back to full network fetch)
-    let fallback_pricing;
-    let pricing_ref = match pricing {
-        Some(p) => Some(p),
-        None => {
-            fallback_pricing = PricingService::new().ok();
-            fallback_pricing.as_ref()
-        }
-    };
-
-    let mut all_summaries = Vec::new();
-    let mut source_stats: std::collections::HashMap<String, (u64, f64)> =
-        std::collections::HashMap::new();
-    let mut cache_warning = None;
-    let mut any_entries = false;
-
-    for parser in registry.parsers() {
-        let entries = match parser.parse_all() {
-            Ok(e) => e,
-            Err(e) => {
-                eprintln!("[toktrack] Warning: {} failed: {}", parser.name(), e);
-                continue;
-            }
-        };
-
-        if entries.is_empty() {
-            continue;
-        }
-        any_entries = true;
-
-        // Apply pricing
-        let entries: Vec<_> = entries
-            .into_iter()
-            .map(|mut entry| {
-                // GitHub Copilot is free, override cost to 0
-                if is_copilot_provider(entry.provider.as_deref()) {
-                    entry.cost_usd = Some(0.0);
-                } else if entry.cost_usd.is_none() {
-                    if let Some(p) = pricing_ref {
-                        entry.cost_usd = Some(p.calculate_cost(&entry));
-                    }
-                }
-                entry
-            })
-            .collect();
-
-        // Build cache for this parser (for next warm path)
-        if let Some(cs) = cache_service {
-            match cs.load_or_compute(parser.name(), &entries) {
-                Ok((summaries, warning)) => {
-                    if warning.is_some() && cache_warning.is_none() {
-                        cache_warning = warning;
-                    }
-                    // Collect source stats from summaries
-                    for s in &summaries {
-                        let tokens = s.total_input_tokens
-                            + s.total_output_tokens
-                            + s.total_cache_read_tokens
-                            + s.total_cache_creation_tokens;
-                        let stat = source_stats.entry(parser.name().to_string()).or_default();
-                        stat.0 = stat.0.saturating_add(tokens);
-                        stat.1 += s.total_cost_usd;
-                    }
-                    all_summaries.extend(summaries);
-                    continue; // Used cache-backed summaries
-                }
-                Err(e) => {
-                    eprintln!(
-                        "[toktrack] Warning: cache for {} failed: {}",
-                        parser.name(),
-                        e
-                    );
-                }
-            }
-        }
-
-        // Cache unavailable: compute summaries directly from entries
-        let summaries = Aggregator::daily(&entries);
-        // Collect source stats from summaries
-        for s in &summaries {
-            let tokens = s.total_input_tokens
-                + s.total_output_tokens
-                + s.total_cache_read_tokens
-                + s.total_cache_creation_tokens;
-            let stat = source_stats.entry(parser.name().to_string()).or_default();
-            stat.0 = stat.0.saturating_add(tokens);
-            stat.1 += s.total_cost_usd;
-        }
-        all_summaries.extend(summaries);
-    }
-
-    if !any_entries {
-        return Err("No usage data found from any CLI".to_string());
-    }
-
-    // Merge summaries from different sources for the same date
-    let all_summaries = Aggregator::merge_by_date(all_summaries);
-
-    let source_usage = build_source_usage(source_stats);
-    build_app_data_from_summaries(all_summaries, source_usage, cache_warning)
-}
-
-/// Convert source stats map to sorted SourceUsage vector.
-fn build_source_usage(
-    source_stats: std::collections::HashMap<String, (u64, f64)>,
-) -> Vec<SourceUsage> {
-    let mut result: Vec<SourceUsage> = source_stats
-        .into_iter()
-        .map(|(source, (total_tokens, total_cost_usd))| SourceUsage {
-            source,
-            total_tokens,
-            total_cost_usd,
-        })
-        .collect();
-    // Sort by total_tokens descending
-    result.sort_by(|a, b| b.total_tokens.cmp(&a.total_tokens));
-    result
+    build_app_data_from_summaries(result.summaries, result.source_usage, result.cache_warning)
 }
 
 /// Build AppData from DailySummary list (no raw entries needed).
@@ -1515,28 +1283,6 @@ mod tests {
                 std::mem::discriminant(other)
             ),
         }
-    }
-
-    // ========== is_copilot_provider tests ==========
-
-    #[test]
-    fn test_is_copilot_provider_github_copilot() {
-        assert!(is_copilot_provider(Some("github-copilot")));
-    }
-
-    #[test]
-    fn test_is_copilot_provider_github_copilot_enterprise() {
-        assert!(is_copilot_provider(Some("github-copilot-enterprise")));
-    }
-
-    #[test]
-    fn test_is_copilot_provider_anthropic() {
-        assert!(!is_copilot_provider(Some("anthropic")));
-    }
-
-    #[test]
-    fn test_is_copilot_provider_none() {
-        assert!(!is_copilot_provider(None));
     }
 
     // ========== Quit confirm popup tests ==========
