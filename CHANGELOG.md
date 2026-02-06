@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.46](https://github.com/mag123c/toktrack/compare/v0.1.45...v0.1.46) (2026-02-06)
+
+
+### Bug Fixes
+
+* **cli:** add DRAFT/PLAN steps to clarify shallow path and fix plan_file location ([f0786bb](https://github.com/mag123c/toktrack/commit/f0786bb546c5fa68cc74be60e70efe6fb2abb074))
+* **services:** use local timezone for daily usage grouping ([ccd35d4](https://github.com/mag123c/toktrack/commit/ccd35d4663753d80fc0b75d8d9a08036e4a00c65))
+
 ## [0.1.45](https://github.com/mag123c/toktrack/compare/v0.1.44...v0.1.45) (2026-02-06)
 
 
