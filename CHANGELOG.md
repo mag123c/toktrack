@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.42](https://github.com/mag123c/toktrack/compare/v0.1.41...v0.1.42) (2026-02-06)
+
+
+### Bug Fixes
+
+* **tui:** improve update popup readability and model name parsing ([feee66e](https://github.com/mag123c/toktrack/commit/feee66e6d447ee58bd3a4ac7172b6aaa48a63a24))
+
 ## [0.1.41](https://github.com/mag123c/toktrack/compare/v0.1.40...v0.1.41) (2026-02-06)
 
 
