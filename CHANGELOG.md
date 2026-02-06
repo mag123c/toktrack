@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.50](https://github.com/mag123c/toktrack/compare/v0.1.49...v0.1.50) (2026-02-06)
+
+
+### Bug Fixes
+
+* **services:** check cache version before warm path entry ([ba7d862](https://github.com/mag123c/toktrack/commit/ba7d8624245117151558b5564d7b039ca84422cb))
+
 ## [0.1.49](https://github.com/mag123c/toktrack/compare/v0.1.48...v0.1.49) (2026-02-06)
 
 
