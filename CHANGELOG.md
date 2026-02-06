@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.43](https://github.com/mag123c/toktrack/compare/v0.1.42...v0.1.43) (2026-02-06)
+
+
+### Refactoring
+
+* multi-LLM code review fixes ([#59](https://github.com/mag123c/toktrack/issues/59)) ([799b6df](https://github.com/mag123c/toktrack/commit/799b6dfd2dd21ea1eeaaa6d3e074fc5a4c25f958))
+
 ## [0.1.42](https://github.com/mag123c/toktrack/compare/v0.1.41...v0.1.42) (2026-02-06)
 
 
