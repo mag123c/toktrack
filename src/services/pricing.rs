@@ -57,6 +57,7 @@ impl PricingCache {
 /// Pricing service for calculating token costs
 pub struct PricingService {
     cache: PricingCache,
+    #[allow(dead_code)]
     cache_path: PathBuf,
 }
 
@@ -165,6 +166,7 @@ impl PricingService {
     }
 
     /// Get cost, using pre-calculated cost_usd if available (auto mode)
+    #[allow(dead_code)]
     pub fn get_or_calculate_cost(&self, entry: &UsageEntry) -> f64 {
         if let Some(cost) = entry.cost_usd {
             return cost;
@@ -213,6 +215,7 @@ impl PricingService {
     }
 
     /// Force refresh pricing data
+    #[allow(dead_code)]
     pub fn refresh(&mut self) -> Result<()> {
         let cache = Self::fetch_pricing()
             .map_err(|e| ToktrackError::Pricing(format!("Refresh failed: {}", e)))?;
@@ -222,6 +225,7 @@ impl PricingService {
     }
 
     /// Get the number of models in the cache
+    #[allow(dead_code)]
     pub fn model_count(&self) -> usize {
         self.cache.models.len()
     }

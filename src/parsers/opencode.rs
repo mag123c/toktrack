@@ -80,8 +80,8 @@ impl CLIParser for OpenCodeParser {
         "opencode"
     }
 
-    fn data_dir(&self) -> PathBuf {
-        self.data_dir.clone()
+    fn data_dir(&self) -> &Path {
+        &self.data_dir
     }
 
     fn file_pattern(&self) -> &str {
@@ -101,7 +101,9 @@ impl CLIParser for OpenCodeParser {
             None => return Ok(Vec::new()),
         };
 
-        let timestamp = DateTime::from_timestamp_millis(message.time.created as i64)
+        let timestamp = i64::try_from(message.time.created)
+            .ok()
+            .and_then(DateTime::from_timestamp_millis)
             .unwrap_or_else(|| {
                 eprintln!(
                     "[toktrack] Warning: Invalid timestamp '{}', using current time",

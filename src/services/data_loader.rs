@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use crate::parsers::ParserRegistry;
 use crate::services::{Aggregator, DailySummaryCacheService, PricingService};
-use crate::types::{CacheWarning, DailySummary, SourceUsage, UsageEntry};
+use crate::types::{CacheWarning, DailySummary, Result, SourceUsage, ToktrackError, UsageEntry};
 
 /// Result of loading data from all parsers
 #[derive(Debug)]
@@ -42,7 +42,7 @@ impl DataLoaderService {
     }
 
     /// Load data from all parsers using cache-first strategy
-    pub fn load(&self) -> anyhow::Result<LoadResult> {
+    pub fn load(&self) -> Result<LoadResult> {
         let has_cache = self.has_cache();
 
         if has_cache {
@@ -67,11 +67,11 @@ impl DataLoaderService {
     }
 
     /// Warm path: use cached DailySummaries + parse only recent files
-    fn load_warm_path(&self) -> anyhow::Result<LoadResult> {
+    fn load_warm_path(&self) -> Result<LoadResult> {
         let cache_service = self
             .cache_service
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("No cache service"))?;
+            .ok_or_else(|| ToktrackError::Cache("No cache service".into()))?;
 
         let since = std::time::SystemTime::now() - std::time::Duration::from_secs(24 * 3600);
 
@@ -80,11 +80,23 @@ impl DataLoaderService {
         let mut cache_warning = None;
 
         for parser in self.registry.parsers() {
-            let entries = match parser.parse_recent_files(since) {
-                Ok(e) => e,
-                Err(e) => {
-                    eprintln!("[toktrack] Warning: {} failed: {}", parser.name(), e);
-                    continue;
+            let has_parser_cache = cache_service.cache_path(parser.name()).exists();
+
+            let entries = if has_parser_cache {
+                match parser.parse_recent_files(since) {
+                    Ok(e) => e,
+                    Err(e) => {
+                        eprintln!("[toktrack] Warning: {} failed: {}", parser.name(), e);
+                        continue;
+                    }
+                }
+            } else {
+                match parser.parse_all() {
+                    Ok(e) => e,
+                    Err(e) => {
+                        eprintln!("[toktrack] Warning: {} failed: {}", parser.name(), e);
+                        continue;
+                    }
                 }
             };
 
@@ -119,7 +131,7 @@ impl DataLoaderService {
     }
 
     /// Cold path: full parse_all() per parser + build cache
-    fn load_cold_path(&self) -> anyhow::Result<LoadResult> {
+    fn load_cold_path(&self) -> Result<LoadResult> {
         // Try network pricing if cache-only failed
         let fallback_pricing;
         let pricing_ref = match &self.pricing {
@@ -179,7 +191,9 @@ impl DataLoaderService {
         }
 
         if !any_entries {
-            anyhow::bail!("No usage data found from any CLI");
+            return Err(ToktrackError::Parse(
+                "No usage data found from any CLI".into(),
+            ));
         }
 
         let all_summaries = Aggregator::merge_by_date(all_summaries);
@@ -230,7 +244,8 @@ impl DataLoaderService {
             let tokens = s.total_input_tokens
                 + s.total_output_tokens
                 + s.total_cache_read_tokens
-                + s.total_cache_creation_tokens;
+                + s.total_cache_creation_tokens
+                + s.total_thinking_tokens;
             let stat = stats.entry(source_name.to_string()).or_default();
             stat.0 = stat.0.saturating_add(tokens);
             stat.1 += s.total_cost_usd;

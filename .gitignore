@@ -10,8 +10,7 @@
 
 
 # Dev specs (local only)
-.dev/*
-!.dev/DECISIONS.md
+.dev/
 
 # Test snapshots (review before commit)
 *.snap.new

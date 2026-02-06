@@ -77,6 +77,7 @@ impl DailyData {
                         + d.total_output_tokens
                         + d.total_cache_read_tokens
                         + d.total_cache_creation_tokens
+                        + d.total_thinking_tokens
                 })
                 .max()
                 .unwrap_or(0)
@@ -398,7 +399,8 @@ impl DailyView<'_> {
         let total_tokens = summary.total_input_tokens
             + summary.total_output_tokens
             + summary.total_cache_read_tokens
-            + summary.total_cache_creation_tokens;
+            + summary.total_cache_creation_tokens
+            + summary.total_thinking_tokens;
 
         let cache_tokens = summary.total_cache_read_tokens + summary.total_cache_creation_tokens;
 
@@ -646,6 +648,7 @@ mod tests {
             total_output_tokens: output,
             total_cache_read_tokens: cache_read,
             total_cache_creation_tokens: cache_creation,
+            total_thinking_tokens: 0,
             total_cost_usd: cost,
             models: HashMap::new(),
         }

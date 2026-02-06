@@ -55,7 +55,7 @@ scopes: parser|tui|services|cache|cli
 
 ## Project Decisions
 
-See `.dev/DECISIONS.md` for design decision history.
+See `.dev/DECISIONS.md` (local only, gitignored) for design decision history.
 Verify new features do not conflict with existing decisions.
 
 ---

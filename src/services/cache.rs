@@ -22,12 +22,19 @@ fn normalize_model_keys(models: HashMap<String, ModelUsage>) -> HashMap<String, 
         normalized
             .entry(key)
             .and_modify(|existing| {
-                existing.input_tokens += usage.input_tokens;
-                existing.output_tokens += usage.output_tokens;
-                existing.cache_read_tokens += usage.cache_read_tokens;
-                existing.cache_creation_tokens += usage.cache_creation_tokens;
+                existing.input_tokens = existing.input_tokens.saturating_add(usage.input_tokens);
+                existing.output_tokens = existing.output_tokens.saturating_add(usage.output_tokens);
+                existing.cache_read_tokens = existing
+                    .cache_read_tokens
+                    .saturating_add(usage.cache_read_tokens);
+                existing.cache_creation_tokens = existing
+                    .cache_creation_tokens
+                    .saturating_add(usage.cache_creation_tokens);
+                existing.thinking_tokens = existing
+                    .thinking_tokens
+                    .saturating_add(usage.thinking_tokens);
                 existing.cost_usd += usage.cost_usd;
-                existing.count += usage.count;
+                existing.count = existing.count.saturating_add(usage.count);
             })
             .or_insert(usage);
     }
@@ -54,6 +61,7 @@ impl DailySummaryCacheService {
         Ok(Self { cache_dir })
     }
 
+    #[allow(dead_code)]
     pub fn with_cache_dir(cache_dir: PathBuf) -> Self {
         Self { cache_dir }
     }
@@ -72,16 +80,13 @@ impl DailySummaryCacheService {
         let today = Local::now().date_naive();
 
         let (cached, warning) = self.load_past_summaries(cli, today);
-        let cached_dates: HashSet<NaiveDate> = cached.iter().map(|s| s.date).collect();
 
         let entry_dates: HashSet<NaiveDate> =
             entries.iter().map(|e| e.timestamp.date_naive()).collect();
 
-        let dates_to_compute: HashSet<NaiveDate> = entry_dates
-            .iter()
-            .filter(|&date| *date == today || !cached_dates.contains(date))
-            .copied()
-            .collect();
+        // Recompute: today (always), uncached dates, and cached dates with new entries.
+        // Since we iterate entry_dates, any date with entries is recomputed.
+        let dates_to_compute: HashSet<NaiveDate> = entry_dates.clone();
 
         let entries_to_compute: Vec<&UsageEntry> = entries
             .iter()
@@ -108,6 +113,7 @@ impl DailySummaryCacheService {
         Ok((result, warning))
     }
 
+    #[allow(dead_code)]
     pub fn clear(&self, cli: &str) -> Result<()> {
         let path = self.cache_path(cli);
         if path.exists() {
@@ -294,9 +300,9 @@ mod tests {
         assert_eq!(result[1].total_input_tokens, 200);
     }
 
-    // Test 2: Cache hit only recomputes today
+    // Test 2: Cache hit recomputes dates with new entries
     #[test]
-    fn test_cache_hit_only_recomputes_today() {
+    fn test_cache_recomputes_dates_with_entries() {
         let (service, _temp) = create_test_service();
         let today = Local::now().date_naive();
         let yesterday = today - chrono::Duration::days(1);
@@ -308,6 +314,7 @@ mod tests {
             total_output_tokens: 999,
             total_cache_read_tokens: 0,
             total_cache_creation_tokens: 0,
+            total_thinking_tokens: 0,
             total_cost_usd: 9.99,
             models: HashMap::new(),
         };
@@ -358,9 +365,9 @@ mod tests {
         assert!(warning.is_none());
         assert_eq!(result.len(), 2);
 
-        // Yesterday should use cached value (999), not entry (100)
+        // Yesterday should be recomputed from entries (100), not cached (999)
         let yesterday_result = result.iter().find(|s| s.date == yesterday).unwrap();
-        assert_eq!(yesterday_result.total_input_tokens, 999);
+        assert_eq!(yesterday_result.total_input_tokens, 100);
 
         // Today should be recomputed (200)
         let today_result = result.iter().find(|s| s.date == today).unwrap();
@@ -409,6 +416,7 @@ mod tests {
             total_output_tokens: 999,
             total_cache_read_tokens: 0,
             total_cache_creation_tokens: 0,
+            total_thinking_tokens: 0,
             total_cost_usd: 9.99,
             models: HashMap::new(),
         };
@@ -476,6 +484,7 @@ mod tests {
             total_output_tokens: 25,
             total_cache_read_tokens: 0,
             total_cache_creation_tokens: 0,
+            total_thinking_tokens: 0,
             total_cost_usd: 0.005,
             models: HashMap::new(),
         };
@@ -586,6 +595,7 @@ mod tests {
                 output_tokens: 50,
                 cache_read_tokens: 0,
                 cache_creation_tokens: 0,
+                thinking_tokens: 0,
                 cost_usd: 0.10,
                 count: 1,
             },
@@ -597,6 +607,7 @@ mod tests {
                 output_tokens: 100,
                 cache_read_tokens: 0,
                 cache_creation_tokens: 0,
+                thinking_tokens: 0,
                 cost_usd: 0.20,
                 count: 2,
             },
@@ -608,6 +619,7 @@ mod tests {
             total_output_tokens: 150,
             total_cache_read_tokens: 0,
             total_cache_creation_tokens: 0,
+            total_thinking_tokens: 0,
             total_cost_usd: 0.30,
             models,
         };
