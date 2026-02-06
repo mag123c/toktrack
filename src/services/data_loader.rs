@@ -221,7 +221,7 @@ impl DataLoaderService {
                 // GitHub Copilot is free, override cost to 0
                 if is_copilot_provider(entry.provider.as_deref()) {
                     entry.cost_usd = Some(0.0);
-                } else if entry.cost_usd.is_none() {
+                } else if entry.cost_usd.is_none() || entry.cost_usd == Some(0.0) {
                     if let Some(p) = pricing {
                         entry.cost_usd = Some(p.calculate_cost(&entry));
                     }
@@ -369,5 +369,60 @@ mod tests {
     fn test_data_loader_service_default() {
         let service = DataLoaderService::default();
         assert!(!service.registry.parsers().is_empty());
+    }
+
+    // ========== apply_pricing tests ==========
+
+    fn make_entry(cost_usd: Option<f64>, provider: Option<&str>) -> UsageEntry {
+        UsageEntry {
+            timestamp: chrono::Utc::now(),
+            model: Some("claude-sonnet-4-5-20250514".to_string()),
+            input_tokens: 1000,
+            output_tokens: 500,
+            cache_read_tokens: 0,
+            cache_creation_tokens: 0,
+            thinking_tokens: 0,
+            cost_usd,
+            message_id: None,
+            request_id: None,
+            source: None,
+            provider: provider.map(|s| s.to_string()),
+        }
+    }
+
+    #[test]
+    fn test_apply_pricing_zero_cost_triggers_recalculation() {
+        let service = DataLoaderService::new();
+        let entries = vec![make_entry(Some(0.0), Some("anthropic"))];
+        let result = service.apply_pricing(entries);
+        // Some(0.0) should NOT be trusted — should recalculate (or remain 0 if no pricing)
+        // Key: the condition should treat Some(0.0) same as None
+        assert_ne!(result[0].cost_usd, Some(0.0));
+    }
+
+    #[test]
+    fn test_apply_pricing_none_cost_triggers_recalculation() {
+        let service = DataLoaderService::new();
+        let entries = vec![make_entry(None, Some("anthropic"))];
+        let result = service.apply_pricing(entries);
+        // None should trigger recalculation
+        assert_ne!(result[0].cost_usd, None);
+    }
+
+    #[test]
+    fn test_apply_pricing_nonzero_cost_preserved() {
+        let service = DataLoaderService::new();
+        let entries = vec![make_entry(Some(0.05), Some("anthropic"))];
+        let result = service.apply_pricing(entries);
+        assert_eq!(result[0].cost_usd, Some(0.05));
+    }
+
+    #[test]
+    fn test_apply_pricing_copilot_zero_cost() {
+        let service = DataLoaderService::new();
+        let entries = vec![make_entry(Some(0.10), Some("github-copilot"))];
+        let result = service.apply_pricing(entries);
+        // Copilot should always be $0 regardless of original cost
+        assert_eq!(result[0].cost_usd, Some(0.0));
     }
 }
