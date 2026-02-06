@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.47](https://github.com/mag123c/toktrack/compare/v0.1.46...v0.1.47) (2026-02-06)
+
+
+### Features
+
+* **cache:** add version-based cache invalidation ([e6b4310](https://github.com/mag123c/toktrack/commit/e6b43103ffcbada35f69091a557cbce791932d3b))
+
 ## [0.1.46](https://github.com/mag123c/toktrack/compare/v0.1.45...v0.1.46) (2026-02-06)
 
 
