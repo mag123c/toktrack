@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.49](https://github.com/mag123c/toktrack/compare/v0.1.48...v0.1.49) (2026-02-06)
+
+
+### Bug Fixes
+
+* **services:** fallback to cold path on version mismatch ([b5a59bb](https://github.com/mag123c/toktrack/commit/b5a59bb660b67f16582ef24cd2096568bd7f548b))
+
 ## [0.1.48](https://github.com/mag123c/toktrack/compare/v0.1.47...v0.1.48) (2026-02-06)
 
 
