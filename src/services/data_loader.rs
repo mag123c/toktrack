@@ -43,14 +43,8 @@ impl DataLoaderService {
 
     /// Load data from all parsers using cache-first strategy
     pub fn load(&self) -> Result<LoadResult> {
-        let has_cache = self.has_cache();
-
-        if has_cache {
+        if self.has_valid_cache() {
             if let Ok(result) = self.load_warm_path() {
-                // Version mismatch → cold path for full reparse
-                if matches!(result.cache_warning, Some(CacheWarning::VersionMismatch(_))) {
-                    return self.load_cold_path();
-                }
                 if !result.summaries.is_empty() {
                     return Ok(result);
                 }
@@ -60,13 +54,13 @@ impl DataLoaderService {
         self.load_cold_path()
     }
 
-    /// Check if any parser has cached data available
-    fn has_cache(&self) -> bool {
+    /// Check if any parser has a valid (version-matching) cache
+    fn has_valid_cache(&self) -> bool {
         self.cache_service.as_ref().is_some_and(|cs| {
             self.registry
                 .parsers()
                 .iter()
-                .any(|p| cs.cache_path(p.name()).exists())
+                .any(|p| cs.is_version_current(p.name()))
         })
     }
 

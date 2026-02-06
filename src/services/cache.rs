@@ -43,7 +43,7 @@ fn normalize_model_keys(models: HashMap<String, ModelUsage>) -> HashMap<String, 
 
 /// Bump when aggregation logic changes (e.g., timezone fix).
 /// Mismatched version → full cache invalidation.
-const CACHE_VERSION: u32 = 3;
+const CACHE_VERSION: u32 = 4;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DailySummaryCache {
@@ -74,6 +74,24 @@ impl DailySummaryCacheService {
 
     pub fn cache_path(&self, cli: &str) -> PathBuf {
         self.cache_dir.join(format!("{}_daily.json", cli))
+    }
+
+    /// Check if cached version matches current CACHE_VERSION.
+    /// Returns false if cache doesn't exist or version mismatches.
+    pub fn is_version_current(&self, cli: &str) -> bool {
+        let path = self.cache_path(cli);
+        if !path.exists() {
+            return false;
+        }
+        let content = match fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        let cache: DailySummaryCache = match serde_json::from_str(&content) {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        cache.version == CACHE_VERSION
     }
 
     /// Load cached summaries, compute missing dates, merge and deduplicate.
