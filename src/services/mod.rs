@@ -1,5 +1,4 @@
 //! Services for data aggregation and processing
-#![allow(dead_code)]
 
 pub mod aggregator;
 pub mod cache;

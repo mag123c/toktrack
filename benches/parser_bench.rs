@@ -31,7 +31,7 @@ fn get_bench_file(parser: &ClaudeCodeParser) -> PathBuf {
     let real_data_dir = parser.data_dir();
 
     if real_data_dir.exists() {
-        if let Some(largest) = find_largest_jsonl(&real_data_dir) {
+        if let Some(largest) = find_largest_jsonl(real_data_dir) {
             let size = std::fs::metadata(&largest).map(|m| m.len()).unwrap_or(0);
             if size > 0 {
                 eprintln!(
@@ -104,7 +104,7 @@ fn bench_parse_all_files(c: &mut Criterion) {
         return;
     }
 
-    let files = find_all_jsonl(&data_dir);
+    let files = find_all_jsonl(data_dir);
     if files.is_empty() {
         eprintln!("Skipping parse_all_files: no JSONL files found");
         return;
@@ -153,7 +153,7 @@ fn bench_parse_recent_files(c: &mut Criterion) {
         return;
     }
 
-    let all_files = find_all_jsonl(&data_dir);
+    let all_files = find_all_jsonl(data_dir);
     if all_files.is_empty() {
         eprintln!("Skipping parse_recent_files: no JSONL files found");
         return;

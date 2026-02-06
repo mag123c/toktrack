@@ -113,8 +113,8 @@ impl CLIParser for ClaudeCodeParser {
         "claude-code"
     }
 
-    fn data_dir(&self) -> PathBuf {
-        self.data_dir.clone()
+    fn data_dir(&self) -> &Path {
+        &self.data_dir
     }
 
     fn file_pattern(&self) -> &str {

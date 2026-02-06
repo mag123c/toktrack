@@ -6,7 +6,7 @@ use crate::services::{Aggregator, DataLoaderService};
 use crate::tui::widgets::daily::DailyViewMode;
 use crate::tui::widgets::tabs::Tab;
 use crate::tui::TuiConfig;
-use crate::types::{DailySummary, StatsData};
+use crate::types::{DailySummary, Result, StatsData, ToktrackError};
 
 /// Ultra-fast AI CLI token usage tracker
 #[derive(Parser)]
@@ -57,7 +57,7 @@ impl Cli {
             None | Some(Commands::Tui) => crate::tui::run(TuiConfig::default()),
             Some(Commands::Daily { json }) => {
                 if json {
-                    run_daily_json()
+                    Ok(run_daily_json()?)
                 } else {
                     crate::tui::run(TuiConfig {
                         initial_tab: Tab::Daily,
@@ -67,7 +67,7 @@ impl Cli {
             }
             Some(Commands::Stats { json }) => {
                 if json {
-                    run_stats_json()
+                    Ok(run_stats_json()?)
                 } else {
                     crate::tui::run(TuiConfig {
                         initial_tab: Tab::Stats,
@@ -77,7 +77,7 @@ impl Cli {
             }
             Some(Commands::Weekly { json }) => {
                 if json {
-                    run_weekly_json()
+                    Ok(run_weekly_json()?)
                 } else {
                     crate::tui::run(TuiConfig {
                         initial_tab: Tab::Daily,
@@ -87,7 +87,7 @@ impl Cli {
             }
             Some(Commands::Monthly { json }) => {
                 if json {
-                    run_monthly_json()
+                    Ok(run_monthly_json()?)
                 } else {
                     crate::tui::run(TuiConfig {
                         initial_tab: Tab::Daily,
@@ -101,42 +101,55 @@ impl Cli {
 
 /// Load and process usage data from all CLI parsers.
 /// Uses cache-first strategy via DataLoaderService.
-fn load_data() -> anyhow::Result<Vec<DailySummary>> {
+fn load_data() -> Result<Vec<DailySummary>> {
     let result = DataLoaderService::new().load()?;
     Ok(result.summaries)
 }
 
 /// Output daily summaries as JSON
-fn run_daily_json() -> anyhow::Result<()> {
+fn run_daily_json() -> Result<()> {
     let mut summaries = load_data()?;
     summaries.sort_by(|a, b| b.date.cmp(&a.date));
-    println!("{}", serde_json::to_string_pretty(&summaries)?);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&summaries)
+            .map_err(|e| ToktrackError::Parse(e.to_string()))?
+    );
     Ok(())
 }
 
 /// Output weekly summaries as JSON
-fn run_weekly_json() -> anyhow::Result<()> {
+fn run_weekly_json() -> Result<()> {
     let summaries = load_data()?;
     let mut weekly = Aggregator::weekly(&summaries);
     weekly.sort_by(|a, b| b.date.cmp(&a.date));
-    println!("{}", serde_json::to_string_pretty(&weekly)?);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&weekly).map_err(|e| ToktrackError::Parse(e.to_string()))?
+    );
     Ok(())
 }
 
 /// Output monthly summaries as JSON
-fn run_monthly_json() -> anyhow::Result<()> {
+fn run_monthly_json() -> Result<()> {
     let summaries = load_data()?;
     let mut monthly = Aggregator::monthly(&summaries);
     monthly.sort_by(|a, b| b.date.cmp(&a.date));
-    println!("{}", serde_json::to_string_pretty(&monthly)?);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&monthly).map_err(|e| ToktrackError::Parse(e.to_string()))?
+    );
     Ok(())
 }
 
 /// Output stats as JSON
-fn run_stats_json() -> anyhow::Result<()> {
+fn run_stats_json() -> Result<()> {
     let summaries = load_data()?;
     let stats = StatsData::from_daily_summaries(&summaries);
-    println!("{}", serde_json::to_string_pretty(&stats)?);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&stats).map_err(|e| ToktrackError::Parse(e.to_string()))?
+    );
     Ok(())
 }
 

@@ -23,7 +23,7 @@ pub trait CLIParser: Send + Sync {
     fn name(&self) -> &str;
 
     /// Data directory to scan for usage files
-    fn data_dir(&self) -> PathBuf;
+    fn data_dir(&self) -> &Path;
 
     /// Glob pattern for finding usage files (e.g., "**/*.jsonl")
     fn file_pattern(&self) -> &str;

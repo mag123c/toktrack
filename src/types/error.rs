@@ -1,5 +1,4 @@
 //! Error types for toktrack
-#![allow(dead_code)]
 
 use thiserror::Error;
 
@@ -24,6 +23,7 @@ pub enum ToktrackError {
 
     /// Configuration error
     #[error("config error: {0}")]
+    #[allow(dead_code)]
     Config(String),
 }
 
