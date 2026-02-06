@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.51](https://github.com/mag123c/toktrack/compare/v0.1.50...v0.1.51) (2026-02-06)
+
+
+### Bug Fixes
+
+* **services:** recalculate cost when JSONL costUSD is zero ([edca8b4](https://github.com/mag123c/toktrack/commit/edca8b4bec87a82d8d94b1fecd96e060ea7c174d))
+
 ## [0.1.50](https://github.com/mag123c/toktrack/compare/v0.1.49...v0.1.50) (2026-02-06)
 
 
