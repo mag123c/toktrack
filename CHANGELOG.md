@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.45](https://github.com/mag123c/toktrack/compare/v0.1.44...v0.1.45) (2026-02-06)
+
+
+### Bug Fixes
+
+* **services:** refresh expired pricing cache on startup ([7d25147](https://github.com/mag123c/toktrack/commit/7d25147ee675bc920d515c46aa8e261007aa69ac))
+
 ## [0.1.44](https://github.com/mag123c/toktrack/compare/v0.1.43...v0.1.44) (2026-02-06)
 
 
