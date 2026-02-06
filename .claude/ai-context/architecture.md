@@ -33,7 +33,7 @@ TUI[ratatui] → CLI[clap] → Services → Parsers[trait] → Cache
 ```rust
 trait CLIParser: Send + Sync {
     fn name(&self) -> &str;
-    fn data_dir(&self) -> PathBuf;
+    fn data_dir(&self) -> &Path;
     fn file_pattern(&self) -> &str;
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>>;
     fn parse_all(&self) -> Result<Vec<UsageEntry>>;           // full parse (rayon)
@@ -85,7 +85,7 @@ trait CLIParser: Send + Sync {
 ## Cache (~/.toktrack/)
 ```
 cache/
-├── {cli}_daily.json  # DailySummary cache (past dates immutable)
+├── {cli}_daily.json  # DailySummary cache (recomputes dates with new entries)
 └── pricing.json      # LiteLLM 1h TTL
 ```
 
