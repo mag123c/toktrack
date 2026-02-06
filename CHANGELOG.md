@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.48](https://github.com/mag123c/toktrack/compare/v0.1.47...v0.1.48) (2026-02-06)
+
+
+### Bug Fixes
+
+* **cache:** preserve historical data on version mismatch ([c4420e0](https://github.com/mag123c/toktrack/commit/c4420e0bef9bf495039ef1666df74a4fec5149c7))
+
 ## [0.1.47](https://github.com/mag123c/toktrack/compare/v0.1.46...v0.1.47) (2026-02-06)
 
 
