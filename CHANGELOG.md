@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.41](https://github.com/mag123c/toktrack/compare/v0.1.40...v0.1.41) (2026-02-06)
+
+
+### Features
+
+* **tui:** improve spike colors, tab order, and daily view UX ([0b01efa](https://github.com/mag123c/toktrack/commit/0b01efa96b94974feebbae7fb84b19b1d8ab59ff))
+* **tui:** visual spike detection in daily view cost column ([75cf377](https://github.com/mag123c/toktrack/commit/75cf377f38aa5faeeac96e4abd60e4c5fd8511f9)), closes [#46](https://github.com/mag123c/toktrack/issues/46)
+
 ## [0.1.40](https://github.com/mag123c/toktrack/compare/v0.1.39...v0.1.40) (2026-02-05)
 
 
