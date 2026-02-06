@@ -21,6 +21,9 @@ fn accumulate_summary(target: &mut DailySummary, source: &DailySummary) {
     target.total_cache_creation_tokens = target
         .total_cache_creation_tokens
         .saturating_add(source.total_cache_creation_tokens);
+    target.total_thinking_tokens = target
+        .total_thinking_tokens
+        .saturating_add(source.total_thinking_tokens);
     target.total_cost_usd += source.total_cost_usd;
 
     for (model_name, model_usage) in &source.models {
@@ -39,6 +42,9 @@ fn merge_model_usage(target: &mut ModelUsage, source: &ModelUsage) {
     target.cache_creation_tokens = target
         .cache_creation_tokens
         .saturating_add(source.cache_creation_tokens);
+    target.thinking_tokens = target
+        .thinking_tokens
+        .saturating_add(source.thinking_tokens);
     target.cost_usd += source.cost_usd;
     target.count = target.count.saturating_add(source.count);
 }
@@ -63,6 +69,7 @@ impl Aggregator {
                 total_output_tokens: 0,
                 total_cache_read_tokens: 0,
                 total_cache_creation_tokens: 0,
+                total_thinking_tokens: 0,
                 total_cost_usd: 0.0,
                 models: HashMap::new(),
             });
@@ -79,6 +86,9 @@ impl Aggregator {
             summary.total_cache_creation_tokens = summary
                 .total_cache_creation_tokens
                 .saturating_add(entry.cache_creation_tokens);
+            summary.total_thinking_tokens = summary
+                .total_thinking_tokens
+                .saturating_add(entry.thinking_tokens);
             summary.total_cost_usd += cost;
 
             // Update model breakdown
@@ -114,6 +124,7 @@ impl Aggregator {
                 total_output_tokens: 0,
                 total_cache_read_tokens: 0,
                 total_cache_creation_tokens: 0,
+                total_thinking_tokens: 0,
                 total_cost_usd: 0.0,
                 models: HashMap::new(),
             });
@@ -145,6 +156,7 @@ impl Aggregator {
                 total_output_tokens: 0,
                 total_cache_read_tokens: 0,
                 total_cache_creation_tokens: 0,
+                total_thinking_tokens: 0,
                 total_cost_usd: 0.0,
                 models: HashMap::new(),
             });
@@ -157,6 +169,7 @@ impl Aggregator {
         result
     }
 
+    #[allow(dead_code)]
     pub fn by_model(entries: &[UsageEntry]) -> HashMap<String, ModelUsage> {
         let mut model_map: HashMap<String, ModelUsage> = HashMap::new();
 
@@ -191,6 +204,9 @@ impl Aggregator {
             summary.total_cache_creation_tokens = summary
                 .total_cache_creation_tokens
                 .saturating_add(s.total_cache_creation_tokens);
+            summary.total_thinking_tokens = summary
+                .total_thinking_tokens
+                .saturating_add(s.total_thinking_tokens);
             summary.total_cost_usd += s.total_cost_usd;
 
             // entry_count = sum of per-model counts across all daily summaries
@@ -217,6 +233,7 @@ impl Aggregator {
         model_map
     }
 
+    #[allow(dead_code)]
     pub fn total(entries: &[UsageEntry]) -> TotalSummary {
         if entries.is_empty() {
             return TotalSummary::default();
@@ -238,6 +255,9 @@ impl Aggregator {
             summary.total_cache_creation_tokens = summary
                 .total_cache_creation_tokens
                 .saturating_add(entry.cache_creation_tokens);
+            summary.total_thinking_tokens = summary
+                .total_thinking_tokens
+                .saturating_add(entry.thinking_tokens);
             summary.total_cost_usd += entry.cost_usd.unwrap_or(0.0);
             summary.entry_count = summary.entry_count.saturating_add(1);
 
@@ -249,6 +269,7 @@ impl Aggregator {
     }
 
     /// Aggregate usage by source CLI (claude, opencode, gemini, etc.)
+    #[allow(dead_code)]
     pub fn by_source(entries: &[UsageEntry]) -> Vec<SourceUsage> {
         let mut source_map: HashMap<String, (u64, f64)> = HashMap::new();
 
@@ -298,6 +319,7 @@ impl Aggregator {
                     total_output_tokens: 0,
                     total_cache_read_tokens: 0,
                     total_cache_creation_tokens: 0,
+                    total_thinking_tokens: 0,
                     total_cost_usd: 0.0,
                     models: HashMap::new(),
                 });
@@ -632,6 +654,7 @@ mod tests {
             total_output_tokens: output,
             total_cache_read_tokens: 0,
             total_cache_creation_tokens: 0,
+            total_thinking_tokens: 0,
             total_cost_usd: cost,
             models: HashMap::new(),
         }
@@ -652,6 +675,7 @@ mod tests {
             total_output_tokens: output,
             total_cache_read_tokens: 0,
             total_cache_creation_tokens: 0,
+            total_thinking_tokens: 0,
             total_cost_usd: cost,
             models,
         }
@@ -889,6 +913,7 @@ mod tests {
                 output_tokens: 50,
                 cache_read_tokens: 10,
                 cache_creation_tokens: 5,
+                thinking_tokens: 0,
                 cost_usd: 0.01,
                 count: 3,
             },
@@ -1015,6 +1040,7 @@ mod tests {
             total_output_tokens: 50,
             total_cache_read_tokens: 10,
             total_cache_creation_tokens: 5,
+            total_thinking_tokens: 0,
             total_cost_usd: 0.01,
             models: HashMap::new(),
         };
@@ -1024,6 +1050,7 @@ mod tests {
             total_output_tokens: 100,
             total_cache_read_tokens: 30,
             total_cache_creation_tokens: 15,
+            total_thinking_tokens: 0,
             total_cost_usd: 0.02,
             models: HashMap::new(),
         };
@@ -1044,6 +1071,7 @@ mod tests {
             output_tokens: 50,
             cache_read_tokens: 10,
             cache_creation_tokens: 5,
+            thinking_tokens: 0,
             cost_usd: 0.01,
             count: 2,
         };
@@ -1052,6 +1080,7 @@ mod tests {
             output_tokens: 100,
             cache_read_tokens: 20,
             cache_creation_tokens: 10,
+            thinking_tokens: 0,
             cost_usd: 0.02,
             count: 3,
         };
@@ -1119,6 +1148,7 @@ mod tests {
             total_output_tokens: 50,
             total_cache_read_tokens: 0,
             total_cache_creation_tokens: 0,
+            total_thinking_tokens: 0,
             total_cost_usd: 0.01,
             models: models_target,
         };
@@ -1150,6 +1180,7 @@ mod tests {
             total_output_tokens: 125,
             total_cache_read_tokens: 0,
             total_cache_creation_tokens: 0,
+            total_thinking_tokens: 0,
             total_cost_usd: 0.025,
             models: models_source,
         };

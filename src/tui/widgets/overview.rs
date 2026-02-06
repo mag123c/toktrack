@@ -181,7 +181,8 @@ impl Overview<'_> {
         let total_tokens = self.data.total.total_input_tokens
             + self.data.total.total_output_tokens
             + self.data.total.total_cache_read_tokens
-            + self.data.total.total_cache_creation_tokens;
+            + self.data.total.total_cache_creation_tokens
+            + self.data.total.total_thinking_tokens;
         let formatted = format_number(total_tokens);
 
         let hero = Paragraph::new(vec![
@@ -253,7 +254,7 @@ impl Overview<'_> {
             }
 
             // Source name (left-padded, fixed width)
-            let name = if source.source.len() > SOURCE_NAME_WIDTH - 1 {
+            let name = if source.source.chars().count() > SOURCE_NAME_WIDTH - 1 {
                 format!(
                     "{}…",
                     source

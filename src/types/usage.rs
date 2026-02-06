@@ -38,9 +38,10 @@ impl StatsData {
             let day_tokens = summary.total_input_tokens
                 + summary.total_output_tokens
                 + summary.total_cache_read_tokens
-                + summary.total_cache_creation_tokens;
+                + summary.total_cache_creation_tokens
+                + summary.total_thinking_tokens;
 
-            total_tokens += day_tokens;
+            total_tokens = total_tokens.saturating_add(day_tokens);
             total_cost += summary.total_cost_usd;
 
             match &peak_day {
@@ -99,6 +100,13 @@ impl UsageEntry {
     pub fn dedup_hash(&self) -> Option<String> {
         match (&self.message_id, &self.request_id) {
             (Some(msg), Some(req)) => Some(format!("{}:{}", msg, req)),
+            (Some(msg), None) => {
+                let model = self.model.as_deref().unwrap_or("unknown");
+                Some(format!(
+                    "{}:{}:{}:{}",
+                    msg, model, self.input_tokens, self.output_tokens
+                ))
+            }
             _ => None,
         }
     }
@@ -111,6 +119,8 @@ pub struct DailySummary {
     pub total_output_tokens: u64,
     pub total_cache_read_tokens: u64,
     pub total_cache_creation_tokens: u64,
+    #[serde(default)]
+    pub total_thinking_tokens: u64,
     pub total_cost_usd: f64,
     pub models: HashMap<String, ModelUsage>,
 }
@@ -121,6 +131,8 @@ pub struct ModelUsage {
     pub output_tokens: u64,
     pub cache_read_tokens: u64,
     pub cache_creation_tokens: u64,
+    #[serde(default)]
+    pub thinking_tokens: u64,
     pub cost_usd: f64,
     pub count: u64,
 }
@@ -135,6 +147,7 @@ impl ModelUsage {
         self.cache_creation_tokens = self
             .cache_creation_tokens
             .saturating_add(entry.cache_creation_tokens);
+        self.thinking_tokens = self.thinking_tokens.saturating_add(entry.thinking_tokens);
         self.cost_usd += cost;
         self.count = self.count.saturating_add(1);
     }
@@ -146,6 +159,8 @@ pub struct TotalSummary {
     pub total_output_tokens: u64,
     pub total_cache_read_tokens: u64,
     pub total_cache_creation_tokens: u64,
+    #[serde(default)]
+    pub total_thinking_tokens: u64,
     pub total_cost_usd: f64,
     pub entry_count: u64,
     pub day_count: u64,
@@ -180,6 +195,7 @@ mod tests {
             total_output_tokens: output,
             total_cache_read_tokens: cache_read,
             total_cache_creation_tokens: cache_creation,
+            total_thinking_tokens: 0,
             total_cost_usd: cost,
             models: HashMap::new(),
         }
@@ -324,6 +340,25 @@ mod tests {
             provider: None,
         };
         assert_eq!(entry.dedup_hash(), None);
+    }
+
+    #[test]
+    fn test_usage_entry_dedup_hash_fallback_message_only() {
+        let entry = UsageEntry {
+            timestamp: Utc::now(),
+            model: Some("gpt-4".into()),
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_tokens: 0,
+            cache_creation_tokens: 0,
+            thinking_tokens: 0,
+            cost_usd: None,
+            message_id: Some("msg789".into()),
+            request_id: None,
+            source: None,
+            provider: None,
+        };
+        assert_eq!(entry.dedup_hash(), Some("msg789:gpt-4:100:50".into()));
     }
 
     #[test]

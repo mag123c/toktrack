@@ -70,8 +70,10 @@ pub enum UpdateStatus {
     Checking,
     /// Update available, showing overlay
     Available { current: String, latest: String },
-    /// Running npm update
+    /// User confirmed update, transitioning to background thread
     Updating,
+    /// Background thread running npm update
+    UpdateRunning,
     /// Update finished (success or failure)
     UpdateDone { success: bool, message: String },
     /// Resolved (no overlay)
@@ -85,6 +87,7 @@ impl UpdateStatus {
             self,
             UpdateStatus::Available { .. }
                 | UpdateStatus::Updating
+                | UpdateStatus::UpdateRunning
                 | UpdateStatus::UpdateDone { .. }
         )
     }
@@ -570,7 +573,7 @@ impl Widget for &App {
                 UpdatePopup::new(current, latest, self.update_selection, self.theme)
                     .render(popup_area, buf);
             }
-            UpdateStatus::Updating => {
+            UpdateStatus::Updating | UpdateStatus::UpdateRunning => {
                 DimOverlay.render(area, buf);
                 let popup_area = UpdateMessagePopup::centered_area(area);
                 UpdateMessagePopup::new("Running npm update -g toktrack...", self.theme.date())
@@ -632,7 +635,8 @@ fn build_app_data_from_summaries(
                 d.total_input_tokens
                     + d.total_output_tokens
                     + d.total_cache_read_tokens
-                    + d.total_cache_creation_tokens,
+                    + d.total_cache_creation_tokens
+                    + d.total_thinking_tokens,
             )
         })
         .collect();
@@ -670,6 +674,9 @@ fn run_app(terminal: &mut DefaultTerminal, config: TuiConfig, theme: Theme) -> a
         let _ = update_tx.send(result);
     });
 
+    // Channel for async execute_update result
+    let (execute_tx, execute_rx) = mpsc::channel();
+
     loop {
         terminal.draw(|frame| app.draw(frame))?;
 
@@ -703,22 +710,32 @@ fn run_app(terminal: &mut DefaultTerminal, config: TuiConfig, theme: Theme) -> a
             }
         }
 
-        // Handle Updating state: run npm update in background
+        // Handle Updating state: spawn background thread for npm update
         if app.update_status == UpdateStatus::Updating {
-            // Draw once to show "Running..." message before blocking
-            terminal.draw(|frame| app.draw(frame))?;
-            match execute_update() {
-                Ok(()) => {
-                    app.update_status = UpdateStatus::UpdateDone {
-                        success: true,
-                        message: "Updated! Press any key to exit.".to_string(),
-                    };
-                }
-                Err(e) => {
-                    app.update_status = UpdateStatus::UpdateDone {
-                        success: false,
-                        message: format!("Failed: {}", e),
-                    };
+            app.update_status = UpdateStatus::UpdateRunning;
+            let tx = execute_tx.clone();
+            thread::spawn(move || {
+                let result = execute_update();
+                let _ = tx.send(result);
+            });
+        }
+
+        // Check for execute_update completion (non-blocking)
+        if app.update_status == UpdateStatus::UpdateRunning {
+            if let Ok(result) = execute_rx.try_recv() {
+                match result {
+                    Ok(()) => {
+                        app.update_status = UpdateStatus::UpdateDone {
+                            success: true,
+                            message: "Updated! Press any key to exit.".to_string(),
+                        };
+                    }
+                    Err(e) => {
+                        app.update_status = UpdateStatus::UpdateDone {
+                            success: false,
+                            message: format!("Failed: {}", e),
+                        };
+                    }
                 }
             }
         }
@@ -762,6 +779,7 @@ mod tests {
                 total_output_tokens: 50,
                 total_cache_read_tokens: 0,
                 total_cache_creation_tokens: 0,
+                total_thinking_tokens: 0,
                 total_cost_usd: 0.01,
                 models: HashMap::new(),
             })
@@ -1122,6 +1140,7 @@ mod tests {
             total_output_tokens: 50,
             total_cache_read_tokens: 0,
             total_cache_creation_tokens: 0,
+            total_thinking_tokens: 0,
             total_cost_usd: 0.01,
             models: HashMap::new(),
         }];
@@ -1586,6 +1605,7 @@ mod tests {
                         output_tokens: 50,
                         cache_read_tokens: 0,
                         cache_creation_tokens: 0,
+                        thinking_tokens: 0,
                         cost_usd: 0.01,
                         count: 1,
                     },
@@ -1596,6 +1616,7 @@ mod tests {
                     total_output_tokens: 50,
                     total_cache_read_tokens: 0,
                     total_cache_creation_tokens: 0,
+                    total_thinking_tokens: 0,
                     total_cost_usd: 0.01,
                     models,
                 }
