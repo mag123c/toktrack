@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/mag123c/toktrack/compare/v1.0.2...v1.0.3) (2026-02-09)
+
+
+### Bug Fixes
+
+* **cache:** bump CACHE_VERSION to 6 for cost calculation changes ([b4daaf7](https://github.com/mag123c/toktrack/commit/b4daaf71606921b73b1554c6b8d055fa490d4ede))
+
 ## [1.0.2](https://github.com/mag123c/toktrack/compare/v1.0.1...v1.0.2) (2026-02-09)
 
 
