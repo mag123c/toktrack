@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.0.1](https://github.com/mag123c/toktrack/compare/v1.0.0...v1.0.1) (2026-02-09)
+
+
+### Bug Fixes
+
+* **cache:** use date boundary instead of sliding window for warm path ([4ad3fde](https://github.com/mag123c/toktrack/commit/4ad3fde16b6f636c7037baf9ff8500e3afd9d6a9))
+* **tui:** use Fill constraint for heatmap to prevent source bars clipping ([0e9e269](https://github.com/mag123c/toktrack/commit/0e9e26989dd39b9435d07ff3a8b03af83f735c6a))
+
+
+### Refactoring
+
+* **tui:** dynamic visible rows and simplified source detail ([3c1f5ca](https://github.com/mag123c/toktrack/commit/3c1f5ca9412d363324dff92eb6ce28b4a938f6a8))
+
 ## [1.0.0](https://github.com/mag123c/toktrack/compare/v1.0.0...v1.0.0) (2026-02-09)
 
 
