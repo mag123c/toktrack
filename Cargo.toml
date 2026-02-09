@@ -1,6 +1,6 @@
 [package]
 name = "toktrack"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 description = "Ultra-fast token & cost tracker for Claude Code, Codex CLI, and Gemini CLI"
 license = "MIT"

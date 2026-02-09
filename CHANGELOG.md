@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.0.2](https://github.com/mag123c/toktrack/compare/v1.0.1...v1.0.2) (2026-02-09)
+
+
+### Bug Fixes
+
+* **cache:** use separate .lock file for cross-process synchronization ([235ac38](https://github.com/mag123c/toktrack/commit/235ac38a1533d75b57650714189e1b6c33ec1d01))
+* **parser:** improve SAFETY comments, home dir warnings, and UI comment ([7f7fc98](https://github.com/mag123c/toktrack/commit/7f7fc983505c3b2a93141dabb661e36d39e44afa))
+* **parser:** skip entries with invalid timestamps instead of using Utc::now() ([89a6999](https://github.com/mag123c/toktrack/commit/89a6999c9aaa2b3c1d449bd1d4f3753cf8e5c1fe))
+* **services:** DST-safe midnight calculation in warm_path_since() ([a31d913](https://github.com/mag123c/toktrack/commit/a31d91313f9c933f6878ad14110f0d39443f3713))
+* **services:** remove input_tokens double-deduction in cost calculation ([637f939](https://github.com/mag123c/toktrack/commit/637f939d01015d12d1e612b3512380589e92244c))
+* **services:** trust Some(0.0) cost instead of recalculating ([9c75257](https://github.com/mag123c/toktrack/commit/9c75257a94ef90f9ebf3ef489e9a2a868903b219))
+
 ## [1.0.1](https://github.com/mag123c/toktrack/compare/v1.0.0...v1.0.1) (2026-02-09)
 
 
