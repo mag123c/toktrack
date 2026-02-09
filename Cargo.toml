@@ -47,7 +47,7 @@ terminal-light = "1"
 
 [dev-dependencies]
 # Benchmarking
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 
 # Temp files for tests
 tempfile = "3"
