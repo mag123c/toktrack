@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/mag123c/toktrack/compare/v0.1.52...v1.0.0) (2026-02-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* first stable release
+
+### Features
+
+* release v1.0.0 with updated demo ([8c383ae](https://github.com/mag123c/toktrack/commit/8c383aeb363494a3c07af9e85d89d0050a03b3ea))
+
 ## [0.1.52](https://github.com/mag123c/toktrack/compare/v0.1.51...v0.1.52) (2026-02-09)
 
 
