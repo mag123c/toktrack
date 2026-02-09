@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.52](https://github.com/mag123c/toktrack/compare/v0.1.51...v0.1.52) (2026-02-09)
+
+
+### Features
+
+* **tui:** add source detail drill-down view ([aebd0bc](https://github.com/mag123c/toktrack/commit/aebd0bc15e1dc7fe3575d9216b4fbf4e0a955222))
+
+
+### Refactoring
+
+* **tui:** 3-tab split with overview cleanup ([f0fa8b5](https://github.com/mag123c/toktrack/commit/f0fa8b54a9ff28bcf9027d78026935eed05b8e24))
+
 ## [0.1.51](https://github.com/mag123c/toktrack/compare/v0.1.50...v0.1.51) (2026-02-06)
 
 
