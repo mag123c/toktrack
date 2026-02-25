@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.5](https://github.com/mag123c/toktrack/compare/v1.0.4...v1.0.5) (2026-02-25)
+
+
+### Bug Fixes
+
+* **docs:** add CONTRIBUTING.md and update demo gif ([3b2b31d](https://github.com/mag123c/toktrack/commit/3b2b31d1f758c29a996dbc436ab03fc78db02237))
+
 ## [1.0.4](https://github.com/mag123c/toktrack/compare/v1.0.3...v1.0.4) (2026-02-09)
 
 
