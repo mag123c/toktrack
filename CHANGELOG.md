@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/mag123c/toktrack/compare/v1.0.5...v1.1.0) (2026-02-25)
+
+
+### Features
+
+* **services:** add tiered pricing support for above-200k tokens ([cc4e222](https://github.com/mag123c/toktrack/commit/cc4e22257bb0a9e0294b9a809543eee51468ca26))
+
 ## [1.0.5](https://github.com/mag123c/toktrack/compare/v1.0.4...v1.0.5) (2026-02-25)
 
 
