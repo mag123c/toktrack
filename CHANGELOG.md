@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/mag123c/toktrack/compare/v1.1.0...v1.1.1) (2026-02-27)
+
+
+### Bug Fixes
+
+* **services:** filter warm path entries to prevent cross-day cache corruption ([5d2f6ce](https://github.com/mag123c/toktrack/commit/5d2f6ce5a19cfe042604586d5a6f43aafa15c1e0))
+
 ## [1.1.0](https://github.com/mag123c/toktrack/compare/v1.0.5...v1.1.0) (2026-02-25)
 
 
