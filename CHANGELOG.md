@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2](https://github.com/mag123c/toktrack/compare/v1.1.1...v1.1.2) (2026-03-03)
+
+
+### Bug Fixes
+
+* **services:** detect warm path date gaps to prevent data loss ([d4806db](https://github.com/mag123c/toktrack/commit/d4806dbd5e9c1ae16b9dd74c92682ee2fdc6c1bf))
+
 ## [1.1.1](https://github.com/mag123c/toktrack/compare/v1.1.0...v1.1.1) (2026-02-27)
 
 
