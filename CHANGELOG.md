@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/mag123c/toktrack/compare/v1.1.2...v1.2.0) (2026-03-13)
+
+
+### Features
+
+* **ci:** add Linux musl build targets ([6c1bacf](https://github.com/mag123c/toktrack/commit/6c1bacf33c6ffb9676a5e8054e7e856f553c1885))
+* **ci:** add Linux musl build targets for RHEL/Alpine compatibility ([60b94ba](https://github.com/mag123c/toktrack/commit/60b94bac67b33b8e7fda0bb0ff7ce15d06a3e37d))
+
 ## [1.1.2](https://github.com/mag123c/toktrack/compare/v1.1.1...v1.1.2) (2026-03-03)
 
 
