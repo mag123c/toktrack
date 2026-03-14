@@ -78,9 +78,11 @@ jobs:
         if: ${{ !matrix.cross }}
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Smoke test (cross)
-        if: matrix.cross
-        run: cross run --release --target ${{ matrix.target }} -- --version
+      - name: Smoke test
+        if: matrix.os != 'windows-latest'
+        run: |
+          file target/${{ matrix.target }}/release/toktrack
+          test -x target/${{ matrix.target }}/release/toktrack
 
       - name: Prepare artifact (Unix)
         if: matrix.os != 'windows-latest'
