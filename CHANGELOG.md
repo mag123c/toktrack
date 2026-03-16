@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/mag123c/toktrack/compare/v1.2.0...v1.2.1) (2026-03-16)
+
+
+### Bug Fixes
+
+* **ci:** replace cross run smoke test with file verification ([b316094](https://github.com/mag123c/toktrack/commit/b316094785d4bed52affcc67928767319685c436))
+
 ## [1.2.0](https://github.com/mag123c/toktrack/compare/v1.1.2...v1.2.0) (2026-03-13)
 
 
