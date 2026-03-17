@@ -1,5 +1,109 @@
 # Changelog
 
+## [2.0.0](https://github.com/mag123c/toktrack/compare/v1.2.1...v2.0.0) (2026-03-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* first stable release
+
+### Features
+
+* add workflow skills and hooks ([5942686](https://github.com/mag123c/toktrack/commit/59426864d69604056eab4134025f2d306cbad4ed))
+* **cache:** add version-based cache invalidation ([e6b4310](https://github.com/mag123c/toktrack/commit/e6b43103ffcbada35f69091a557cbce791932d3b))
+* **ci:** add Linux musl build targets ([6c1bacf](https://github.com/mag123c/toktrack/commit/6c1bacf33c6ffb9676a5e8054e7e856f553c1885))
+* **ci:** add Linux musl build targets for RHEL/Alpine compatibility ([60b94ba](https://github.com/mag123c/toktrack/commit/60b94bac67b33b8e7fda0bb0ff7ce15d06a3e37d))
+* **cli:** add weekly/monthly subcommands, TUI-first dispatch ([5a6ef44](https://github.com/mag123c/toktrack/commit/5a6ef44df5d249eb4425de854f5ba202fc14698c))
+* **parser:** add CLIParser trait and ClaudeCodeParser ([b0ea9a6](https://github.com/mag123c/toktrack/commit/b0ea9a697c8d5b6f41daa30e99df449340da829e))
+* **parser:** add multi-CLI support (Codex + Gemini) ([#12](https://github.com/mag123c/toktrack/issues/12)) ([dae499e](https://github.com/mag123c/toktrack/commit/dae499e04da775791d3a34d6a5678f7a35c34633))
+* **parser:** add OpenCode CLI support ([cd503da](https://github.com/mag123c/toktrack/commit/cd503da77623fa9e57b9c512c661131a47007e18))
+* **parser:** CLIParser trait and ClaudeCodeParser implementation ([ecaad8b](https://github.com/mag123c/toktrack/commit/ecaad8b020f0517636856e4213099a269cd69ee1))
+* release v1.0.0 with updated demo ([8c383ae](https://github.com/mag123c/toktrack/commit/8c383aeb363494a3c07af9e85d89d0050a03b3ea))
+* **services:** add model normalizer and source usage aggregation ([ad1eab8](https://github.com/mag123c/toktrack/commit/ad1eab814a238e39f69aae9beff55a511c277dae))
+* **services:** add npm update checker for TUI startup ([247a8d7](https://github.com/mag123c/toktrack/commit/247a8d74d3157761bc96f78acf035689607bc7d4))
+* **services:** add tiered pricing support for above-200k tokens ([cc4e222](https://github.com/mag123c/toktrack/commit/cc4e22257bb0a9e0294b9a809543eee51468ca26))
+* **skills:** add /next skill for session start ([1bf5b25](https://github.com/mag123c/toktrack/commit/1bf5b25599a89885ee4badcc126579caf7a0ef82))
+* **tui:** add dim overlay for update popups ([dfa13ba](https://github.com/mag123c/toktrack/commit/dfa13babc1d88f8a8a37b4116013213e8b5095d2))
+* **tui:** add display_name() for human-readable model names ([7b21c19](https://github.com/mag123c/toktrack/commit/7b21c19e24386d5fddad36e4cbe04f18441586e4))
+* **tui:** add model breakdown popup for Daily tab ([6b8ac4a](https://github.com/mag123c/toktrack/commit/6b8ac4ac2cb7015faf059c40bdcc62fd9ca750a3))
+* **tui:** add quit confirmation popup ([21a0f12](https://github.com/mag123c/toktrack/commit/21a0f12b6377fd4b0e0a80207b604038ad17627a))
+* **tui:** add source detail drill-down view ([aebd0bc](https://github.com/mag123c/toktrack/commit/aebd0bc15e1dc7fe3575d9216b4fbf4e0a955222))
+* **tui:** add theme auto-detection and responsive daily columns ([d2c162a](https://github.com/mag123c/toktrack/commit/d2c162a72c75bc5a6a0fe029c7becd1e6cbe4f48))
+* **tui:** add weekly/monthly view modes to Daily tab ([45eab98](https://github.com/mag123c/toktrack/commit/45eab98a5dd5cd7c2d9b7802bcfb7a2fbabe201a))
+* **tui:** complete TUI implementation with CLI commands and npm wrapper ([#11](https://github.com/mag123c/toktrack/issues/11)) ([09ff79c](https://github.com/mag123c/toktrack/commit/09ff79c6b1aaeba3950025690b6f529a9a17df2d))
+* **tui:** display version in loading screen and help popup ([af33c6a](https://github.com/mag123c/toktrack/commit/af33c6a9ca0341fe574c4fdfb5706e0cc8854fbc))
+* **tui:** improve spike colors, tab order, and daily view UX ([0b01efa](https://github.com/mag123c/toktrack/commit/0b01efa96b94974feebbae7fb84b19b1d8ab59ff))
+* **tui:** improve UI responsiveness and alignment ([53f838f](https://github.com/mag123c/toktrack/commit/53f838fe45171cb376ce69d01ffd02cd91050274))
+* **tui:** move update notification to in-TUI overlay popup ([f646a55](https://github.com/mag123c/toktrack/commit/f646a5576b666d936e2680cea791b86eda88ae88))
+* **tui:** replace update popup key hints with arrow-select UI ([48ab39c](https://github.com/mag123c/toktrack/commit/48ab39c19642294f69383baa1defd750cfb07765))
+* **tui:** visual spike detection in daily view cost column ([75cf377](https://github.com/mag123c/toktrack/commit/75cf377f38aa5faeeac96e4abd60e4c5fd8511f9)), closes [#46](https://github.com/mag123c/toktrack/issues/46)
+
+
+### Bug Fixes
+
+* **cache:** bump CACHE_VERSION to 6 for cost calculation changes ([b4daaf7](https://github.com/mag123c/toktrack/commit/b4daaf71606921b73b1554c6b8d055fa490d4ede))
+* **cache:** preserve historical data on version mismatch ([c4420e0](https://github.com/mag123c/toktrack/commit/c4420e0bef9bf495039ef1666df74a4fec5149c7))
+* **cache:** use date boundary instead of sliding window for warm path ([4ad3fde](https://github.com/mag123c/toktrack/commit/4ad3fde16b6f636c7037baf9ff8500e3afd9d6a9))
+* **cache:** use separate .lock file for cross-process synchronization ([235ac38](https://github.com/mag123c/toktrack/commit/235ac38a1533d75b57650714189e1b6c33ec1d01))
+* **ci:** add workflow_dispatch trigger to release workflow ([8429f69](https://github.com/mag123c/toktrack/commit/8429f69b79d39204f7ef0370f9bb5bb63e132455))
+* **ci:** extract PR number from release-please JSON output ([ac3d6c7](https://github.com/mag123c/toktrack/commit/ac3d6c7a78d3faf8299b867aa0bc50ecbc3b5095))
+* **ci:** handle GITHUB_TOKEN merge not triggering new workflows ([46a1a82](https://github.com/mag123c/toktrack/commit/46a1a82cd395a5541e961ac70bce4c73fb8f1943))
+* **ci:** prefer post-merge tag in release outputs and remove crates.io badge ([b25e303](https://github.com/mag123c/toktrack/commit/b25e303da3f7cd058d09774852d92e2676a1968e))
+* **ci:** replace cross run smoke test with file verification ([b316094](https://github.com/mag123c/toktrack/commit/b316094785d4bed52affcc67928767319685c436))
+* **ci:** support manual release build for specific tags ([eae4972](https://github.com/mag123c/toktrack/commit/eae4972fb01e319b2b0056c4379647bd4b0bd64f))
+* **ci:** trigger release workflow from release-please and fix cross build ([81f88b2](https://github.com/mag123c/toktrack/commit/81f88b2d1df779668be140c1708af91597ccf173))
+* **ci:** trigger release workflow on GitHub release events ([cc5a8c3](https://github.com/mag123c/toktrack/commit/cc5a8c3ffe8ccd45065d42340dd9780972c39c97))
+* **ci:** use workflow_call instead of workflow_dispatch for release chain ([6d36aa1](https://github.com/mag123c/toktrack/commit/6d36aa1f67ef1cc385d99fd6b92081a00eedcdab))
+* **cli:** add DRAFT/PLAN steps to clarify shallow path and fix plan_file location ([f0786bb](https://github.com/mag123c/toktrack/commit/f0786bb546c5fa68cc74be60e70efe6fb2abb074))
+* **deps:** use rustls-tls for cross-compile compatibility ([1213118](https://github.com/mag123c/toktrack/commit/1213118dc738148a3e9bd6d936d90c9a406239a0))
+* **docs:** add CONTRIBUTING.md and update demo gif ([3b2b31d](https://github.com/mag123c/toktrack/commit/3b2b31d1f758c29a996dbc436ab03fc78db02237))
+* **docs:** correct performance stack description (simd-json + rayon, not ratatui) ([dd80b13](https://github.com/mag123c/toktrack/commit/dd80b13e1d3ef2e0f90bdd5f6b10cf78b7ecf12a))
+* **docs:** improve README with 1000x performance highlight and data preservation warning ([b2c81b5](https://github.com/mag123c/toktrack/commit/b2c81b587feeb24b65ece15a54bd76138c41c592))
+* **docs:** trigger release for readme updates ([25840e8](https://github.com/mag123c/toktrack/commit/25840e82a92091924c3eae62dcedfd9aa35475d9))
+* **parser,services:** codex delta parsing, input normalization, fuzzy pricing ([19ff354](https://github.com/mag123c/toktrack/commit/19ff354ea224245c007bf09d7bf2e7a4f1954db0))
+* **parser:** improve SAFETY comments, home dir warnings, and UI comment ([7f7fc98](https://github.com/mag123c/toktrack/commit/7f7fc983505c3b2a93141dabb661e36d39e44afa))
+* **parser:** restore ParserRegistry in TUI and filter synthetic models ([aa6abc3](https://github.com/mag123c/toktrack/commit/aa6abc328638d1adca84e16de8bc971dcda7ac1f))
+* **parser:** skip entries with invalid timestamps instead of using Utc::now() ([89a6999](https://github.com/mag123c/toktrack/commit/89a6999c9aaa2b3c1d449bd1d4f3753cf8e5c1fe))
+* **parser:** use last cumulative total_token_usage for Codex sessions ([db3b1ca](https://github.com/mag123c/toktrack/commit/db3b1cabf587bd994f2eadbf19f93e5f7bf6459a))
+* **parser:** use message-level model in Gemini parser ([d58d119](https://github.com/mag123c/toktrack/commit/d58d11946d07b71a3c3f43f7770b869873f69e5e))
+* **parser:** use Unix timestamp for OpenCode time.created ([4d0e28f](https://github.com/mag123c/toktrack/commit/4d0e28fb8696455ea01c89c2bef022d25520186e))
+* **parser:** use XDG standard path for OpenCode data directory ([9f48c99](https://github.com/mag123c/toktrack/commit/9f48c993837faaf84b4c7fd8f814173ec3de3232))
+* **services:** check cache version before warm path entry ([ba7d862](https://github.com/mag123c/toktrack/commit/ba7d8624245117151558b5564d7b039ca84422cb))
+* **services:** detect warm path date gaps to prevent data loss ([d4806db](https://github.com/mag123c/toktrack/commit/d4806dbd5e9c1ae16b9dd74c92682ee2fdc6c1bf))
+* **services:** DST-safe midnight calculation in warm_path_since() ([a31d913](https://github.com/mag123c/toktrack/commit/a31d91313f9c933f6878ad14110f0d39443f3713))
+* **services:** fallback to cold path on version mismatch ([b5a59bb](https://github.com/mag123c/toktrack/commit/b5a59bb660b67f16582ef24cd2096568bd7f548b))
+* **services:** filter warm path entries to prevent cross-day cache corruption ([5d2f6ce](https://github.com/mag123c/toktrack/commit/5d2f6ce5a19cfe042604586d5a6f43aafa15c1e0))
+* **services:** recalculate cost when JSONL costUSD is zero ([edca8b4](https://github.com/mag123c/toktrack/commit/edca8b4bec87a82d8d94b1fecd96e060ea7c174d))
+* **services:** refresh expired pricing cache on startup ([7d25147](https://github.com/mag123c/toktrack/commit/7d25147ee675bc920d515c46aa8e261007aa69ac))
+* **services:** remove input_tokens double-deduction in cost calculation ([637f939](https://github.com/mag123c/toktrack/commit/637f939d01015d12d1e612b3512380589e92244c))
+* **services:** trust Some(0.0) cost instead of recalculating ([9c75257](https://github.com/mag123c/toktrack/commit/9c75257a94ef90f9ebf3ef489e9a2a868903b219))
+* **services:** use local timezone for daily usage grouping ([ccd35d4](https://github.com/mag123c/toktrack/commit/ccd35d4663753d80fc0b75d8d9a08036e4a00c65))
+* **tui:** color-separate model count - primary=accent, count=muted ([5354a12](https://github.com/mag123c/toktrack/commit/5354a12ad93fc5126e4212ab37af5ed75a9a992c))
+* **tui:** filter zero-token models in breakdown popup and daily list ([fb56e3c](https://github.com/mag123c/toktrack/commit/fb56e3cf75f0e799872b033a94d4b49bdddd3f8f))
+* **tui:** improve update popup readability and model name parsing ([feee66e](https://github.com/mag123c/toktrack/commit/feee66e6d447ee58bd3a4ac7172b6aaa48a63a24))
+* **tui:** QA feedback - footer keys, help, quit colors, cache migration ([8adf0cd](https://github.com/mag123c/toktrack/commit/8adf0cd0cb9b72eaae319222c05054f2130763ce))
+* **tui:** QA Round 2 - quit popup, daily columns, model display ([2ecee53](https://github.com/mag123c/toktrack/commit/2ecee532eafa431e3dd3065d1c387b589c7947f4))
+* **tui:** remove q/Esc quit triggers, use Ctrl+C only ([0a24603](https://github.com/mag123c/toktrack/commit/0a246030338081344bdc15c50d301f515355fea0))
+* **tui:** reverse daily view sort order and initial scroll position ([cd137db](https://github.com/mag123c/toktrack/commit/cd137dbe53ead5e5fa6f82981d0ed2b32f155e47))
+* **tui:** update popup styling - LightGreen selection, two-line hints ([85a175b](https://github.com/mag123c/toktrack/commit/85a175bf2efab097ccd041fcab871c8f524f9323))
+* **tui:** use ANSI 256 colors and center-align heatmap ([98fc984](https://github.com/mag123c/toktrack/commit/98fc984dd6320eb866d3290d3c60d74bee15f950))
+* **tui:** use Fill constraint for heatmap to prevent source bars clipping ([0e9e269](https://github.com/mag123c/toktrack/commit/0e9e26989dd39b9435d07ff3a8b03af83f735c6a))
+
+
+### Performance
+
+* **parser:** parser benchmark and optimization ([#10](https://github.com/mag123c/toktrack/issues/10)) ([c1fe0e9](https://github.com/mag123c/toktrack/commit/c1fe0e962f856dce5b359f5b5e5a3bf26bd30f18))
+* **services:** cache-first loading pipeline for TUI and CLI ([04cd85e](https://github.com/mag123c/toktrack/commit/04cd85ea09a963ee5287dbafbf10df883936399a))
+
+
+### Refactoring
+
+* **assets:** replace logo with pixel-style SVG ([f8addcd](https://github.com/mag123c/toktrack/commit/f8addcdf3fb29f67a7148ec86ab6986040f22ee4))
+* multi-LLM code review fixes ([#59](https://github.com/mag123c/toktrack/issues/59)) ([799b6df](https://github.com/mag123c/toktrack/commit/799b6dfd2dd21ea1eeaaa6d3e074fc5a4c25f958))
+* **services:** add DataLoaderService to consolidate data loading ([9d42fa3](https://github.com/mag123c/toktrack/commit/9d42fa31cfd5829de310be4943740eb69bac9624))
+* **tui:** 3-tab split with overview cleanup ([f0fa8b5](https://github.com/mag123c/toktrack/commit/f0fa8b54a9ff28bcf9027d78026935eed05b8e24))
+* **tui:** dynamic visible rows and simplified source detail ([3c1f5ca](https://github.com/mag123c/toktrack/commit/3c1f5ca9412d363324dff92eb6ce28b4a938f6a8))
+
 ## [1.2.1](https://github.com/mag123c/toktrack/compare/v1.2.0...v1.2.1) (2026-03-16)
 
 
