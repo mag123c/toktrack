@@ -1,5 +1,6 @@
 mod cli;
 mod parsers;
+mod report;
 mod services;
 mod tui;
 mod types;

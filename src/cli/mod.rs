@@ -1,7 +1,11 @@
 //! CLI command handling
 
+use std::path::PathBuf;
+
+use chrono::Local;
 use clap::{Parser, Subcommand};
 
+use crate::report::data::ReportData;
 use crate::services::{Aggregator, DataLoaderService};
 use crate::tui::widgets::daily::DailyViewMode;
 use crate::tui::widgets::tabs::Tab;
@@ -49,6 +53,25 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+
+    /// Generate a usage report (text or SVG receipt)
+    Report {
+        /// Last 7 days (default)
+        #[arg(long, group = "period")]
+        week: bool,
+
+        /// Last 30 days
+        #[arg(long, group = "period")]
+        month: bool,
+
+        /// Last N days
+        #[arg(long, group = "period")]
+        days: Option<u32>,
+
+        /// Output SVG file (default: toktrack-report.svg)
+        #[arg(long, num_args = 0..=1, default_missing_value = "toktrack-report.svg")]
+        svg: Option<PathBuf>,
+    },
 }
 
 impl Cli {
@@ -95,6 +118,12 @@ impl Cli {
                     })
                 }
             }
+            Some(Commands::Report {
+                week,
+                month,
+                days,
+                svg,
+            }) => Ok(run_report(week, month, days, svg)?),
         }
     }
 }
@@ -104,6 +133,35 @@ impl Cli {
 fn load_data() -> Result<Vec<DailySummary>> {
     let result = DataLoaderService::new().load()?;
     Ok(result.summaries)
+}
+
+/// Load full result including source_usage
+fn load_data_full() -> Result<crate::services::data_loader::LoadResult> {
+    DataLoaderService::new().load()
+}
+
+/// Generate a usage report (text and optionally SVG)
+fn run_report(_week: bool, month: bool, days: Option<u32>, svg: Option<PathBuf>) -> Result<()> {
+    let n_days = if month { 30 } else { days.unwrap_or(7) };
+
+    let today = Local::now().date_naive();
+    let start = today - chrono::Duration::days(n_days as i64 - 1);
+    let end = today;
+
+    let result = load_data_full()?;
+    let data = ReportData::from_summaries(&result.summaries, &result.source_usage, start, end);
+
+    // Always print text report
+    println!("{}", crate::report::text::render(&data));
+
+    // Optionally write SVG
+    if let Some(path) = svg {
+        let svg_content = crate::report::svg::render(&data);
+        std::fs::write(&path, svg_content)?;
+        println!("\nSVG saved to: {}", path.display());
+    }
+
+    Ok(())
 }
 
 /// Output daily summaries as JSON
@@ -224,6 +282,90 @@ mod tests {
     fn test_cli_parse_backup_removed() {
         // backup subcommand should no longer exist
         let result = Cli::try_parse_from(["toktrack", "backup"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_cli_parse_report_default() {
+        let cli = Cli::try_parse_from(["toktrack", "report"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Report {
+                week: false,
+                month: false,
+                days: None,
+                svg: None,
+            })
+        ));
+    }
+
+    #[test]
+    fn test_cli_parse_report_week() {
+        let cli = Cli::try_parse_from(["toktrack", "report", "--week"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Report {
+                week: true,
+                month: false,
+                days: None,
+                svg: None,
+            })
+        ));
+    }
+
+    #[test]
+    fn test_cli_parse_report_month() {
+        let cli = Cli::try_parse_from(["toktrack", "report", "--month"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Report {
+                week: false,
+                month: true,
+                days: None,
+                svg: None,
+            })
+        ));
+    }
+
+    #[test]
+    fn test_cli_parse_report_days() {
+        let cli = Cli::try_parse_from(["toktrack", "report", "--days", "14"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Report {
+                week: false,
+                month: false,
+                days: Some(14),
+                svg: None,
+            })
+        ));
+    }
+
+    #[test]
+    fn test_cli_parse_report_svg_default_path() {
+        let cli = Cli::try_parse_from(["toktrack", "report", "--svg"]).unwrap();
+        match cli.command {
+            Some(Commands::Report { svg, .. }) => {
+                assert_eq!(svg, Some(PathBuf::from("toktrack-report.svg")));
+            }
+            _ => panic!("Expected Report command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_report_svg_custom_path() {
+        let cli = Cli::try_parse_from(["toktrack", "report", "--svg", "custom.svg"]).unwrap();
+        match cli.command {
+            Some(Commands::Report { svg, .. }) => {
+                assert_eq!(svg, Some(PathBuf::from("custom.svg")));
+            }
+            _ => panic!("Expected Report command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_report_week_month_conflict() {
+        let result = Cli::try_parse_from(["toktrack", "report", "--week", "--month"]);
         assert!(result.is_err());
     }
 }
