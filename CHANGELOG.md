@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/mag123c/toktrack/compare/v2.0.0...v2.1.0) (2026-03-18)
+
+
+### Features
+
+* **cli:** add report subcommand for usage receipt generation ([#106](https://github.com/mag123c/toktrack/issues/106)) ([e620e28](https://github.com/mag123c/toktrack/commit/e620e283a69264cfee7985e77804dea9b3714a3a))
+
 ## [2.0.0](https://github.com/mag123c/toktrack/compare/v1.2.1...v2.0.0) (2026-03-17)
 
 
