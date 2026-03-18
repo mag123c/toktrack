@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/mag123c/toktrack/compare/v2.1.0...v2.1.1) (2026-03-18)
+
+
+### Bug Fixes
+
+* **cli:** filter source usage by report period ([7c605d2](https://github.com/mag123c/toktrack/commit/7c605d212adfa32a372e66214ae022de68f3391a))
+
 ## [2.1.0](https://github.com/mag123c/toktrack/compare/v2.0.0...v2.1.0) (2026-03-18)
 
 
