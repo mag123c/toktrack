@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.2](https://github.com/mag123c/toktrack/compare/v2.1.1...v2.1.2) (2026-03-18)
+
+
+### Bug Fixes
+
+* **cli:** prevent box drawing overflow with dynamic line padding ([587e59d](https://github.com/mag123c/toktrack/commit/587e59deb435a550566a5c6ecf4b7896d193e681))
+
 ## [2.1.1](https://github.com/mag123c/toktrack/compare/v2.1.0...v2.1.1) (2026-03-18)
 
 
