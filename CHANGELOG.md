@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.0](https://github.com/mag123c/toktrack/compare/v2.1.2...v2.2.0) (2026-04-03)
+
+
+### Features
+
+* custom pricing, cache TTL tiers, web_search cost ([e754701](https://github.com/mag123c/toktrack/commit/e75470103fb6f40891c39685e6a842cb61017df6))
+* **services:** custom pricing, cache TTL tiers, web_search cost ([3b94e1d](https://github.com/mag123c/toktrack/commit/3b94e1da5094c9f3015ed6dbf82c1bf03ba83aa7)), closes [#110](https://github.com/mag123c/toktrack/issues/110)
+
 ## [2.1.2](https://github.com/mag123c/toktrack/compare/v2.1.1...v2.1.2) (2026-03-18)
 
 
