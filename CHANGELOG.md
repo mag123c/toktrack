@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.3.0](https://github.com/mag123c/toktrack/compare/v2.2.0...v2.3.0) (2026-04-04)
+
+
+### Features
+
+* **services:** add TOKTRACK_PRICING_FILE env var and tiered pricing in custom config ([b3b93b2](https://github.com/mag123c/toktrack/commit/b3b93b21dd7c9aa69d40f189f534e55f7a80e3fc)), closes [#110](https://github.com/mag123c/toktrack/issues/110)
+* **services:** TOKTRACK_PRICING_FILE env var + tiered custom pricing ([81f91ee](https://github.com/mag123c/toktrack/commit/81f91ee3fc7b364fa296e25a9155e58156702def))
+
 ## [2.2.0](https://github.com/mag123c/toktrack/compare/v2.1.2...v2.2.0) (2026-04-03)
 
 
