@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.4.0](https://github.com/mag123c/toktrack/compare/v2.3.2...v2.4.0) (2026-04-08)
+
+
+### Features
+
+* **parser:** add PI Agent usage parser support ([7390cdf](https://github.com/mag123c/toktrack/commit/7390cdfaa90d7a71aa2201711f79ab727ea0337e))
+* **parser:** add PI Agent usage parser support ([b1ebb9f](https://github.com/mag123c/toktrack/commit/b1ebb9f524bac47ff1e885b6f7ab2783ee91d266))
+
+
+### Refactoring
+
+* **parser:** drop pi-agent model_change inheritance dead code ([1e7faa1](https://github.com/mag123c/toktrack/commit/1e7faa119aa3a3c1215949b94246d9a9e39a9b75))
+
 ## [2.3.2](https://github.com/mag123c/toktrack/compare/v2.3.1...v2.3.2) (2026-04-04)
 
 
