@@ -31,16 +31,20 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact: toktrack-darwin-arm64
+            brew: true
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact: toktrack-darwin-x64
+            brew: true
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact: toktrack-linux-x64
+            brew: true
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             artifact: toktrack-linux-arm64
             cross: true
+            brew: true
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             artifact: toktrack-linux-musl-x64
@@ -100,6 +104,21 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
+
+      - name: Package tar.gz for Homebrew
+        if: matrix.brew
+        env:
+          COPYFILE_DISABLE: 1
+        run: |
+          tar czf ${{ matrix.artifact }}.tar.gz -C target/${{ matrix.target }}/release toktrack
+          shasum -a 256 ${{ matrix.artifact }}.tar.gz
+
+      - name: Upload tar.gz artifact
+        if: matrix.brew
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}.tar.gz
+          path: ${{ matrix.artifact }}.tar.gz
 
   release:
     name: Create Release
@@ -162,3 +181,11 @@ jobs:
         run: cd npm && npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  bump-homebrew:
+    name: Bump Homebrew Formula
+    needs: release
+    uses: ./.github/workflows/bump-homebrew.yml
+    with:
+      tag: ${{ inputs.tag }}
+    secrets: inherit

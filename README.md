@@ -60,6 +60,13 @@ npx toktrack
 bunx toktrack
 ```
 
+### Homebrew (macOS / Linux)
+
+```bash
+brew tap mag123c/toktrack
+brew install toktrack
+```
+
 ### From Source
 
 ```bash

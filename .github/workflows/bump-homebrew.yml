@@ -1,0 +1,31 @@
+name: Bump Homebrew Formula
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to bump formula to (e.g., v2.5.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    name: Bump formula in tap repo
+    runs-on: ubuntu-latest
+    steps:
+      - name: Bump Homebrew formula
+        uses: dawidd6/action-homebrew-bump-formula@v6
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          tap: mag123c/homebrew-toktrack
+          formula: toktrack
+          tag: ${{ inputs.tag }}
+          force: false
