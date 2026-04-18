@@ -351,7 +351,7 @@ impl Aggregator {
             .collect();
 
         // Sort by total_tokens descending
-        result.sort_by(|a, b| b.total_tokens.cmp(&a.total_tokens));
+        result.sort_by_key(|b| std::cmp::Reverse(b.total_tokens));
         result
     }
 

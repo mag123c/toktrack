@@ -167,7 +167,7 @@ fn run_report(_week: bool, month: bool, days: Option<u32>, svg: Option<PathBuf>)
 /// Output daily summaries as JSON
 fn run_daily_json() -> Result<()> {
     let mut summaries = load_data()?;
-    summaries.sort_by(|a, b| b.date.cmp(&a.date));
+    summaries.sort_by_key(|b| std::cmp::Reverse(b.date));
     println!(
         "{}",
         serde_json::to_string_pretty(&summaries)
@@ -180,7 +180,7 @@ fn run_daily_json() -> Result<()> {
 fn run_weekly_json() -> Result<()> {
     let summaries = load_data()?;
     let mut weekly = Aggregator::weekly(&summaries);
-    weekly.sort_by(|a, b| b.date.cmp(&a.date));
+    weekly.sort_by_key(|b| std::cmp::Reverse(b.date));
     println!(
         "{}",
         serde_json::to_string_pretty(&weekly).map_err(|e| ToktrackError::Parse(e.to_string()))?
@@ -192,7 +192,7 @@ fn run_weekly_json() -> Result<()> {
 fn run_monthly_json() -> Result<()> {
     let summaries = load_data()?;
     let mut monthly = Aggregator::monthly(&summaries);
-    monthly.sort_by(|a, b| b.date.cmp(&a.date));
+    monthly.sort_by_key(|b| std::cmp::Reverse(b.date));
     println!(
         "{}",
         serde_json::to_string_pretty(&monthly).map_err(|e| ToktrackError::Parse(e.to_string()))?

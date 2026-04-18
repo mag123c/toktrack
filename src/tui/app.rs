@@ -299,10 +299,8 @@ impl App {
         // Tab-specific keys
         match self.current_tab() {
             Tab::Overview => match code {
-                KeyCode::Up | KeyCode::Char('k') => {
-                    if self.source_selected > 0 {
-                        self.source_selected -= 1;
-                    }
+                KeyCode::Up | KeyCode::Char('k') if self.source_selected > 0 => {
+                    self.source_selected -= 1;
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
                     if let AppState::Ready { data } = &self.state {
