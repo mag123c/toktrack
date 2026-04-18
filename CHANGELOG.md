@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.1](https://github.com/mag123c/toktrack/compare/v2.4.0...v2.4.1) (2026-04-18)
+
+
+### Bug Fixes
+
+* **clippy:** resolve lints introduced in rust 1.95 ([#126](https://github.com/mag123c/toktrack/issues/126)) ([0ff2d84](https://github.com/mag123c/toktrack/commit/0ff2d8488d059e8ed131716baed85573fe894f64))
+
 ## [2.4.0](https://github.com/mag123c/toktrack/compare/v2.3.2...v2.4.0) (2026-04-08)
 
 
