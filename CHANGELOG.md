@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.0](https://github.com/mag123c/toktrack/compare/v2.4.1...v2.5.0) (2026-04-19)
+
+
+### Features
+
+* **ci:** add Homebrew tap support ([#123](https://github.com/mag123c/toktrack/issues/123)) ([#125](https://github.com/mag123c/toktrack/issues/125)) ([a4b29e3](https://github.com/mag123c/toktrack/commit/a4b29e352bc4fab86087c2668b6f059f16e5e31a))
+
 ## [2.4.1](https://github.com/mag123c/toktrack/compare/v2.4.0...v2.4.1) (2026-04-18)
 
 
