@@ -22,7 +22,7 @@ crossterm = "0.28"
 clap = { version = "4", features = ["derive"] }
 
 # Async & Parallel
-rayon = "1.10"
+rayon = "1.12"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs"] }
 
 # Date/Time
