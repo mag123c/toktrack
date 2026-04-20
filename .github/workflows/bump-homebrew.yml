@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Bump Homebrew formula
-        uses: dawidd6/action-homebrew-bump-formula@v6
+        uses: dawidd6/action-homebrew-bump-formula@v7
         with:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           tap: mag123c/homebrew-toktrack
