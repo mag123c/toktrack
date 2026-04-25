@@ -993,7 +993,7 @@ mod tests {
 
     #[test]
     fn test_normalize_composite_key_preserves_provider() {
-        // 모델 부분만 정규화되고 provider 부분은 절대 건드리지 않음
+        // Only the model part is normalized; the provider must not be touched.
         assert_eq!(
             normalize_composite_key("claude-opus-4.5::anthropic"),
             "claude-opus-4-5::anthropic"
@@ -1006,8 +1006,8 @@ mod tests {
 
     #[test]
     fn test_normalize_composite_key_provider_with_date_like_suffix() {
-        // 가상의 provider 가 8자리 숫자 suffix 를 포함하더라도 truncate 되면 안 됨
-        // (normalize_model_name 의 date suffix 제거 로직이 provider 에 적용되면 안 됨)
+        // A provider name ending in an 8-digit `20…` suffix must not be truncated
+        // by normalize_model_name's date-suffix stripping logic.
         assert_eq!(
             normalize_composite_key("gpt-4::custom-20250101"),
             "gpt-4::custom-20250101"
@@ -1016,7 +1016,7 @@ mod tests {
 
     #[test]
     fn test_normalize_composite_key_plain_key_unchanged_behavior() {
-        // :: 가 없는 키는 기존과 동일하게 normalize_model_name 적용
+        // Plain (non-composite) keys keep the original normalize_model_name behavior.
         assert_eq!(
             normalize_composite_key("claude-opus-4.5"),
             "claude-opus-4-5"
@@ -1026,8 +1026,8 @@ mod tests {
 
     #[test]
     fn test_cache_roundtrip_preserves_composite_keys() {
-        // 캐시에 composite key 를 저장하고 다시 읽었을 때 키 형식이 보존되어야 함
-        // (실제 운영에서 발생할 수 있는 시나리오)
+        // Composite keys written to disk must round-trip through load_or_compute
+        // unchanged.
         let (service, _temp) = create_test_service();
         let yesterday = Local::now().date_naive() - chrono::Duration::days(1);
 
@@ -1076,13 +1076,12 @@ mod tests {
         fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
         fs::write(&cache_path, serde_json::to_string(&cache).unwrap()).unwrap();
 
-        // load_or_compute (caller path): 캐시만 있고 entries 없을 때 캐시 그대로 반환
+        // With no entries to recompute, load_or_compute returns the cached data as-is.
         let entries: Vec<UsageEntry> = vec![];
         let (result, warning) = service.load_or_compute("codex", &entries).unwrap();
 
         assert!(warning.is_none());
         assert_eq!(result.len(), 1);
-        // composite key 두 개 모두 정확히 보존
         assert_eq!(result[0].models.len(), 2);
         assert!(result[0].models.contains_key("gpt-5-4::github-copilot"));
         assert!(result[0].models.contains_key("gpt-5-4::openai"));
@@ -1090,12 +1089,14 @@ mod tests {
 
     #[test]
     fn test_cache_roundtrip_normalizes_composite_with_dotted_model() {
-        // dot-bearing model 이 composite key 안에 있을 때 정규화가 모델 부분에만 적용
+        // When a composite key carries a dotted model, normalization touches
+        // only the model part — provider remains intact.
         let (service, _temp) = create_test_service();
         let yesterday = Local::now().date_naive() - chrono::Duration::days(1);
 
         let mut models = HashMap::new();
-        // 비정규화된 키 (model 에 . 포함) — 캐시 v0 시뮬레이션 (version mismatch path)
+        // Pre-normalization key (model contains '.') simulating a stale v0 cache,
+        // forcing the version-mismatch normalization path.
         models.insert(
             "claude-opus-4.5::anthropic".to_string(),
             ModelUsage {
@@ -1117,7 +1118,7 @@ mod tests {
             total_cost_usd: 0.0,
             models,
         };
-        // version=0 → mismatch path → normalize_model_keys 호출됨
+        // version=0 triggers the mismatch path which runs normalize_model_keys.
         let cache = serde_json::json!({
             "cli": "codex",
             "version": 0,
@@ -1133,7 +1134,7 @@ mod tests {
 
         assert!(warning.is_some()); // version mismatch warning
         assert_eq!(result.len(), 1);
-        // 모델 부분만 정규화 (4.5 → 4-5), provider 부분 그대로
+        // Model normalized (4.5 -> 4-5); provider preserved.
         assert!(result[0].models.contains_key("claude-opus-4-5::anthropic"));
     }
 }

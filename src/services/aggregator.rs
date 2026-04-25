@@ -9,10 +9,10 @@ pub struct Aggregator;
 
 /// Build the per-model breakdown key.
 ///
-/// `provider` 가 `None` 또는 빈 문자열이면 정규화된 모델명을 그대로 사용한다
-/// (legacy JSON consumer 호환). provider 가 있으면 `"{model}::{provider}"`
-/// 형태로 분리하여 같은 모델이라도 청구 주체가 다르면 별개의 엔트리로 집계된다.
-/// (Issue #134)
+/// Returns the normalized model name when `provider` is `None` or empty
+/// (legacy JSON consumers stay unaffected). When a provider is present the
+/// key becomes `"{model}::{provider}"` so the same model billed through
+/// different providers aggregates into separate entries. (Issue #134)
 pub fn format_model_key(model: &str, provider: Option<&str>) -> String {
     let normalized = normalize_model_name(model);
     match provider {
@@ -1690,13 +1690,13 @@ mod tests {
 
     #[test]
     fn test_format_model_key_provider_none() {
-        // provider=None → 기존 키 형식 유지 (backward compatible)
+        // provider=None preserves the legacy key (backward compatible).
         assert_eq!(format_model_key("claude-opus-4-5", None), "claude-opus-4-5");
     }
 
     #[test]
     fn test_format_model_key_provider_empty() {
-        // empty 문자열도 None과 동일 처리
+        // Empty string is treated as None.
         assert_eq!(format_model_key("gpt-4", Some("")), "gpt-4");
     }
 
@@ -1710,7 +1710,7 @@ mod tests {
 
     #[test]
     fn test_format_model_key_normalizes_model() {
-        // 정규화(date suffix 제거)도 함께 적용되어야 함
+        // Model normalization (date-suffix removal) still applies.
         assert_eq!(
             format_model_key("claude-opus-4-5-20251101", Some("anthropic")),
             "claude-opus-4-5::anthropic"
@@ -1719,7 +1719,7 @@ mod tests {
 
     #[test]
     fn test_daily_separates_same_model_different_providers() {
-        // Issue #134: 같은 모델이 다른 provider에서 오면 분리되어야 함
+        // Issue #134: same model billed through different providers must split.
         let entries = vec![
             make_entry_with_provider(
                 2026,
@@ -1758,7 +1758,7 @@ mod tests {
 
     #[test]
     fn test_daily_keeps_legacy_key_when_provider_none() {
-        // 회귀 방지: provider=None인 entry는 기존 키 형식 유지
+        // Regression: provider=None entries must keep the legacy key format.
         let entries = vec![make_entry_with_provider(
             2026,
             4,
@@ -1811,7 +1811,7 @@ mod tests {
 
     #[test]
     fn test_weekly_separates_providers_across_days() {
-        // weekly() 가 같은 주 내에서 같은 모델 + 다른 provider 를 분리 유지하는지
+        // weekly() must keep same-model/different-provider entries separate.
         let entries = vec![
             make_entry_with_provider(
                 2026,
@@ -1839,7 +1839,6 @@ mod tests {
         let weekly = Aggregator::weekly(&daily);
 
         assert_eq!(weekly.len(), 1);
-        // 주간 합산 시에도 provider 별 분리 유지
         assert!(weekly[0].models.contains_key("gpt-5-4::github-copilot"));
         assert!(weekly[0].models.contains_key("gpt-5-4::openai"));
         assert_eq!(weekly[0].models.len(), 2);
@@ -1881,7 +1880,7 @@ mod tests {
 
     #[test]
     fn test_merge_by_date_preserves_provider_separation() {
-        // 같은 날짜 + 같은 모델 + 다른 provider 가 합쳐질 때 분리 유지
+        // merge_by_date must keep different-provider entries on the same date separate.
         let mut models_a = HashMap::new();
         models_a.insert(
             "gpt-5-4::github-copilot".to_string(),
@@ -1921,8 +1920,8 @@ mod tests {
 
     #[test]
     fn test_json_serialization_exposes_composite_keys() {
-        // JSON 출력 (cli/mod.rs::run_daily_json) 이 사용하는 직렬화 경로가
-        // composite key 를 그대로 노출하는지 검증 (이슈 #134 의 핵심 기대치)
+        // Verify the serialization path used by run_*_json exposes composite keys
+        // verbatim — the user-visible contract of issue #134.
         let entries = vec![make_entry_with_provider(
             2026,
             4,
@@ -1936,7 +1935,6 @@ mod tests {
         let summaries = Aggregator::daily(&entries);
         let json = serde_json::to_string(&summaries).expect("daily summary serializes");
 
-        // composite key 가 JSON 문자열에 포함되어야 함
         assert!(
             json.contains("\"gpt-5-4::github-copilot\""),
             "composite key not exposed in JSON: {}",
@@ -1946,7 +1944,7 @@ mod tests {
 
     #[test]
     fn test_by_model_aggregates_same_provider() {
-        // 같은 모델 + 같은 provider → 합산
+        // Same model + same provider must aggregate into one entry.
         let entries = vec![
             make_entry_with_provider(
                 2026,

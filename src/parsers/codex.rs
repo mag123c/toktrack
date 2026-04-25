@@ -412,8 +412,8 @@ mod tests {
 
     #[test]
     fn test_provider_extracted_from_session_meta() {
-        // 실 Codex CLI v0.116+ 의 session_meta.payload.model_provider 추출 검증
-        // (실데이터 schema 기준 — `model_provider`, 소문자 값)
+        // Real Codex CLI v0.116+ writes `session_meta.payload.model_provider`
+        // as a lowercase string (e.g. "openai"); verified against live data.
         let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
         let entries = parser
             .parse_file(&fixture_path("openai-session.jsonl"))
@@ -430,21 +430,19 @@ mod tests {
 
     #[test]
     fn test_provider_resets_when_later_session_meta_omits_it() {
-        // 두 번째 session_meta 가 model_provider 를 생략하면
-        // 이전 provider 가 sticky 하게 남으면 안 됨 (잘못된 비용 귀속 방지)
+        // A later session_meta without model_provider must clear the previous
+        // value; sticking would silently misattribute billing.
         let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
         let entries = parser
             .parse_file(&fixture_path("multi-session-meta.jsonl"))
             .unwrap();
 
         assert_eq!(entries.len(), 2);
-        // 첫 entry: provider 가 있는 session
         assert_eq!(entries[0].provider, Some("openai".to_string()));
         assert_eq!(
             entries[0].message_id,
             Some("session-with-provider".to_string())
         );
-        // 두 번째 entry: provider 가 None 으로 리셋 — sticky 되면 안 됨
         assert_eq!(entries[1].provider, None);
         assert_eq!(
             entries[1].message_id,
@@ -454,7 +452,7 @@ mod tests {
 
     #[test]
     fn test_provider_none_when_session_meta_lacks_provider() {
-        // model_provider_id 가 없으면 provider=None (기존 fixture 회귀 검증)
+        // Regression: legacy fixture without model_provider must keep provider=None.
         let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
         let entries = parser
             .parse_file(&fixture_path("sample-session.jsonl"))
