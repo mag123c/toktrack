@@ -1810,6 +1810,141 @@ mod tests {
     }
 
     #[test]
+    fn test_weekly_separates_providers_across_days() {
+        // weekly() 가 같은 주 내에서 같은 모델 + 다른 provider 를 분리 유지하는지
+        let entries = vec![
+            make_entry_with_provider(
+                2026,
+                4,
+                14,
+                Some("gpt-5.4"),
+                Some("github-copilot"),
+                100,
+                50,
+                Some(0.0),
+            ),
+            make_entry_with_provider(
+                2026,
+                4,
+                15,
+                Some("gpt-5.4"),
+                Some("openai"),
+                200,
+                100,
+                Some(0.05),
+            ),
+        ];
+
+        let daily = Aggregator::daily(&entries);
+        let weekly = Aggregator::weekly(&daily);
+
+        assert_eq!(weekly.len(), 1);
+        // 주간 합산 시에도 provider 별 분리 유지
+        assert!(weekly[0].models.contains_key("gpt-5-4::github-copilot"));
+        assert!(weekly[0].models.contains_key("gpt-5-4::openai"));
+        assert_eq!(weekly[0].models.len(), 2);
+    }
+
+    #[test]
+    fn test_monthly_separates_providers_across_days() {
+        let entries = vec![
+            make_entry_with_provider(
+                2026,
+                4,
+                5,
+                Some("gpt-5.4"),
+                Some("github-copilot"),
+                100,
+                50,
+                Some(0.0),
+            ),
+            make_entry_with_provider(
+                2026,
+                4,
+                25,
+                Some("gpt-5.4"),
+                Some("openai"),
+                200,
+                100,
+                Some(0.05),
+            ),
+        ];
+
+        let daily = Aggregator::daily(&entries);
+        let monthly = Aggregator::monthly(&daily);
+
+        assert_eq!(monthly.len(), 1);
+        assert!(monthly[0].models.contains_key("gpt-5-4::github-copilot"));
+        assert!(monthly[0].models.contains_key("gpt-5-4::openai"));
+        assert_eq!(monthly[0].models.len(), 2);
+    }
+
+    #[test]
+    fn test_merge_by_date_preserves_provider_separation() {
+        // 같은 날짜 + 같은 모델 + 다른 provider 가 합쳐질 때 분리 유지
+        let mut models_a = HashMap::new();
+        models_a.insert(
+            "gpt-5-4::github-copilot".to_string(),
+            ModelUsage {
+                input_tokens: 100,
+                output_tokens: 50,
+                cost_usd: 0.0,
+                count: 1,
+                ..Default::default()
+            },
+        );
+        let mut models_b = HashMap::new();
+        models_b.insert(
+            "gpt-5-4::openai".to_string(),
+            ModelUsage {
+                input_tokens: 200,
+                output_tokens: 100,
+                cost_usd: 0.05,
+                count: 1,
+                ..Default::default()
+            },
+        );
+        let summaries = vec![
+            make_daily_summary_with_models(2026, 4, 14, 100, 50, 0.0, models_a),
+            make_daily_summary_with_models(2026, 4, 14, 200, 100, 0.05, models_b),
+        ];
+
+        let result = Aggregator::merge_by_date(summaries);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].models.len(), 2);
+        let copilot = result[0].models.get("gpt-5-4::github-copilot").unwrap();
+        assert_eq!(copilot.input_tokens, 100);
+        let direct = result[0].models.get("gpt-5-4::openai").unwrap();
+        assert_eq!(direct.input_tokens, 200);
+    }
+
+    #[test]
+    fn test_json_serialization_exposes_composite_keys() {
+        // JSON 출력 (cli/mod.rs::run_daily_json) 이 사용하는 직렬화 경로가
+        // composite key 를 그대로 노출하는지 검증 (이슈 #134 의 핵심 기대치)
+        let entries = vec![make_entry_with_provider(
+            2026,
+            4,
+            14,
+            Some("gpt-5.4"),
+            Some("github-copilot"),
+            100,
+            50,
+            Some(0.0),
+        )];
+        let summaries = Aggregator::daily(&entries);
+        let json = serde_json::to_string(&summaries).expect("daily summary serializes");
+
+        // composite key 가 JSON 문자열에 포함되어야 함
+        assert!(
+            json.contains("\"gpt-5-4::github-copilot\""),
+            "composite key not exposed in JSON: {}",
+            json
+        );
+    }
+
+    #[test]
     fn test_by_model_aggregates_same_provider() {
         // 같은 모델 + 같은 provider → 합산
         let entries = vec![

@@ -224,7 +224,7 @@ mod tests {
         let files = parser.collect_files();
         // claude-sample.jsonl, empty.jsonl, multi/file1.jsonl, multi/file2.jsonl,
         // codex/sample-session.jsonl, codex/multi-turn-session.jsonl,
-        // codex/bedrock-session.jsonl, codex/multi-session-meta.jsonl,
+        // codex/openai-session.jsonl, codex/multi-session-meta.jsonl,
         // pi_agent/sample-session.jsonl
         assert_eq!(files.len(), 9);
     }

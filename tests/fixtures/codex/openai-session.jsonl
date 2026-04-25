@@ -1,3 +1,3 @@
-{"timestamp":"2026-02-10T08:00:00.000Z","type":"session_meta","payload":{"id":"session-bedrock","model_provider_id":"AmazonBedrock","model_provider_name":"Amazon Bedrock"}}
+{"timestamp":"2026-02-10T08:00:00.000Z","type":"session_meta","payload":{"id":"019d2e4c-e19a-7662-b2eb-0629d5ddd78b","cli_version":"0.116.0","model_provider":"openai"}}
 {"timestamp":"2026-02-10T08:00:01.000Z","type":"turn_context","payload":{"model":"o4-mini"}}
 {"timestamp":"2026-02-10T08:00:10.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":120,"output_tokens":60,"cached_input_tokens":20},"last_token_usage":{"input_tokens":120,"output_tokens":60,"cached_input_tokens":20}}}}

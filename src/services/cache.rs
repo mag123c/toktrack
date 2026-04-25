@@ -1023,4 +1023,117 @@ mod tests {
         );
         assert_eq!(normalize_composite_key("gpt-4"), "gpt-4");
     }
+
+    #[test]
+    fn test_cache_roundtrip_preserves_composite_keys() {
+        // 캐시에 composite key 를 저장하고 다시 읽었을 때 키 형식이 보존되어야 함
+        // (실제 운영에서 발생할 수 있는 시나리오)
+        let (service, _temp) = create_test_service();
+        let yesterday = Local::now().date_naive() - chrono::Duration::days(1);
+
+        let mut models = HashMap::new();
+        models.insert(
+            "gpt-5-4::github-copilot".to_string(),
+            ModelUsage {
+                input_tokens: 100,
+                output_tokens: 50,
+                cost_usd: 0.0,
+                count: 1,
+                ..Default::default()
+            },
+        );
+        models.insert(
+            "gpt-5-4::openai".to_string(),
+            ModelUsage {
+                input_tokens: 200,
+                output_tokens: 100,
+                cost_usd: 0.05,
+                count: 1,
+                ..Default::default()
+            },
+        );
+
+        let cached = DailySummary {
+            date: yesterday,
+            total_input_tokens: 300,
+            total_output_tokens: 150,
+            total_cache_read_tokens: 0,
+            total_cache_creation_tokens: 0,
+            total_thinking_tokens: 0,
+            total_cache_creation_5m_tokens: 0,
+            total_cache_creation_1h_tokens: 0,
+            total_web_search_requests: 0,
+            total_cost_usd: 0.05,
+            models,
+        };
+        let cache = DailySummaryCache {
+            cli: "codex".to_string(),
+            version: CACHE_VERSION,
+            updated_at: chrono::Utc::now().timestamp(),
+            summaries: vec![cached],
+        };
+        let cache_path = service.cache_path("codex");
+        fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+        fs::write(&cache_path, serde_json::to_string(&cache).unwrap()).unwrap();
+
+        // load_or_compute (caller path): 캐시만 있고 entries 없을 때 캐시 그대로 반환
+        let entries: Vec<UsageEntry> = vec![];
+        let (result, warning) = service.load_or_compute("codex", &entries).unwrap();
+
+        assert!(warning.is_none());
+        assert_eq!(result.len(), 1);
+        // composite key 두 개 모두 정확히 보존
+        assert_eq!(result[0].models.len(), 2);
+        assert!(result[0].models.contains_key("gpt-5-4::github-copilot"));
+        assert!(result[0].models.contains_key("gpt-5-4::openai"));
+    }
+
+    #[test]
+    fn test_cache_roundtrip_normalizes_composite_with_dotted_model() {
+        // dot-bearing model 이 composite key 안에 있을 때 정규화가 모델 부분에만 적용
+        let (service, _temp) = create_test_service();
+        let yesterday = Local::now().date_naive() - chrono::Duration::days(1);
+
+        let mut models = HashMap::new();
+        // 비정규화된 키 (model 에 . 포함) — 캐시 v0 시뮬레이션 (version mismatch path)
+        models.insert(
+            "claude-opus-4.5::anthropic".to_string(),
+            ModelUsage {
+                input_tokens: 100,
+                ..Default::default()
+            },
+        );
+
+        let cached = DailySummary {
+            date: yesterday,
+            total_input_tokens: 100,
+            total_output_tokens: 0,
+            total_cache_read_tokens: 0,
+            total_cache_creation_tokens: 0,
+            total_thinking_tokens: 0,
+            total_cache_creation_5m_tokens: 0,
+            total_cache_creation_1h_tokens: 0,
+            total_web_search_requests: 0,
+            total_cost_usd: 0.0,
+            models,
+        };
+        // version=0 → mismatch path → normalize_model_keys 호출됨
+        let cache = serde_json::json!({
+            "cli": "codex",
+            "version": 0,
+            "updated_at": chrono::Utc::now().timestamp(),
+            "summaries": [cached],
+        });
+        let cache_path = service.cache_path("codex");
+        fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+        fs::write(&cache_path, cache.to_string()).unwrap();
+
+        let entries: Vec<UsageEntry> = vec![];
+        let (result, warning) = service.load_or_compute("codex", &entries).unwrap();
+
+        assert!(warning.is_some()); // version mismatch warning
+        assert_eq!(result.len(), 1);
+        // 모델 부분만 정규화 (4.5 → 4-5), provider 부분 그대로
+        assert!(result[0].models.contains_key("claude-opus-4-5::anthropic"));
+    }
 }

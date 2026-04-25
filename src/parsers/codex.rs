@@ -30,7 +30,7 @@ struct CodexPayload {
     #[serde(default)]
     id: Option<String>,
     #[serde(default)]
-    model_provider_id: Option<String>,
+    model_provider: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -104,12 +104,12 @@ impl CodexParser {
         }
 
         if data.line_type == "session_meta" {
-            if payload.id.is_none() && payload.model_provider_id.is_none() {
+            if payload.id.is_none() && payload.model_provider.is_none() {
                 return ParseResult::Skip;
             }
             return ParseResult::SessionMeta {
                 id: payload.id.clone(),
-                provider: payload.model_provider_id.clone(),
+                provider: payload.model_provider.clone(),
             };
         }
 
@@ -412,21 +412,25 @@ mod tests {
 
     #[test]
     fn test_provider_extracted_from_session_meta() {
-        // session_meta.payload.model_provider_id 가 있으면 모든 entry 의 provider 에 반영
+        // 실 Codex CLI v0.116+ 의 session_meta.payload.model_provider 추출 검증
+        // (실데이터 schema 기준 — `model_provider`, 소문자 값)
         let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
         let entries = parser
-            .parse_file(&fixture_path("bedrock-session.jsonl"))
+            .parse_file(&fixture_path("openai-session.jsonl"))
             .unwrap();
 
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].provider, Some("AmazonBedrock".to_string()));
+        assert_eq!(entries[0].provider, Some("openai".to_string()));
         assert_eq!(entries[0].model, Some("o4-mini".to_string()));
-        assert_eq!(entries[0].message_id, Some("session-bedrock".to_string()));
+        assert_eq!(
+            entries[0].message_id,
+            Some("019d2e4c-e19a-7662-b2eb-0629d5ddd78b".to_string())
+        );
     }
 
     #[test]
     fn test_provider_resets_when_later_session_meta_omits_it() {
-        // 두 번째 session_meta 가 model_provider_id 를 생략하면
+        // 두 번째 session_meta 가 model_provider 를 생략하면
         // 이전 provider 가 sticky 하게 남으면 안 됨 (잘못된 비용 귀속 방지)
         let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
         let entries = parser
@@ -434,12 +438,18 @@ mod tests {
             .unwrap();
 
         assert_eq!(entries.len(), 2);
-        // 첫 entry: Bedrock session
-        assert_eq!(entries[0].provider, Some("AmazonBedrock".to_string()));
-        assert_eq!(entries[0].message_id, Some("session-bedrock".to_string()));
-        // 두 번째 entry: provider 가 None 으로 리셋 — Bedrock 으로 sticky 되면 안 됨
+        // 첫 entry: provider 가 있는 session
+        assert_eq!(entries[0].provider, Some("openai".to_string()));
+        assert_eq!(
+            entries[0].message_id,
+            Some("session-with-provider".to_string())
+        );
+        // 두 번째 entry: provider 가 None 으로 리셋 — sticky 되면 안 됨
         assert_eq!(entries[1].provider, None);
-        assert_eq!(entries[1].message_id, Some("session-direct".to_string()));
+        assert_eq!(
+            entries[1].message_id,
+            Some("session-without-provider".to_string())
+        );
     }
 
     #[test]

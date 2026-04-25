@@ -1,5 +1,5 @@
-{"timestamp":"2026-03-01T08:00:00.000Z","type":"session_meta","payload":{"id":"session-bedrock","model_provider_id":"AmazonBedrock"}}
+{"timestamp":"2026-03-01T08:00:00.000Z","type":"session_meta","payload":{"id":"session-with-provider","cli_version":"0.116.0","model_provider":"openai"}}
 {"timestamp":"2026-03-01T08:00:01.000Z","type":"turn_context","payload":{"model":"o4-mini"}}
 {"timestamp":"2026-03-01T08:00:10.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"output_tokens":50,"cached_input_tokens":20},"last_token_usage":{"input_tokens":100,"output_tokens":50,"cached_input_tokens":20}}}}
-{"timestamp":"2026-03-01T08:01:00.000Z","type":"session_meta","payload":{"id":"session-direct"}}
+{"timestamp":"2026-03-01T08:01:00.000Z","type":"session_meta","payload":{"id":"session-without-provider"}}
 {"timestamp":"2026-03-01T08:01:10.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":300,"output_tokens":150,"cached_input_tokens":40},"last_token_usage":{"input_tokens":200,"output_tokens":100,"cached_input_tokens":20}}}}
