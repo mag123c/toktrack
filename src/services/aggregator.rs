@@ -7,6 +7,20 @@ use std::collections::{HashMap, HashSet};
 
 pub struct Aggregator;
 
+/// Build the per-model breakdown key.
+///
+/// `provider` 가 `None` 또는 빈 문자열이면 정규화된 모델명을 그대로 사용한다
+/// (legacy JSON consumer 호환). provider 가 있으면 `"{model}::{provider}"`
+/// 형태로 분리하여 같은 모델이라도 청구 주체가 다르면 별개의 엔트리로 집계된다.
+/// (Issue #134)
+pub fn format_model_key(model: &str, provider: Option<&str>) -> String {
+    let normalized = normalize_model_name(model);
+    match provider {
+        Some(p) if !p.is_empty() => format!("{}::{}", normalized, p),
+        _ => normalized,
+    }
+}
+
 /// Accumulate token fields and cost from `source` into `target`
 fn accumulate_summary(target: &mut DailySummary, source: &DailySummary) {
     target.total_input_tokens = target
@@ -79,7 +93,10 @@ impl Aggregator {
         for entry in entries {
             let date = entry.local_date();
             let cost = entry.cost_usd.unwrap_or(0.0);
-            let model_name = normalize_model_name(entry.model.as_deref().unwrap_or("unknown"));
+            let model_name = format_model_key(
+                entry.model.as_deref().unwrap_or("unknown"),
+                entry.provider.as_deref(),
+            );
 
             let summary = daily_map.entry(date).or_insert_with(|| DailySummary {
                 date,
@@ -210,7 +227,10 @@ impl Aggregator {
         let mut model_map: HashMap<String, ModelUsage> = HashMap::new();
 
         for entry in entries {
-            let model_name = normalize_model_name(entry.model.as_deref().unwrap_or("unknown"));
+            let model_name = format_model_key(
+                entry.model.as_deref().unwrap_or("unknown"),
+                entry.provider.as_deref(),
+            );
             let cost = entry.cost_usd.unwrap_or(0.0);
 
             let usage = model_map.entry(model_name).or_default();
@@ -1634,5 +1654,192 @@ mod tests {
         assert_eq!(result[0].models.len(), 2);
         assert!(result[0].models.contains_key("claude"));
         assert!(result[0].models.contains_key("gpt-4"));
+    }
+
+    // ========== Issue #134: provider-aware model key ==========
+
+    #[allow(clippy::too_many_arguments)]
+    fn make_entry_with_provider(
+        year: i32,
+        month: u32,
+        day: u32,
+        model: Option<&str>,
+        provider: Option<&str>,
+        input: u64,
+        output: u64,
+        cost: Option<f64>,
+    ) -> UsageEntry {
+        UsageEntry {
+            timestamp: Utc.with_ymd_and_hms(year, month, day, 12, 0, 0).unwrap(),
+            model: model.map(String::from),
+            input_tokens: input,
+            output_tokens: output,
+            cache_read_tokens: 0,
+            cache_creation_tokens: 0,
+            thinking_tokens: 0,
+            cache_creation_5m_tokens: 0,
+            cache_creation_1h_tokens: 0,
+            web_search_requests: 0,
+            cost_usd: cost,
+            message_id: None,
+            request_id: None,
+            source: None,
+            provider: provider.map(String::from),
+        }
+    }
+
+    #[test]
+    fn test_format_model_key_provider_none() {
+        // provider=None → 기존 키 형식 유지 (backward compatible)
+        assert_eq!(format_model_key("claude-opus-4-5", None), "claude-opus-4-5");
+    }
+
+    #[test]
+    fn test_format_model_key_provider_empty() {
+        // empty 문자열도 None과 동일 처리
+        assert_eq!(format_model_key("gpt-4", Some("")), "gpt-4");
+    }
+
+    #[test]
+    fn test_format_model_key_provider_some() {
+        assert_eq!(
+            format_model_key("gpt-5-4", Some("github-copilot")),
+            "gpt-5-4::github-copilot"
+        );
+    }
+
+    #[test]
+    fn test_format_model_key_normalizes_model() {
+        // 정규화(date suffix 제거)도 함께 적용되어야 함
+        assert_eq!(
+            format_model_key("claude-opus-4-5-20251101", Some("anthropic")),
+            "claude-opus-4-5::anthropic"
+        );
+    }
+
+    #[test]
+    fn test_daily_separates_same_model_different_providers() {
+        // Issue #134: 같은 모델이 다른 provider에서 오면 분리되어야 함
+        let entries = vec![
+            make_entry_with_provider(
+                2026,
+                4,
+                14,
+                Some("gpt-5.4"),
+                Some("github-copilot"),
+                100,
+                50,
+                Some(0.0),
+            ),
+            make_entry_with_provider(
+                2026,
+                4,
+                14,
+                Some("gpt-5.4"),
+                Some("openai"),
+                200,
+                100,
+                Some(0.05),
+            ),
+        ];
+
+        let result = Aggregator::daily(&entries);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].models.len(), 2);
+        assert!(result[0].models.contains_key("gpt-5-4::github-copilot"));
+        assert!(result[0].models.contains_key("gpt-5-4::openai"));
+
+        let copilot = result[0].models.get("gpt-5-4::github-copilot").unwrap();
+        assert_eq!(copilot.input_tokens, 100);
+        let direct = result[0].models.get("gpt-5-4::openai").unwrap();
+        assert_eq!(direct.input_tokens, 200);
+    }
+
+    #[test]
+    fn test_daily_keeps_legacy_key_when_provider_none() {
+        // 회귀 방지: provider=None인 entry는 기존 키 형식 유지
+        let entries = vec![make_entry_with_provider(
+            2026,
+            4,
+            14,
+            Some("claude-opus-4-5"),
+            None,
+            100,
+            50,
+            Some(0.01),
+        )];
+
+        let result = Aggregator::daily(&entries);
+
+        assert_eq!(result.len(), 1);
+        assert!(result[0].models.contains_key("claude-opus-4-5"));
+        assert!(!result[0].models.keys().any(|k| k.contains("::")));
+    }
+
+    #[test]
+    fn test_by_model_separates_providers() {
+        let entries = vec![
+            make_entry_with_provider(
+                2026,
+                4,
+                14,
+                Some("gpt-5.4"),
+                Some("github-copilot"),
+                100,
+                50,
+                Some(0.0),
+            ),
+            make_entry_with_provider(
+                2026,
+                4,
+                14,
+                Some("gpt-5.4"),
+                Some("openai"),
+                200,
+                100,
+                Some(0.05),
+            ),
+        ];
+
+        let result = Aggregator::by_model(&entries);
+
+        assert_eq!(result.len(), 2);
+        assert!(result.contains_key("gpt-5-4::github-copilot"));
+        assert!(result.contains_key("gpt-5-4::openai"));
+    }
+
+    #[test]
+    fn test_by_model_aggregates_same_provider() {
+        // 같은 모델 + 같은 provider → 합산
+        let entries = vec![
+            make_entry_with_provider(
+                2026,
+                4,
+                14,
+                Some("gpt-5.4"),
+                Some("github-copilot"),
+                100,
+                50,
+                Some(0.0),
+            ),
+            make_entry_with_provider(
+                2026,
+                4,
+                15,
+                Some("gpt-5.4"),
+                Some("github-copilot"),
+                300,
+                150,
+                Some(0.0),
+            ),
+        ];
+
+        let result = Aggregator::by_model(&entries);
+
+        assert_eq!(result.len(), 1);
+        let usage = result.get("gpt-5-4::github-copilot").unwrap();
+        assert_eq!(usage.input_tokens, 400);
+        assert_eq!(usage.count, 2);
     }
 }

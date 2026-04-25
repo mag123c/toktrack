@@ -14,11 +14,22 @@ use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 
+/// Normalize a composite "model::provider" key by normalizing only the model
+/// portion. Plain (non-composite) keys are normalized as before.
+/// (Issue #134: provider strings must not be subject to model-name normalization)
+fn normalize_composite_key(key: &str) -> String {
+    if let Some((model, provider)) = key.split_once("::") {
+        format!("{}::{}", normalize_model_name(model), provider)
+    } else {
+        normalize_model_name(key)
+    }
+}
+
 /// Normalize model name keys in a HashMap, merging duplicates.
 fn normalize_model_keys(models: HashMap<String, ModelUsage>) -> HashMap<String, ModelUsage> {
     let mut normalized: HashMap<String, ModelUsage> = HashMap::new();
     for (name, usage) in models {
-        let key = normalize_model_name(&name);
+        let key = normalize_composite_key(&name);
         normalized
             .entry(key)
             .and_modify(|existing| {
@@ -52,7 +63,7 @@ fn normalize_model_keys(models: HashMap<String, ModelUsage>) -> HashMap<String, 
 
 /// Bump when aggregation logic changes (e.g., timezone fix).
 /// Mismatched version → full cache invalidation.
-const CACHE_VERSION: u32 = 11;
+const CACHE_VERSION: u32 = 12;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DailySummaryCache {
@@ -976,5 +987,40 @@ mod tests {
         fs::write(&cache_path, serde_json::to_string(&cache).unwrap()).unwrap();
 
         assert_eq!(service.latest_cached_date("claude-code"), None);
+    }
+
+    // ========== Issue #134: composite key normalization ==========
+
+    #[test]
+    fn test_normalize_composite_key_preserves_provider() {
+        // 모델 부분만 정규화되고 provider 부분은 절대 건드리지 않음
+        assert_eq!(
+            normalize_composite_key("claude-opus-4.5::anthropic"),
+            "claude-opus-4-5::anthropic"
+        );
+        assert_eq!(
+            normalize_composite_key("claude-opus-4-5-20251101::anthropic"),
+            "claude-opus-4-5::anthropic"
+        );
+    }
+
+    #[test]
+    fn test_normalize_composite_key_provider_with_date_like_suffix() {
+        // 가상의 provider 가 8자리 숫자 suffix 를 포함하더라도 truncate 되면 안 됨
+        // (normalize_model_name 의 date suffix 제거 로직이 provider 에 적용되면 안 됨)
+        assert_eq!(
+            normalize_composite_key("gpt-4::custom-20250101"),
+            "gpt-4::custom-20250101"
+        );
+    }
+
+    #[test]
+    fn test_normalize_composite_key_plain_key_unchanged_behavior() {
+        // :: 가 없는 키는 기존과 동일하게 normalize_model_name 적용
+        assert_eq!(
+            normalize_composite_key("claude-opus-4.5"),
+            "claude-opus-4-5"
+        );
+        assert_eq!(normalize_composite_key("gpt-4"), "gpt-4");
     }
 }

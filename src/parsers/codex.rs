@@ -29,6 +29,8 @@ struct CodexPayload {
     info: Option<CodexInfo>,
     #[serde(default)]
     id: Option<String>,
+    #[serde(default)]
+    model_provider_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -102,10 +104,13 @@ impl CodexParser {
         }
 
         if data.line_type == "session_meta" {
-            if let Some(ref id) = payload.id {
-                return ParseResult::SessionId(id.clone());
+            if payload.id.is_none() && payload.model_provider_id.is_none() {
+                return ParseResult::Skip;
             }
-            return ParseResult::Skip;
+            return ParseResult::SessionMeta {
+                id: payload.id.clone(),
+                provider: payload.model_provider_id.clone(),
+            };
         }
 
         if data.line_type != "event_msg" {
@@ -154,7 +159,10 @@ impl CodexParser {
 enum ParseResult {
     Skip,
     Model(String),
-    SessionId(String),
+    SessionMeta {
+        id: Option<String>,
+        provider: Option<String>,
+    },
     TokenCount(TokenCountData),
 }
 
@@ -183,6 +191,7 @@ impl CLIParser for CodexParser {
         let mut entries: Vec<UsageEntry> = Vec::new();
         let mut current_model: Option<String> = None;
         let mut session_id: Option<String> = None;
+        let mut current_provider: Option<String> = None;
         let mut prev_totals = CodexTokenUsage {
             input_tokens: 0,
             output_tokens: 0,
@@ -203,7 +212,15 @@ impl CLIParser for CodexParser {
             match self.parse_line(&mut line_bytes) {
                 ParseResult::Skip => {}
                 ParseResult::Model(m) => current_model = Some(m),
-                ParseResult::SessionId(id) => session_id = Some(id),
+                ParseResult::SessionMeta { id, provider } => {
+                    if let Some(id) = id {
+                        session_id = Some(id);
+                    }
+                    // Replace unconditionally: if a later session_meta lacks
+                    // model_provider_id, the previous provider must NOT stick —
+                    // sticking would silently misattribute billing.
+                    current_provider = provider;
+                }
                 ParseResult::TokenCount(data) => {
                     // Compute delta: prefer last_token_usage, fallback to diff
                     let (delta_input, delta_output, delta_cached) =
@@ -252,7 +269,7 @@ impl CLIParser for CodexParser {
                         message_id: session_id.clone(),
                         request_id: None,
                         source: Some("codex".into()),
-                        provider: None,
+                        provider: current_provider.clone(),
                     });
                 }
             }
@@ -389,5 +406,53 @@ mod tests {
         let parser = CodexParser::new();
         let result = parser.parse_file(Path::new("/nonexistent/file.jsonl"));
         assert!(result.is_err());
+    }
+
+    // ========== Issue #134: provider extraction from session_meta ==========
+
+    #[test]
+    fn test_provider_extracted_from_session_meta() {
+        // session_meta.payload.model_provider_id 가 있으면 모든 entry 의 provider 에 반영
+        let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
+        let entries = parser
+            .parse_file(&fixture_path("bedrock-session.jsonl"))
+            .unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].provider, Some("AmazonBedrock".to_string()));
+        assert_eq!(entries[0].model, Some("o4-mini".to_string()));
+        assert_eq!(entries[0].message_id, Some("session-bedrock".to_string()));
+    }
+
+    #[test]
+    fn test_provider_resets_when_later_session_meta_omits_it() {
+        // 두 번째 session_meta 가 model_provider_id 를 생략하면
+        // 이전 provider 가 sticky 하게 남으면 안 됨 (잘못된 비용 귀속 방지)
+        let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
+        let entries = parser
+            .parse_file(&fixture_path("multi-session-meta.jsonl"))
+            .unwrap();
+
+        assert_eq!(entries.len(), 2);
+        // 첫 entry: Bedrock session
+        assert_eq!(entries[0].provider, Some("AmazonBedrock".to_string()));
+        assert_eq!(entries[0].message_id, Some("session-bedrock".to_string()));
+        // 두 번째 entry: provider 가 None 으로 리셋 — Bedrock 으로 sticky 되면 안 됨
+        assert_eq!(entries[1].provider, None);
+        assert_eq!(entries[1].message_id, Some("session-direct".to_string()));
+    }
+
+    #[test]
+    fn test_provider_none_when_session_meta_lacks_provider() {
+        // model_provider_id 가 없으면 provider=None (기존 fixture 회귀 검증)
+        let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
+        let entries = parser
+            .parse_file(&fixture_path("sample-session.jsonl"))
+            .unwrap();
+
+        assert!(!entries.is_empty());
+        for entry in &entries {
+            assert_eq!(entry.provider, None);
+        }
     }
 }
