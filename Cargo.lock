@@ -2569,7 +2569,7 @@ dependencies = [
 
 [[package]]
 name = "toktrack"
-version = "2.5.0"
+version = "2.6.0"
 dependencies = [
  "anyhow",
  "chrono",

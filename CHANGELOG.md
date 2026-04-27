@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.0](https://github.com/mag123c/toktrack/compare/v2.5.0...v2.6.0) (2026-04-27)
+
+
+### Features
+
+* **services:** expose provider info in JSON model breakdown ([#134](https://github.com/mag123c/toktrack/issues/134)) ([#135](https://github.com/mag123c/toktrack/issues/135)) ([a82e4b3](https://github.com/mag123c/toktrack/commit/a82e4b3e0ebcfc50e30eb6a5b7013993b130609a))
+
 ## [2.5.0](https://github.com/mag123c/toktrack/compare/v2.4.1...v2.5.0) (2026-04-19)
 
 
