@@ -50,7 +50,7 @@ trait CLIParser: Send + Sync {
 | ClaudeCodeParser | JSONL | ~/.claude/projects/ | ✅ |
 | CodexParser | JSONL | ~/.codex/sessions/ | ✅ |
 | GeminiParser | JSON | ~/.gemini/tmp/*/chats/ | ✅ |
-| OpenCodeParser | JSON | ~/.local/share/opencode/storage/message/ | ✅ |
+| OpenCodeParser | SQLite (v1.2.0+) + JSON fallback | ~/.local/share/opencode/{opencode.db, storage/message/} | ✅ |
 | PiAgentParser | JSONL | ~/.pi/agent/sessions/ | ✅ |
 
 ## Data Flow

@@ -14,6 +14,9 @@ simd-json = "0.14"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# SQLite (for OpenCode v1.2.0+ opencode.db)
+rusqlite = { version = "0.32", features = ["bundled"] }
+
 # TUI
 ratatui = "0.30"
 crossterm = "0.28"
