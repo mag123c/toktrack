@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.0](https://github.com/mag123c/toktrack/compare/v2.6.0...v2.7.0) (2026-05-02)
+
+
+### Features
+
+* **parser:** add SQLite reader for OpenCode v1.2.0+ ([#138](https://github.com/mag123c/toktrack/issues/138)) ([#139](https://github.com/mag123c/toktrack/issues/139)) ([b47e588](https://github.com/mag123c/toktrack/commit/b47e5885522939769ca3935ba001b77a328fdd3a))
+
 ## [2.6.0](https://github.com/mag123c/toktrack/compare/v2.5.0...v2.6.0) (2026-04-27)
 
 
