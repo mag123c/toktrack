@@ -1,0 +1,3 @@
+{"sessionId":"sub-abc-0000-4d2e-8a1f-000000000002","projectHash":"deadbeef","startTime":"2026-04-20T10:05:00Z","lastUpdated":"2026-04-20T10:05:00Z","kind":"subagent"}
+{"id":"sm1","timestamp":"2026-04-20T10:05:00Z","type":"user","content":"sub query"}
+{"id":"sm2","timestamp":"2026-04-20T10:05:01Z","type":"gemini","model":"gemini-2.5-flash","content":"sub answer","tokens":{"input":40,"output":15,"cached":5,"thoughts":0,"total":60}}

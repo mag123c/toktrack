@@ -225,7 +225,12 @@ mod tests {
         // claude-sample.jsonl, empty.jsonl, multi/file1.jsonl, multi/file2.jsonl,
         // codex/sample-session.jsonl, codex/multi-turn-session.jsonl,
         // codex/openai-session.jsonl, codex/multi-session-meta.jsonl,
-        // pi_agent/sample-session.jsonl
-        assert_eq!(files.len(), 9);
+        // pi_agent/sample-session.jsonl,
+        // gemini/tmp_jsonl/chats/session-*.jsonl,
+        // gemini/tmp_jsonl/chats/parent-session-xyz/sub-abc.jsonl,
+        // gemini/tmp_jsonl_malformed/chats/session-bad.jsonl,
+        // gemini/tmp_jsonl_no_meta/chats/session-*.jsonl
+        // (claude parser uses `**/*.jsonl`; gemini-format files parse to 0 entries.)
+        assert_eq!(files.len(), 13);
     }
 }

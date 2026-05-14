@@ -1,0 +1,7 @@
+{"sessionId":"abc12345-9999-4d2e-8a1f-000000000001","projectHash":"deadbeef","startTime":"2026-04-20T10:00:00Z","lastUpdated":"2026-04-20T10:00:00Z","kind":"main","directories":["/tmp/project"]}
+{"id":"m1","timestamp":"2026-04-20T10:00:00Z","type":"user","content":"hi"}
+{"id":"m2","timestamp":"2026-04-20T10:00:01.500Z","type":"gemini","model":"gemini-2.5-pro","content":"hello","tokens":{"input":100,"output":50,"cached":20,"thoughts":30,"tool":10,"total":210}}
+{"$set":{"lastUpdated":"2026-04-20T10:00:01Z"}}
+{"id":"m3","timestamp":"2026-04-20T10:01:00Z","type":"error","content":"rate limited"}
+{"$rewindTo":"m3"}
+{"id":"m4","timestamp":"2026-04-20T10:02:00Z","type":"gemini","model":"gemini-2.5-flash","content":"ok","tokens":{"input":250,"output":150,"cached":50,"thoughts":100,"total":550}}

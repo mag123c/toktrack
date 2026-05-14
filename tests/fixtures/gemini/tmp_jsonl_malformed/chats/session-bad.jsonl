@@ -1,0 +1,5 @@
+
+{"sessionId":"bad-session","projectHash":"x","startTime":"2026-04-21T10:00:00Z","lastUpdated":"2026-04-21T10:00:00Z","kind":"main"}
+{not_json
+{"id":"bm1","timestamp":"2026-04-21T10:00:01Z","type":"gemini","model":"gemini-2.5-pro","content":"good","tokens":{"input":7,"output":3,"cached":0,"thoughts":0,"total":10}}
+{"id":"bm2","type":"gemini","model":"gemini-2.5-pro","tokens":{"input":1,"output":2}}
