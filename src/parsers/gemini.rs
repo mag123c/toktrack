@@ -597,36 +597,26 @@ mod tests {
         assert_eq!(entries.len(), 9);
     }
 
+    // `GEMINI_CLI_HOME` is process-global; splitting into two `#[test]`s races
+    // because cargo runs tests in parallel and each test's restore step can
+    // observe the other test's `set_var`. Keep both scenarios in one test so
+    // they execute serially within a single thread.
     #[test]
-    fn test_gemini_cli_home_env_var_overrides_home() {
-        // Other tests use `with_data_dir`; only `new()` reads this env var,
-        // so concurrent reads don't collide on data_dir state.
+    fn test_gemini_cli_home_env_var() {
         let saved = std::env::var("GEMINI_CLI_HOME").ok();
-        std::env::set_var("GEMINI_CLI_HOME", "/tmp/toktrack-gemini-env-test");
 
-        let parser = GeminiParser::new();
+        // Case 1 — non-empty value overrides home.
+        std::env::set_var("GEMINI_CLI_HOME", "/tmp/toktrack-gemini-env-test");
         assert_eq!(
-            parser.data_dir(),
+            GeminiParser::new().data_dir(),
             Path::new("/tmp/toktrack-gemini-env-test/.gemini/tmp")
         );
 
-        // Restore prior env state.
-        match saved {
-            Some(v) => std::env::set_var("GEMINI_CLI_HOME", v),
-            None => std::env::remove_var("GEMINI_CLI_HOME"),
-        }
-    }
-
-    #[test]
-    fn test_gemini_cli_home_empty_string_falls_through() {
-        let saved = std::env::var("GEMINI_CLI_HOME").ok();
+        // Case 2 — empty value is treated as unset (matches gemini-cli JS falsiness).
         std::env::set_var("GEMINI_CLI_HOME", "");
+        assert_ne!(GeminiParser::new().data_dir(), Path::new("/.gemini/tmp"));
 
-        let parser = GeminiParser::new();
-        // Empty value should be ignored (matches gemini-cli JS falsiness).
-        // Resulting data_dir should NOT be just "/.gemini/tmp".
-        assert_ne!(parser.data_dir(), Path::new("/.gemini/tmp"));
-
+        // Restore prior env state.
         match saved {
             Some(v) => std::env::set_var("GEMINI_CLI_HOME", v),
             None => std::env::remove_var("GEMINI_CLI_HOME"),
