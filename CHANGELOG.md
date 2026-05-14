@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.4](https://github.com/mag123c/toktrack/compare/v2.7.3...v2.7.4) (2026-05-14)
+
+
+### Bug Fixes
+
+* **ci:** rewrite homebrew bump with explicit URL + sha256 ([#152](https://github.com/mag123c/toktrack/issues/152)) ([b70206f](https://github.com/mag123c/toktrack/commit/b70206f05b86ee34cf3ade9a94f07a50a1e9bf09))
+
 ## [2.7.3](https://github.com/mag123c/toktrack/compare/v2.7.2...v2.7.3) (2026-05-14)
 
 
