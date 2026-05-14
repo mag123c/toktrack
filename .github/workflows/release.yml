@@ -63,12 +63,10 @@ jobs:
           ref: ${{ inputs.tag }}
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          targets: ${{ matrix.target }}
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+          toolchain: stable
+          target: ${{ matrix.target }}
 
       - name: Install cross
         if: matrix.cross
