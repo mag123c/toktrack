@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.2](https://github.com/mag123c/toktrack/compare/v2.7.1...v2.7.2) (2026-05-14)
+
+
+### Bug Fixes
+
+* **parser:** merge gemini env-var tests to avoid cargo-parallel race ([#148](https://github.com/mag123c/toktrack/issues/148)) ([317ddec](https://github.com/mag123c/toktrack/commit/317ddec531428edba9ada97d52c4c30a183cdb65))
+
 ## [2.7.1](https://github.com/mag123c/toktrack/compare/v2.7.0...v2.7.1) (2026-05-14)
 
 
