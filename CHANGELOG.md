@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.3](https://github.com/mag123c/toktrack/compare/v2.7.2...v2.7.3) (2026-05-14)
+
+
+### Bug Fixes
+
+* **ci:** switch release.yml to actions-rust-lang/setup-rust-toolchain ([#150](https://github.com/mag123c/toktrack/issues/150)) ([30fe3cf](https://github.com/mag123c/toktrack/commit/30fe3cf7400edd085b09cbff6381a4d942b5715e))
+
 ## [2.7.2](https://github.com/mag123c/toktrack/compare/v2.7.1...v2.7.2) (2026-05-14)
 
 
