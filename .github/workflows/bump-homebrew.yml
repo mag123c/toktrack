@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to bump formula to (e.g., v2.5.0)'
+        description: 'Tag to bump formula to (e.g., v2.7.2)'
         required: true
         type: string
 
@@ -18,14 +18,91 @@ permissions:
 
 jobs:
   bump:
-    name: Bump formula in tap repo
+    name: Update tap formula
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag }}
+      TAP_REPO: mag123c/homebrew-toktrack
     steps:
-      - name: Bump Homebrew formula
-        uses: dawidd6/action-homebrew-bump-formula@v7
+      - name: Checkout tap
+        uses: actions/checkout@v4
         with:
+          repository: ${{ env.TAP_REPO }}
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          tap: mag123c/homebrew-toktrack
-          formula: toktrack
-          tag: ${{ inputs.tag }}
-          force: false
+
+      - name: Compute sha256 for release assets
+        id: hash
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          base="https://github.com/mag123c/toktrack/releases/download/${TAG}"
+          for f in toktrack-darwin-arm64 toktrack-darwin-x64 toktrack-linux-arm64 toktrack-linux-x64; do
+            curl -sSfL -o "$f.tar.gz" "$base/$f.tar.gz"
+          done
+          {
+            echo "darwin_arm64=$(sha256sum toktrack-darwin-arm64.tar.gz | awk '{print $1}')"
+            echo "darwin_x64=$(sha256sum toktrack-darwin-x64.tar.gz | awk '{print $1}')"
+            echo "linux_arm64=$(sha256sum toktrack-linux-arm64.tar.gz | awk '{print $1}')"
+            echo "linux_x64=$(sha256sum toktrack-linux-x64.tar.gz | awk '{print $1}')"
+            echo "version=${VERSION}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Write Formula/toktrack.rb
+        env:
+          VERSION: ${{ steps.hash.outputs.version }}
+          DARWIN_ARM64: ${{ steps.hash.outputs.darwin_arm64 }}
+          DARWIN_X64: ${{ steps.hash.outputs.darwin_x64 }}
+          LINUX_ARM64: ${{ steps.hash.outputs.linux_arm64 }}
+          LINUX_X64: ${{ steps.hash.outputs.linux_x64 }}
+        run: |
+          set -euo pipefail
+          cat > Formula/toktrack.rb <<EOF
+          class Toktrack < Formula
+            desc "Ultra-fast token & cost tracker for AI CLIs (Claude, Codex, Gemini, OpenCode)"
+            homepage "https://github.com/mag123c/toktrack"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "https://github.com/mag123c/toktrack/releases/download/v${VERSION}/toktrack-darwin-arm64.tar.gz"
+                sha256 "${DARWIN_ARM64}"
+              end
+              on_intel do
+                url "https://github.com/mag123c/toktrack/releases/download/v${VERSION}/toktrack-darwin-x64.tar.gz"
+                sha256 "${DARWIN_X64}"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "https://github.com/mag123c/toktrack/releases/download/v${VERSION}/toktrack-linux-arm64.tar.gz"
+                sha256 "${LINUX_ARM64}"
+              end
+              on_intel do
+                url "https://github.com/mag123c/toktrack/releases/download/v${VERSION}/toktrack-linux-x64.tar.gz"
+                sha256 "${LINUX_X64}"
+              end
+            end
+
+            def install
+              bin.install "toktrack"
+            end
+
+            test do
+              assert_match "toktrack", shell_output("#{bin}/toktrack --version")
+            end
+          end
+          EOF
+
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          if git diff --quiet Formula/toktrack.rb; then
+            echo "Formula already at ${TAG}; nothing to do."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Formula/toktrack.rb
+          git commit -m "toktrack ${TAG#v}"
+          git push
