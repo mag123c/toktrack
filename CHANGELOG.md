@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.7.1](https://github.com/mag123c/toktrack/compare/v2.7.0...v2.7.1) (2026-05-14)
+
+
+### Bug Fixes
+
+* **ci:** pin dtolnay/rust-toolchain to [@stable](https://github.com/stable) ref ([#146](https://github.com/mag123c/toktrack/issues/146)) ([a8f0ec9](https://github.com/mag123c/toktrack/commit/a8f0ec9a09c9ad1baef5e3f6f2e193e9ff1ef8d3))
+* **parser:** support gemini-cli JSONL format ([#144](https://github.com/mag123c/toktrack/issues/144)) ([#145](https://github.com/mag123c/toktrack/issues/145)) ([7ea890a](https://github.com/mag123c/toktrack/commit/7ea890a6bd6d4e37eda1cb1614edf069035884cd))
+
 ## [2.7.0](https://github.com/mag123c/toktrack/compare/v2.6.0...v2.7.0) (2026-05-02)
 
 
