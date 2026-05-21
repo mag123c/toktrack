@@ -1,0 +1,15 @@
+services:
+  toktrack:
+    build: .
+    image: toktrack:local
+    stdin_open: true
+    tty: true
+    environment:
+      - TERM=${TERM:-xterm-256color}
+      - COLORTERM=${COLORTERM:-truecolor}
+    volumes:
+      - ${HOME}/.claude:/root/.claude:ro
+      - ${HOME}/.codex:/root/.codex:ro
+      - ${HOME}/.gemini:/root/.gemini:ro
+      - ${HOME}/.local/share/opencode:/root/.local/share/opencode:ro
+      - ${HOME}/.toktrack:/root/.toktrack

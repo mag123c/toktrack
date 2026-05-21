@@ -1,0 +1,11 @@
+target/
+.git/
+.github/
+.claude/
+.dev/
+assets/
+docs/
+npm/
+*.tape
+*.md
+!README.md
