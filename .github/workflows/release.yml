@@ -146,6 +146,7 @@ jobs:
     name: Publish to npm
     needs: build
     runs-on: ubuntu-latest
+    if: ${{ secrets.NPM_TOKEN != '' }}
 
     steps:
       - uses: actions/checkout@v4
