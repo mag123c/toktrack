@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TAG: ${{ inputs.tag }}
-      TAP_REPO: mag123c/homebrew-toktrack
+      TAP_REPO: slmingol/homebrew-tap
     steps:
       - name: Checkout tap
         uses: actions/checkout@v4
@@ -35,7 +35,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${TAG#v}"
-          base="https://github.com/mag123c/toktrack/releases/download/${TAG}"
+          base="https://github.com/slmingol/toktrack/releases/download/${TAG}"
           for f in toktrack-darwin-arm64 toktrack-darwin-x64 toktrack-linux-arm64 toktrack-linux-x64; do
             curl -sSfL -o "$f.tar.gz" "$base/$f.tar.gz"
           done
@@ -59,27 +59,27 @@ jobs:
           cat > Formula/toktrack.rb <<EOF
           class Toktrack < Formula
             desc "Ultra-fast token & cost tracker for AI CLIs (Claude, Codex, Gemini, OpenCode)"
-            homepage "https://github.com/mag123c/toktrack"
+            homepage "https://github.com/slmingol/toktrack"
             license "MIT"
 
             on_macos do
               on_arm do
-                url "https://github.com/mag123c/toktrack/releases/download/v${VERSION}/toktrack-darwin-arm64.tar.gz"
+                url "https://github.com/slmingol/toktrack/releases/download/v${VERSION}/toktrack-darwin-arm64.tar.gz"
                 sha256 "${DARWIN_ARM64}"
               end
               on_intel do
-                url "https://github.com/mag123c/toktrack/releases/download/v${VERSION}/toktrack-darwin-x64.tar.gz"
+                url "https://github.com/slmingol/toktrack/releases/download/v${VERSION}/toktrack-darwin-x64.tar.gz"
                 sha256 "${DARWIN_X64}"
               end
             end
 
             on_linux do
               on_arm do
-                url "https://github.com/mag123c/toktrack/releases/download/v${VERSION}/toktrack-linux-arm64.tar.gz"
+                url "https://github.com/slmingol/toktrack/releases/download/v${VERSION}/toktrack-linux-arm64.tar.gz"
                 sha256 "${LINUX_ARM64}"
               end
               on_intel do
-                url "https://github.com/mag123c/toktrack/releases/download/v${VERSION}/toktrack-linux-x64.tar.gz"
+                url "https://github.com/slmingol/toktrack/releases/download/v${VERSION}/toktrack-linux-x64.tar.gz"
                 sha256 "${LINUX_X64}"
               end
             end
