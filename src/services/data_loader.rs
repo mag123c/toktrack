@@ -8,7 +8,7 @@ use std::time::SystemTime;
 
 use chrono::{Local, TimeZone};
 
-use crate::parsers::ParserRegistry;
+use crate::parsers::{ParserRegistry, SourceInstance};
 use crate::services::{Aggregator, DailySummaryCacheService, PricingService};
 use crate::types::{CacheWarning, DailySummary, Result, SourceUsage, ToktrackError, UsageEntry};
 
@@ -83,6 +83,15 @@ impl DataLoaderService {
         }
     }
 
+    /// Create a data loader with default local sources plus additional sources.
+    pub fn with_extra_sources(extra_sources: Vec<SourceInstance>) -> Self {
+        Self {
+            registry: ParserRegistry::with_extra_sources(extra_sources),
+            cache_service: DailySummaryCacheService::new().ok(),
+            pricing: PricingService::from_cache_only(),
+        }
+    }
+
     /// Load data from all parsers using cache-first strategy
     pub fn load(&self) -> Result<LoadResult> {
         if self.has_valid_cache() {
@@ -96,13 +105,13 @@ impl DataLoaderService {
         self.load_cold_path()
     }
 
-    /// Check if any parser has a valid (version-matching) cache
+    /// Check if any source has a valid (version-matching) cache
     fn has_valid_cache(&self) -> bool {
         self.cache_service.as_ref().is_some_and(|cs| {
             self.registry
-                .parsers()
+                .sources()
                 .iter()
-                .any(|p| cs.is_version_current(p.name()))
+                .any(|source| cs.is_version_current(&source.id))
         })
     }
 
@@ -122,17 +131,19 @@ impl DataLoaderService {
         let mut source_summaries: HashMap<String, Vec<DailySummary>> = HashMap::new();
         let mut cache_warning = None;
 
-        for parser in self.registry.parsers() {
-            let has_parser_cache = cache_service.cache_path(parser.name()).exists();
+        for source in self.registry.sources() {
+            let parser = source.parser.as_ref();
+            debug_assert_eq!(source.kind, parser.name());
+            let has_source_cache = cache_service.cache_path(&source.id).exists();
 
-            let entries = if has_parser_cache {
-                let latest = cache_service.latest_cached_date(parser.name());
+            let entries = if has_source_cache {
+                let latest = cache_service.latest_cached_date(&source.id);
                 if has_date_gap(latest, yesterday) {
                     // Gap detected: full re-parse to fill missing dates
                     match parser.parse_all() {
                         Ok(e) => e,
                         Err(e) => {
-                            eprintln!("[toktrack] Warning: {} failed: {}", parser.name(), e);
+                            eprintln!("[toktrack] Warning: {} failed: {}", source.label, e);
                             continue;
                         }
                     }
@@ -143,7 +154,7 @@ impl DataLoaderService {
                             .filter(|entry| entry.local_date() >= yesterday)
                             .collect(),
                         Err(e) => {
-                            eprintln!("[toktrack] Warning: {} failed: {}", parser.name(), e);
+                            eprintln!("[toktrack] Warning: {} failed: {}", source.label, e);
                             continue;
                         }
                     }
@@ -152,7 +163,7 @@ impl DataLoaderService {
                 match parser.parse_all() {
                     Ok(e) => e,
                     Err(e) => {
-                        eprintln!("[toktrack] Warning: {} failed: {}", parser.name(), e);
+                        eprintln!("[toktrack] Warning: {} failed: {}", source.label, e);
                         continue;
                     }
                 }
@@ -160,19 +171,20 @@ impl DataLoaderService {
 
             let est = Self::batch_estimated(&entries);
             source_estimated
-                .entry(parser.name().to_string())
+                .entry(source.id.clone())
                 .and_modify(|e| *e |= est)
                 .or_insert(est);
+            let entries = Self::assign_source_id(entries, &source.id);
             let entries = self.apply_pricing(entries);
 
-            match cache_service.load_or_compute(parser.name(), &entries) {
+            match cache_service.load_or_compute(&source.id, &entries) {
                 Ok((summaries, warning)) => {
                     if warning.is_some() && cache_warning.is_none() {
                         cache_warning = warning;
                     }
-                    self.collect_source_stats(&summaries, parser.name(), &mut source_stats);
+                    self.collect_source_stats(&summaries, &source.id, &mut source_stats);
                     source_summaries
-                        .entry(parser.name().to_string())
+                        .entry(source.id.clone())
                         .or_default()
                         .extend(summaries.iter().cloned());
                     all_summaries.extend(summaries);
@@ -180,8 +192,7 @@ impl DataLoaderService {
                 Err(e) => {
                     eprintln!(
                         "[toktrack] Warning: cache for {} failed: {}",
-                        parser.name(),
-                        e
+                        source.label, e
                     );
                 }
             }
@@ -199,7 +210,7 @@ impl DataLoaderService {
         })
     }
 
-    /// Cold path: full parse_all() per parser + build cache
+    /// Cold path: full parse_all() per source + build cache
     fn load_cold_path(&self) -> Result<LoadResult> {
         // Try network pricing if cache-only failed
         let fallback_pricing;
@@ -218,11 +229,13 @@ impl DataLoaderService {
         let mut cache_warning = None;
         let mut any_entries = false;
 
-        for parser in self.registry.parsers() {
+        for source in self.registry.sources() {
+            let parser = source.parser.as_ref();
+            debug_assert_eq!(source.kind, parser.name());
             let entries = match parser.parse_all() {
                 Ok(e) => e,
                 Err(e) => {
-                    eprintln!("[toktrack] Warning: {} failed: {}", parser.name(), e);
+                    eprintln!("[toktrack] Warning: {} failed: {}", source.label, e);
                     continue;
                 }
             };
@@ -234,21 +247,22 @@ impl DataLoaderService {
 
             let est = Self::batch_estimated(&entries);
             source_estimated
-                .entry(parser.name().to_string())
+                .entry(source.id.clone())
                 .and_modify(|e| *e |= est)
                 .or_insert(est);
+            let entries = Self::assign_source_id(entries, &source.id);
             let entries = self.apply_pricing_with_ref(entries, pricing_ref);
 
             // Try to use cache service
             if let Some(cs) = &self.cache_service {
-                match cs.load_or_compute(parser.name(), &entries) {
+                match cs.load_or_compute(&source.id, &entries) {
                     Ok((summaries, warning)) => {
                         if warning.is_some() && cache_warning.is_none() {
                             cache_warning = warning;
                         }
-                        self.collect_source_stats(&summaries, parser.name(), &mut source_stats);
+                        self.collect_source_stats(&summaries, &source.id, &mut source_stats);
                         source_summaries
-                            .entry(parser.name().to_string())
+                            .entry(source.id.clone())
                             .or_default()
                             .extend(summaries.iter().cloned());
                         all_summaries.extend(summaries);
@@ -257,8 +271,7 @@ impl DataLoaderService {
                     Err(e) => {
                         eprintln!(
                             "[toktrack] Warning: cache for {} failed: {}",
-                            parser.name(),
-                            e
+                            source.label, e
                         );
                     }
                 }
@@ -266,9 +279,9 @@ impl DataLoaderService {
 
             // Cache unavailable: compute summaries directly
             let summaries = Aggregator::daily(&entries);
-            self.collect_source_stats(&summaries, parser.name(), &mut source_stats);
+            self.collect_source_stats(&summaries, &source.id, &mut source_stats);
             source_summaries
-                .entry(parser.name().to_string())
+                .entry(source.id.clone())
                 .or_default()
                 .extend(summaries.iter().cloned());
             all_summaries.extend(summaries);
@@ -303,6 +316,17 @@ impl DataLoaderService {
         entries
             .iter()
             .any(|e| e.cost_usd.is_none() && !is_copilot_provider(e.provider.as_deref()))
+    }
+
+    /// Override parser-provided source names with the concrete source id.
+    fn assign_source_id(entries: Vec<UsageEntry>, source_id: &str) -> Vec<UsageEntry> {
+        entries
+            .into_iter()
+            .map(|mut entry| {
+                entry.source = Some(source_id.to_string());
+                entry
+            })
+            .collect()
     }
 
     /// Apply pricing to entries using the given pricing service reference
@@ -408,7 +432,10 @@ pub fn is_copilot_provider(provider: Option<&str>) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use crate::parsers::{CodexParser, SourceInstance};
+
     use super::*;
+    use std::path::PathBuf;
 
     // ========== is_copilot_provider tests ==========
 
@@ -594,13 +621,67 @@ mod tests {
     fn test_data_loader_service_new() {
         let service = DataLoaderService::new();
         // Just verify it can be constructed
-        assert!(!service.registry.parsers().is_empty());
+        assert!(!service.registry.sources().is_empty());
     }
 
     #[test]
     fn test_data_loader_service_default() {
         let service = DataLoaderService::default();
-        assert!(!service.registry.parsers().is_empty());
+        assert!(!service.registry.sources().is_empty());
+    }
+
+    #[test]
+    fn test_load_uses_source_id_for_cache_and_source_breakdown() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache_dir = temp_dir.path().join("cache");
+        let pricing_path = temp_dir.path().join("pricing.json");
+        let fetched_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        std::fs::write(
+            &pricing_path,
+            format!(r#"{{"fetched_at":{},"models":{{}}}}"#, fetched_at),
+        )
+        .unwrap();
+
+        let service = DataLoaderService {
+            registry: ParserRegistry::with_sources(vec![
+                SourceInstance::new(
+                    "codex",
+                    "codex",
+                    "codex",
+                    Box::new(CodexParser::with_data_dir(PathBuf::from(
+                        "tests/fixtures/codex",
+                    ))),
+                ),
+                SourceInstance::new(
+                    "codex@testbox",
+                    "codex (testbox)",
+                    "codex",
+                    Box::new(CodexParser::with_data_dir(PathBuf::from(
+                        "tests/fixtures/codex",
+                    ))),
+                ),
+            ]),
+            cache_service: Some(DailySummaryCacheService::with_cache_dir(cache_dir.clone())),
+            pricing: PricingService::from_cache_only_with_path(&pricing_path),
+        };
+
+        let result = service.load().unwrap();
+
+        assert!(cache_dir.join("codex_daily.json").exists());
+        assert!(cache_dir.join("codex@testbox_daily.json").exists());
+        assert!(result.source_summaries.contains_key("codex"));
+        assert!(result.source_summaries.contains_key("codex@testbox"));
+
+        let sources: std::collections::HashSet<&str> = result
+            .source_usage
+            .iter()
+            .map(|usage| usage.source.as_str())
+            .collect();
+        assert!(sources.contains("codex"));
+        assert!(sources.contains("codex@testbox"));
     }
 
     // ========== apply_pricing tests ==========

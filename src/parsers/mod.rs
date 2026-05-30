@@ -97,38 +97,95 @@ pub trait CLIParser: Send + Sync {
     }
 }
 
-/// Registry of available parsers
+/// A concrete source of usage data backed by one parser.
+///
+/// The parser kind identifies the log format (for example, `codex`), while the
+/// source id identifies one concrete location that uses that format (for
+/// example, `codex` locally or `codex@devbox` for a future remote snapshot).
+pub struct SourceInstance {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+    pub parser: Box<dyn CLIParser>,
+}
+
+impl SourceInstance {
+    /// Create a source instance with explicit identity metadata.
+    #[allow(dead_code)] // Used by tests and future remote-source registration.
+    pub fn new(
+        id: impl Into<String>,
+        label: impl Into<String>,
+        kind: impl Into<String>,
+        parser: Box<dyn CLIParser>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            kind: kind.into(),
+            parser,
+        }
+    }
+
+    /// Create the default local source for a parser.
+    pub fn local(parser: Box<dyn CLIParser>) -> Self {
+        let kind = parser.name().to_string();
+        Self {
+            id: kind.clone(),
+            label: kind.clone(),
+            kind,
+            parser,
+        }
+    }
+}
+
+/// Registry of available usage sources
 pub struct ParserRegistry {
-    parsers: Vec<Box<dyn CLIParser>>,
+    sources: Vec<SourceInstance>,
 }
 
 impl ParserRegistry {
     /// Create a new registry with default parsers
     pub fn new() -> Self {
         Self {
-            parsers: vec![
-                Box::new(ClaudeCodeParser::new()),
-                Box::new(CodexParser::new()),
-                Box::new(GeminiParser::new()),
-                Box::new(GeminiParser::new_qwen()),
-                Box::new(OpenCodeParser::new()),
-                Box::new(PiAgentParser::new()),
+            sources: vec![
+                SourceInstance::local(Box::new(ClaudeCodeParser::new())),
+                SourceInstance::local(Box::new(CodexParser::new())),
+                SourceInstance::local(Box::new(GeminiParser::new())),
+                SourceInstance::local(Box::new(GeminiParser::new_qwen())),
+                SourceInstance::local(Box::new(OpenCodeParser::new())),
+                SourceInstance::local(Box::new(PiAgentParser::new())),
             ],
         }
     }
 
-    /// Get all registered parsers
-    pub fn parsers(&self) -> &[Box<dyn CLIParser>] {
-        &self.parsers
+    /// Create a registry with default sources plus additional source instances.
+    pub fn with_extra_sources(mut extra_sources: Vec<SourceInstance>) -> Self {
+        let mut registry = Self::new();
+        registry.sources.append(&mut extra_sources);
+        registry
     }
 
-    /// Find a parser by name
+    /// Create a registry from explicit source instances.
+    #[allow(dead_code)] // Used by tests and future remote-source configuration.
+    pub fn with_sources(sources: Vec<SourceInstance>) -> Self {
+        Self { sources }
+    }
+
+    /// Get all registered source instances
+    pub fn sources(&self) -> &[SourceInstance] {
+        &self.sources
+    }
+
+    /// Find a parser by source id.
     #[allow(dead_code)] // Used in tests and future features
-    pub fn get(&self, name: &str) -> Option<&dyn CLIParser> {
-        self.parsers
-            .iter()
-            .find(|p| p.name() == name)
-            .map(|p| p.as_ref())
+    pub fn get(&self, id: &str) -> Option<&dyn CLIParser> {
+        self.get_source(id).map(|source| source.parser.as_ref())
+    }
+
+    /// Find a source instance by id.
+    #[allow(dead_code)] // Used in tests and future features
+    pub fn get_source(&self, id: &str) -> Option<&SourceInstance> {
+        self.sources.iter().find(|source| source.id == id)
     }
 }
 
@@ -145,13 +202,55 @@ mod tests {
     #[test]
     fn test_registry_default_parsers() {
         let registry = ParserRegistry::new();
-        assert_eq!(registry.parsers().len(), 6);
+        assert_eq!(registry.sources().len(), 6);
         assert!(registry.get("claude-code").is_some());
         assert!(registry.get("codex").is_some());
         assert!(registry.get("gemini").is_some());
         assert!(registry.get("qwen").is_some());
         assert!(registry.get("opencode").is_some());
         assert!(registry.get("pi-agent").is_some());
+    }
+
+    #[test]
+    fn test_local_source_uses_parser_name_as_identity() {
+        let source = SourceInstance::local(Box::new(CodexParser::with_data_dir(PathBuf::from(
+            "tests/fixtures/codex",
+        ))));
+
+        assert_eq!(source.id, "codex");
+        assert_eq!(source.label, "codex");
+        assert_eq!(source.kind, "codex");
+        assert_eq!(source.parser.name(), "codex");
+    }
+
+    #[test]
+    fn test_registry_accepts_multiple_sources_for_same_parser_kind() {
+        let registry = ParserRegistry::with_sources(vec![
+            SourceInstance::new(
+                "codex",
+                "codex",
+                "codex",
+                Box::new(CodexParser::with_data_dir(PathBuf::from(
+                    "tests/fixtures/codex",
+                ))),
+            ),
+            SourceInstance::new(
+                "codex@testbox",
+                "codex (testbox)",
+                "codex",
+                Box::new(CodexParser::with_data_dir(PathBuf::from(
+                    "tests/fixtures/codex",
+                ))),
+            ),
+        ]);
+
+        assert_eq!(registry.sources().len(), 2);
+        assert_eq!(registry.get("codex").unwrap().name(), "codex");
+        assert_eq!(registry.get("codex@testbox").unwrap().name(), "codex");
+        assert_eq!(
+            registry.get_source("codex@testbox").unwrap().id,
+            "codex@testbox"
+        );
     }
 
     #[test]
