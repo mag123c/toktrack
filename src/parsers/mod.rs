@@ -158,17 +158,17 @@ impl ParserRegistry {
         }
     }
 
-    /// Create a registry with default sources plus additional source instances.
-    pub fn with_extra_sources(mut extra_sources: Vec<SourceInstance>) -> Self {
-        let mut registry = Self::new();
-        registry.sources.append(&mut extra_sources);
-        registry
-    }
-
     /// Create a registry from explicit source instances.
     #[allow(dead_code)] // Used by tests and future remote-source configuration.
     pub fn with_sources(sources: Vec<SourceInstance>) -> Self {
         Self { sources }
+    }
+
+    /// Create the default registry and append extra source instances.
+    pub fn with_extra_sources(mut extra_sources: Vec<SourceInstance>) -> Self {
+        let mut registry = Self::new();
+        registry.sources.append(&mut extra_sources);
+        registry
     }
 
     /// Get all registered source instances
@@ -251,6 +251,21 @@ mod tests {
             registry.get_source("codex@testbox").unwrap().id,
             "codex@testbox"
         );
+    }
+
+    #[test]
+    fn test_registry_appends_extra_sources_after_defaults() {
+        let registry = ParserRegistry::with_extra_sources(vec![SourceInstance::new(
+            "codex@testbox",
+            "codex (testbox)",
+            "codex",
+            Box::new(CodexParser::with_data_dir(PathBuf::from(
+                "tests/fixtures/codex",
+            ))),
+        )]);
+
+        assert_eq!(registry.sources().len(), 7);
+        assert_eq!(registry.sources()[6].id, "codex@testbox");
     }
 
     #[test]

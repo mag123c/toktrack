@@ -23,8 +23,11 @@ pub enum ToktrackError {
 
     /// Configuration error
     #[error("config error: {0}")]
-    #[allow(dead_code)]
     Config(String),
+
+    /// Remote sync error
+    #[error("remote error: {0}")]
+    Remote(String),
 }
 
 /// Result type alias for toktrack

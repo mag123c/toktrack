@@ -125,6 +125,63 @@ toktrack report --days 14    # Last N days
 toktrack report --svg        # Text + SVG file
 ```
 
+### Remote Codex Sources
+
+toktrack can include Codex session logs from SSH servers by syncing remote JSONL
+files into a local snapshot and parsing them with the existing Codex parser. It
+uses your existing `ssh`/`rsync` setup and never stores SSH passwords or keys.
+
+Create `~/.toktrack/config.toml`:
+
+```toml
+default_remotes = ["devbox"]
+
+[[remotes]]
+name = "devbox"
+target = "ubuntu@devbox"
+
+[remotes.paths]
+codex = "~/.codex/sessions"
+
+[[remotes]]
+name = "prod"
+target = "prod-alias"
+
+[remotes.paths]
+codex = "/home/codex/.codex/sessions"
+```
+
+You can also manage the same config from the CLI:
+
+```bash
+toktrack remote add devbox ubuntu@devbox --default
+toktrack remote add prod prod-alias --codex-path /home/codex/.codex/sessions
+toktrack remote default add prod
+toktrack remote default remove devbox
+toktrack remote remove prod
+toktrack remote list
+```
+
+By default, commands read local data plus `default_remotes`:
+
+```bash
+toktrack report
+toktrack daily --json
+```
+
+Override the configured defaults when needed:
+
+```bash
+toktrack --remote prod report      # local + default_remotes + prod
+toktrack --all-remotes stats       # local + every configured remote
+toktrack --local-only report       # local only
+```
+
+Remote Codex sources appear as `codex@<remote-name>` and use separate cache
+files such as `~/.toktrack/cache/codex@devbox_daily.json`.
+If a remote sync fails, toktrack warns and continues with local data plus any
+existing snapshot/cache for that remote.
+
 ### Keyboard Shortcuts
 
 | Key | Action |
@@ -206,9 +263,13 @@ Custom pricing (including `web_search` / `web_fetch` per-request rates) can be s
 ├── cache/
 │   ├── claude-code_daily.json   # Daily cost summaries
 │   ├── codex_daily.json
+│   ├── codex@devbox_daily.json
 │   ├── gemini_daily.json
 │   ├── opencode_daily.json
 │   └── pi-agent_daily.json
+├── remotes/
+│   └── devbox/codex/sessions/   # Synced remote Codex JSONL snapshots
+├── config.toml                  # Optional remote source configuration
 └── pricing.json                 # LiteLLM pricing (1h TTL)
 ```
 

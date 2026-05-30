@@ -14,7 +14,7 @@ use ratatui::{
 use super::theme::Theme;
 
 use crate::services::update_checker::{check_for_update, execute_update, UpdateCheckResult};
-use crate::services::{Aggregator, DataLoaderService};
+use crate::services::{Aggregator, DataLoaderService, RemoteOptions, RemoteSourceService};
 use crate::types::{CacheWarning, DailySummary, SourceUsage, StatsData, TotalSummary};
 
 use super::widgets::{
@@ -49,6 +49,7 @@ impl Default for ViewMode {
 pub struct TuiConfig {
     pub initial_view_mode: DailyViewMode,
     pub initial_tab: Option<Tab>,
+    pub remote_options: RemoteOptions,
 }
 
 /// Application state
@@ -783,8 +784,12 @@ pub fn run(config: TuiConfig) -> anyhow::Result<()> {
 
 /// Load data synchronously (extracted for background thread).
 /// Uses cache-first strategy via DataLoaderService.
-fn load_data_sync() -> Result<Box<AppData>, String> {
-    let result = DataLoaderService::new().load().map_err(|e| e.to_string())?;
+fn load_data_sync(remote_options: RemoteOptions) -> Result<Box<AppData>, String> {
+    let extra_sources =
+        RemoteSourceService::sync_and_build_sources(&remote_options).map_err(|e| e.to_string())?;
+    let result = DataLoaderService::with_extra_sources(extra_sources)
+        .load()
+        .map_err(|e| e.to_string())?;
 
     build_app_data_from_summaries(
         result.summaries,
@@ -858,13 +863,14 @@ fn build_app_data_from_summaries(
 }
 
 fn run_app(terminal: &mut DefaultTerminal, config: TuiConfig, theme: Theme) -> anyhow::Result<()> {
+    let remote_options = config.remote_options.clone();
     let mut app = App::new(config, theme);
     app.terminal_height = terminal.size()?.height;
 
     // Spawn background thread for data loading
     let (data_tx, data_rx) = mpsc::channel();
     thread::spawn(move || {
-        let result = load_data_sync();
+        let result = load_data_sync(remote_options);
         let _ = data_tx.send(result);
     });
 
@@ -1403,6 +1409,7 @@ mod tests {
         let config = TuiConfig {
             initial_view_mode: DailyViewMode::Weekly,
             initial_tab: None,
+            ..TuiConfig::default()
         };
         let app = App::new(config, Theme::Dark);
 
@@ -1750,6 +1757,7 @@ mod tests {
         let config = TuiConfig {
             initial_view_mode: DailyViewMode::Daily,
             initial_tab: Some(Tab::Stats),
+            ..TuiConfig::default()
         };
         let app = App::new(config, Theme::Dark);
         assert!(matches!(
