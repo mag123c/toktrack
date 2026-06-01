@@ -49,9 +49,11 @@ trait CLIParser: Send + Sync {
 |--------|--------|----------|--------|
 | ClaudeCodeParser | JSONL | ~/.claude/projects/ | ✅ |
 | CodexParser | JSONL | ~/.codex/sessions/ | ✅ |
-| GeminiParser | JSON | ~/.gemini/tmp/*/chats/ | ✅ |
+| GeminiParser | JSON + JSONL | ~/.gemini/tmp/*/chats/ | ✅ |
+| GeminiParser (qwen) | JSON + JSONL | ~/.qwen/tmp/*/chats/ | ✅ Qwen Code (Gemini fork, source="qwen") |
 | OpenCodeParser | SQLite (v1.2.0+) + JSON fallback | ~/.local/share/opencode/{opencode.db, storage/message/} | ✅ |
 | PiAgentParser | JSONL | ~/.pi/agent/sessions/ | ✅ |
+| (Antigravity) | — | ~/.gemini/antigravity-cli/ | ⚠️ detected, unsupported (no file-readable usage) |
 
 ## Data Flow
 ```

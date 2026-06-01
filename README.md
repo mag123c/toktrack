@@ -12,8 +12,7 @@
 
 > **⚠️ Did you know?** Claude Code **deletes your session data after 30 days** by default. Once deleted, your token usage and cost history are gone forever — unless you preserve them.
 
-Track token usage and costs across **all your AI coding CLIs** — Claude Code, Codex CLI, Gemini CLI, and OpenCode — in one dashboard.
-- provided also PI Agent since April 2026
+Track token usage and costs across **all your AI coding CLIs** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, and PI Agent — in one dashboard.
 
 Built with Rust for ultra-fast performance (simd-json + rayon parallel processing).
 
@@ -25,7 +24,7 @@ Built with Rust for ultra-fast performance (simd-json + rayon parallel processin
 |---------|----------|
 | 🐌 **Existing tools are slow** — 40+ seconds on large datasets | ⚡ **1000x faster** — cached queries in ~0.04s |
 | 🗑️ **Claude Code deletes data after 30 days** — your cost history disappears | 💾 **Persistent cache** — history survives even after CLI deletes files |
-| 📊 **No unified view** — each CLI has separate data | 🎯 **One dashboard** — Claude Code, Codex CLI, Gemini CLI in one place |
+| 📊 **No unified view** — each CLI has separate data | 🎯 **One dashboard** — Claude Code, Codex, Gemini, Qwen, OpenCode, PI Agent in one place |
 
 ### Performance Comparison
 
@@ -45,7 +44,7 @@ toktrack (cached):  ▏ ~0.04s (daily use)
 - **TUI Dashboard** — 3 tabs (Overview, Stats, Models) with daily/weekly/monthly views
 - **CLI Commands** — `daily`, `weekly`, `monthly`, `stats` with JSON output support
 - **Usage Reports** — Shareable text & SVG receipts via `toktrack report`
-- **Multi-CLI Support** — Claude Code, Codex CLI, Gemini CLI, OpenCode in one place
+- **Multi-CLI Support** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent in one place
 - **Data Preservation** — Cached daily summaries survive CLI data deletion
 
 ## Installation
@@ -145,16 +144,33 @@ toktrack report --svg        # Text + SVG file
 | Claude Code | ✅ | `~/.claude/projects/` |
 | Codex CLI | ✅ | `~/.codex/sessions/` |
 | Gemini CLI | ✅ | `~/.gemini/tmp/*/chats/` |
+| Qwen Code | ✅ | `~/.qwen/tmp/*/chats/` |
 | OpenCode | ✅ | `~/.local/share/opencode/storage/message/` |
 | PI Agent | ✅ | `~/.pi/agent/sessions/` |
+| Antigravity | ⚠️ detected, unsupported | `~/.gemini/antigravity-cli/` (no file-readable token usage) |
+
+> Costs from sources that don't record their own price (Gemini, Qwen, Codex, and modern Claude logs)
+> are computed from [LiteLLM](https://github.com/BerriAI/litellm) pricing and shown with a `~` marker
+> (estimated). Pricing works offline via a bundled snapshot when the network is unavailable.
 
 ### Environment Variables
 
-- `PI_AGENT_DIR`: Override PI Agent session root directory (default: `~/.pi/agent/sessions/`).
+Each source's data directory can be overridden (matching the upstream CLI's own variable):
+
+| Variable | Source | Default |
+|----------|--------|---------|
+| `CLAUDE_CONFIG_DIR` | Claude Code (root) | `~/.claude` (+ `/projects`) |
+| `CODEX_HOME` | Codex CLI (root) | `~/.codex` (+ `/sessions`) |
+| `GEMINI_CLI_HOME` | Gemini CLI (home root) | `~` (+ `/.gemini/tmp`) |
+| `QWEN_HOME` | Qwen Code | `~/.qwen` (+ `/tmp`) |
+| `OPENCODE_DATA_DIR` / `XDG_DATA_HOME` | OpenCode | `~/.local/share/opencode` |
+| `PI_CODING_AGENT_SESSION_DIR` (then `PI_AGENT_DIR`) | PI Agent | `~/.pi/agent/sessions` |
 
 ```bash
-export PI_AGENT_DIR="/path/to/.pi/agent/sessions"
+export CLAUDE_CONFIG_DIR="/path/to/.claude"
 ```
+
+Custom pricing (including `web_search` / `web_fetch` per-request rates) can be set in `~/.toktrack/pricing.toml`.
 
 
 ## Performance

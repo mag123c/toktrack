@@ -58,7 +58,7 @@ jobs:
           set -euo pipefail
           cat > Formula/toktrack.rb <<EOF
           class Toktrack < Formula
-            desc "Ultra-fast token & cost tracker for AI CLIs (Claude, Codex, Gemini, OpenCode)"
+            desc "Ultra-fast token & cost tracker for AI CLIs (Claude, Codex, Gemini, Qwen, OpenCode, PI Agent)"
             homepage "https://github.com/mag123c/toktrack"
             license "MIT"
 
