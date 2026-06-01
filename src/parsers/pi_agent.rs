@@ -78,21 +78,21 @@ pub struct PiAgentParser {
 }
 
 impl PiAgentParser {
-    /// Create a new parser with default data directory (~/.pi/agent/sessions/)
-    /// or PI_AGENT_DIR if set.
+    /// Create a new parser with default data directory (~/.pi/agent/sessions/).
+    ///
+    /// Honors `PI_CODING_AGENT_SESSION_DIR` (== `--session-dir`, canonical since
+    /// v0.71.0) with precedence over the legacy `PI_AGENT_DIR`.
     pub fn new() -> Self {
-        let data_dir = std::env::var("PI_AGENT_DIR")
-            .ok()
-            .filter(|v| !v.trim().is_empty())
-            .map(PathBuf::from)
-            .or_else(|| {
-                directories::BaseDirs::new()
-                    .map(|d| d.home_dir().join(".pi").join("agent").join("sessions"))
-            })
-            .unwrap_or_else(|| {
-                eprintln!("[toktrack] Warning: Could not determine home directory");
-                PathBuf::from(".")
-            });
+        let data_dir =
+            super::discovery::first_env_dir(&["PI_CODING_AGENT_SESSION_DIR", "PI_AGENT_DIR"])
+                .or_else(|| {
+                    directories::BaseDirs::new()
+                        .map(|d| d.home_dir().join(".pi").join("agent").join("sessions"))
+                })
+                .unwrap_or_else(|| {
+                    eprintln!("[toktrack] Warning: Could not determine home directory");
+                    PathBuf::from(".")
+                });
 
         Self { data_dir }
     }
@@ -295,6 +295,27 @@ mod tests {
     fn test_parser_file_pattern() {
         let parser = PiAgentParser::new();
         assert_eq!(parser.file_pattern(), "**/*.jsonl");
+    }
+
+    #[test]
+    fn test_pi_session_dir_env_takes_precedence() {
+        // PI_CODING_AGENT_SESSION_DIR (== --session-dir) wins over legacy PI_AGENT_DIR.
+        let saved_s = std::env::var("PI_CODING_AGENT_SESSION_DIR").ok();
+        let saved_a = std::env::var("PI_AGENT_DIR").ok();
+        std::env::set_var("PI_AGENT_DIR", "/tmp/toktrack-pi-legacy");
+        std::env::set_var("PI_CODING_AGENT_SESSION_DIR", "/tmp/toktrack-pi-session");
+        assert_eq!(
+            PiAgentParser::new().data_dir(),
+            Path::new("/tmp/toktrack-pi-session")
+        );
+        match saved_s {
+            Some(v) => std::env::set_var("PI_CODING_AGENT_SESSION_DIR", v),
+            None => std::env::remove_var("PI_CODING_AGENT_SESSION_DIR"),
+        }
+        match saved_a {
+            Some(v) => std::env::set_var("PI_AGENT_DIR", v),
+            None => std::env::remove_var("PI_AGENT_DIR"),
+        }
     }
 
     #[test]

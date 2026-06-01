@@ -61,15 +61,22 @@ pub struct OpenCodeParser {
 
 impl OpenCodeParser {
     /// Default: `~/.local/share/opencode/{opencode.db, storage/message/}`.
-    /// OpenCode uses XDG layout on every platform.
+    ///
+    /// Honors `OPENCODE_DATA_DIR` (the full data dir) then `XDG_DATA_HOME`
+    /// (base; `<XDG_DATA_HOME>/opencode`), falling back to the XDG default.
     pub fn new() -> Self {
-        let base = directories::BaseDirs::new()
-            .map(|d| d.home_dir().join(".local").join("share"))
-            .unwrap_or_else(|| {
-                eprintln!("[toktrack] Warning: Could not determine home directory");
-                PathBuf::from(".")
+        let base = super::discovery::first_env_dir(&["OPENCODE_DATA_DIR"])
+            .or_else(|| {
+                super::discovery::first_env_dir(&["XDG_DATA_HOME"]).map(|x| x.join("opencode"))
             })
-            .join("opencode");
+            .unwrap_or_else(|| {
+                directories::BaseDirs::new()
+                    .map(|d| d.home_dir().join(".local").join("share").join("opencode"))
+                    .unwrap_or_else(|| {
+                        eprintln!("[toktrack] Warning: Could not determine home directory");
+                        PathBuf::from(".")
+                    })
+            });
         Self::with_base_dir(base)
     }
 
@@ -368,6 +375,22 @@ mod tests {
     fn parser_uses_msg_glob_pattern() {
         let parser = OpenCodeParser::new();
         assert_eq!(parser.file_pattern(), "**/msg_*.json");
+    }
+
+    #[test]
+    fn opencode_data_dir_env_override() {
+        // OPENCODE_DATA_DIR is the full data dir → json/db derive from it.
+        let saved = std::env::var("OPENCODE_DATA_DIR").ok();
+        std::env::set_var("OPENCODE_DATA_DIR", "/tmp/toktrack-oc-data");
+        let parser = OpenCodeParser::new();
+        assert_eq!(
+            parser.data_dir(),
+            Path::new("/tmp/toktrack-oc-data/storage/message")
+        );
+        match saved {
+            Some(v) => std::env::set_var("OPENCODE_DATA_DIR", v),
+            None => std::env::remove_var("OPENCODE_DATA_DIR"),
+        }
     }
 
     #[test]

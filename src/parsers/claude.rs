@@ -54,16 +54,21 @@ pub struct ClaudeCodeParser {
 }
 
 impl ClaudeCodeParser {
-    /// Create a new parser with default data directory (~/.claude/projects/)
+    /// Create a new parser with default data directory.
+    ///
+    /// Honors `CLAUDE_CONFIG_DIR` (root; replaces `~/.claude`); projects live
+    /// under `<root>/projects`.
     pub fn new() -> Self {
-        let home = directories::BaseDirs::new()
-            .map(|d| d.home_dir().to_path_buf())
-            .unwrap_or_else(|| {
-                eprintln!("[toktrack] Warning: Could not determine home directory");
-                PathBuf::from(".")
-            });
+        let root = super::discovery::first_env_dir(&["CLAUDE_CONFIG_DIR"]).unwrap_or_else(|| {
+            directories::BaseDirs::new()
+                .map(|d| d.home_dir().join(".claude"))
+                .unwrap_or_else(|| {
+                    eprintln!("[toktrack] Warning: Could not determine home directory");
+                    PathBuf::from(".")
+                })
+        });
         Self {
-            data_dir: home.join(".claude").join("projects"),
+            data_dir: root.join("projects"),
         }
     }
 
@@ -316,6 +321,20 @@ mod tests {
     fn test_parser_file_pattern() {
         let parser = ClaudeCodeParser::new();
         assert_eq!(parser.file_pattern(), "**/*.jsonl");
+    }
+
+    #[test]
+    fn test_claude_config_dir_env_override() {
+        let saved = std::env::var("CLAUDE_CONFIG_DIR").ok();
+        std::env::set_var("CLAUDE_CONFIG_DIR", "/tmp/toktrack-claude-cfg");
+        assert_eq!(
+            ClaudeCodeParser::new().data_dir(),
+            Path::new("/tmp/toktrack-claude-cfg/projects")
+        );
+        match saved {
+            Some(v) => std::env::set_var("CLAUDE_CONFIG_DIR", v),
+            None => std::env::remove_var("CLAUDE_CONFIG_DIR"),
+        }
     }
 
     #[test]

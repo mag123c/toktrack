@@ -96,10 +96,7 @@ impl GeminiParser {
     /// Honors `GEMINI_CLI_HOME` (matches gemini-cli's `paths.ts` behavior),
     /// falling back to the user's home directory.
     pub fn new() -> Self {
-        let home = std::env::var("GEMINI_CLI_HOME")
-            .ok()
-            .filter(|s| !s.is_empty())
-            .map(PathBuf::from)
+        let home = super::discovery::first_env_dir(&["GEMINI_CLI_HOME"])
             .or_else(|| directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf()))
             .unwrap_or_else(|| {
                 eprintln!("[toktrack] Warning: Could not determine home directory");

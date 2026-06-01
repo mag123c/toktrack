@@ -2,6 +2,7 @@
 
 mod claude;
 mod codex;
+mod discovery;
 mod gemini;
 mod opencode;
 mod pi_agent;
