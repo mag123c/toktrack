@@ -367,6 +367,7 @@ impl Aggregator {
                 source,
                 total_tokens,
                 total_cost_usd,
+                supported: true,
             })
             .collect();
 

@@ -263,6 +263,23 @@ impl Overview<'_> {
             // Token count
             let count_str = format_number(source.total_tokens);
 
+            // Unsupported sources (e.g. Antigravity) render as a dimmed, bar-less
+            // notice row instead of a usage bar.
+            if !source.supported {
+                let dim = Style::default()
+                    .fg(self.theme.muted())
+                    .add_modifier(Modifier::DIM);
+                let spans = vec![
+                    Span::raw(marker),
+                    Span::styled(name_display, dim),
+                    Span::raw("  "),
+                    Span::styled("(unsupported — no local usage)", dim),
+                ];
+                let line = Line::from(spans);
+                buf.set_line(area.x + x_offset, y, &line, area.width - x_offset);
+                continue;
+            }
+
             // Build the line
             let name_style = if is_selected {
                 Style::default()
@@ -370,5 +387,51 @@ mod tests {
     #[test]
     fn test_format_number_million() {
         assert_eq!(format_number(1000000), "1,000,000");
+    }
+
+    #[test]
+    fn test_unsupported_source_renders_disabled_row() {
+        let total = TotalSummary::default();
+        let daily: Vec<(NaiveDate, u64)> = vec![];
+        let sources = vec![
+            SourceUsage {
+                source: "claude".into(),
+                total_tokens: 100,
+                total_cost_usd: 1.0,
+                supported: true,
+            },
+            SourceUsage {
+                source: "antigravity".into(),
+                total_tokens: 0,
+                total_cost_usd: 0.0,
+                supported: false,
+            },
+        ];
+        let data = OverviewData {
+            total: &total,
+            daily_tokens: &daily,
+            source_usage: &sources,
+            selected_source: None,
+            selected_tab: Tab::Overview,
+        };
+        let area = Rect::new(0, 0, 120, 30);
+        let mut buf = Buffer::empty(area);
+        Overview::new(
+            data,
+            NaiveDate::from_ymd_opt(2026, 6, 1).unwrap(),
+            Theme::Dark,
+        )
+        .render(area, &mut buf);
+
+        let mut text = String::new();
+        for y in area.y..area.y + area.height {
+            for x in area.x..area.x + area.width {
+                text.push_str(buf[(x, y)].symbol());
+            }
+        }
+        assert!(
+            text.contains("unsupported"),
+            "overview should render the unsupported notice for disabled sources"
+        );
     }
 }

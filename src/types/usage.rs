@@ -225,12 +225,31 @@ pub struct TotalSummary {
     pub day_count: u64,
 }
 
+fn default_true() -> bool {
+    true
+}
+
 /// Usage aggregated by source CLI (claude, opencode, gemini, etc.)
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SourceUsage {
     pub source: String,
     pub total_tokens: u64,
     pub total_cost_usd: f64,
+    /// False for detected-but-unsupported sources (e.g. Antigravity, which does
+    /// not write file-readable token usage). Rendered as a disabled row.
+    #[serde(default = "default_true")]
+    pub supported: bool,
+}
+
+impl Default for SourceUsage {
+    fn default() -> Self {
+        Self {
+            source: String::new(),
+            total_tokens: 0,
+            total_cost_usd: 0.0,
+            supported: true,
+        }
+    }
 }
 
 #[cfg(test)]

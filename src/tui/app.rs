@@ -1012,6 +1012,7 @@ mod tests {
                     source: "claude".to_string(),
                     total_tokens: 3000,
                     total_cost_usd: 0.20,
+                    supported: true,
                 }],
                 source_daily_data: HashMap::new(),
                 source_models_data: HashMap::new(),
@@ -1143,6 +1144,7 @@ mod tests {
                 source: "opencode".to_string(),
                 total_tokens: 1000,
                 total_cost_usd: 0.05,
+                supported: true,
             });
         }
 
