@@ -15,6 +15,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const LITELLM_PRICING_URL: &str =
     "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
 
+/// Vendored offline pricing fallback (trimmed LiteLLM snapshot — only the fields
+/// `ModelPricing` reads). Used when there is no live fetch and no on-disk cache,
+/// so first-run-offline still prices instead of reporting $0. Regenerate by
+/// trimming `model_prices_and_context_window.json` to `ModelPricing`'s fields.
+const PRICING_SNAPSHOT_JSON: &str = include_str!("../../assets/pricing_snapshot.json");
+
 /// Cache TTL in seconds (1 hour)
 const CACHE_TTL_SECS: i64 = 3600;
 
@@ -165,7 +171,8 @@ impl PricingService {
     }
 
     /// Create a PricingService, preferring cache but refreshing if expired or corrupt.
-    /// Returns None only if no cache exists AND network fetch fails.
+    /// Falls back to the vendored snapshot when the cache is unreadable and the
+    /// network is unavailable, so it returns None only if the home dir can't be found.
     pub fn from_cache_only() -> Option<Self> {
         let cache_path = Self::default_cache_path().ok()?;
         let custom = Self::load_custom_pricing();
@@ -194,7 +201,7 @@ impl PricingService {
                 }
             }
             Err(_) => {
-                // Corrupt or unreadable → try fresh fetch to recover
+                // Corrupt or unreadable → try fresh fetch, else vendored snapshot.
                 if let Ok(fresh) = Self::fetch_pricing() {
                     let _ = Self::save_cache(&cache_path, &fresh);
                     Some(Self {
@@ -203,7 +210,15 @@ impl PricingService {
                         custom,
                     })
                 } else {
-                    None
+                    eprintln!(
+                        "[toktrack] Warning: pricing cache unreadable and fetch failed; \
+                         using bundled offline snapshot (costs may be stale)"
+                    );
+                    Some(Self {
+                        cache: Self::snapshot_cache(),
+                        cache_path,
+                        custom,
+                    })
                 }
             }
         }
@@ -286,6 +301,17 @@ impl PricingService {
         })
     }
 
+    /// Vendored snapshot as a `PricingCache`. `fetched_at = 0` marks it stale so
+    /// it is refreshed from the network at the next opportunity.
+    fn snapshot_cache() -> PricingCache {
+        let models: HashMap<String, ModelPricing> =
+            serde_json::from_str(PRICING_SNAPSHOT_JSON).unwrap_or_default();
+        PricingCache {
+            fetched_at: 0,
+            models,
+        }
+    }
+
     /// Load cache from disk or fetch fresh data
     fn load_or_fetch_cache(cache_path: &PathBuf) -> Result<PricingCache> {
         // Try loading existing cache
@@ -302,11 +328,21 @@ impl PricingService {
             return Ok(cache);
         }
 
-        // No cache exists, must fetch
-        let cache = Self::fetch_pricing()
-            .map_err(|e| ToktrackError::Pricing(format!("Failed to fetch pricing data: {}", e)))?;
-        let _ = Self::save_cache(cache_path, &cache);
-        Ok(cache)
+        // No cache exists: fetch, else fall back to the vendored snapshot so we
+        // never report $0 pricing offline.
+        match Self::fetch_pricing() {
+            Ok(cache) => {
+                let _ = Self::save_cache(cache_path, &cache);
+                Ok(cache)
+            }
+            Err(_) => {
+                eprintln!(
+                    "[toktrack] Warning: no cached pricing and fetch failed; \
+                     using bundled offline snapshot (costs may be stale)"
+                );
+                Ok(Self::snapshot_cache())
+            }
+        }
     }
 
     /// Load cache from disk
@@ -941,6 +977,29 @@ mod tests {
 
         // We added 3 models in create_test_service
         assert_eq!(service.model_count(), 3);
+    }
+
+    #[test]
+    fn test_vendored_snapshot_parses_and_prices_known_models() {
+        let cache = PricingService::snapshot_cache();
+        assert!(
+            cache.models.len() > 1000,
+            "snapshot should carry the bulk of LiteLLM models, got {}",
+            cache.models.len()
+        );
+        let service = PricingService {
+            cache,
+            cache_path: PathBuf::from("/dev/null"),
+            custom: None,
+        };
+        // exact, dotted-key, and date-suffix-normalized resolution against the real snapshot
+        assert!(service.get_pricing("claude-opus-4-5").is_some());
+        assert!(service.get_pricing("gemini-2.5-pro").is_some());
+        assert!(service.get_pricing("gpt-5").is_some());
+        assert!(
+            service.get_pricing("claude-opus-4-5-20251101").is_some(),
+            "date-suffix should normalize to a snapshot key"
+        );
     }
 
     // ========== from_cache_only tests ==========
