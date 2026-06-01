@@ -348,8 +348,11 @@ impl PricingService {
     /// Vendored snapshot as a `PricingCache`. `fetched_at = 0` marks it stale so
     /// it is refreshed from the network at the next opportunity.
     fn snapshot_cache() -> PricingCache {
-        let models: HashMap<String, ModelPricing> =
-            serde_json::from_str(PRICING_SNAPSHOT_JSON).unwrap_or_default();
+        let models: HashMap<String, ModelPricing> = serde_json::from_str(PRICING_SNAPSHOT_JSON)
+            .unwrap_or_else(|e| {
+                eprintln!("[toktrack] BUG: bundled pricing snapshot failed to parse: {e}");
+                HashMap::new()
+            });
         PricingCache {
             fetched_at: 0,
             models,

@@ -274,7 +274,10 @@ impl GeminiParser {
                 // input_tokens is billable non-cached input and cached isn't double-charged.
                 // `tokens.tool` (toolUsePromptTokenCount) is folded into input so totals
                 // match gemini-cli's own `total` (which sums it in).
-                input_tokens: tokens.input.saturating_sub(cached) + tokens.tool.unwrap_or(0),
+                input_tokens: tokens
+                    .input
+                    .saturating_sub(cached)
+                    .saturating_add(tokens.tool.unwrap_or(0)),
                 output_tokens: tokens.output,
                 cache_read_tokens: cached,
                 cache_creation_tokens: 0,
