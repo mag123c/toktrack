@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.8.0](https://github.com/mag123c/toktrack/compare/v2.7.4...v2.8.0) (2026-06-01)
+
+
+### Features
+
+* capture Claude web_fetch_requests with optional custom pricing ([4b36d21](https://github.com/mag123c/toktrack/commit/4b36d21a6750aa5027f9a6a40f58fc5742a97fdb))
+* **parser:** add Qwen Code support (Gemini-format fork) ([ac39686](https://github.com/mag123c/toktrack/commit/ac39686c8c5f14dd3079f356831c0b7a235b8caa))
+* **parser:** common data-dir discovery with env-var overrides ([3a119ed](https://github.com/mag123c/toktrack/commit/3a119ed53156efa23000663ee0604fe78397fe73))
+* **services:** detect and surface unsupported Antigravity CLI ([1572470](https://github.com/mag123c/toktrack/commit/1572470d2ffa644b3a6e0ecfcb56dc2299f1c7b5))
+* **services:** generalize tiered pricing to 128k/256k/272k breakpoints ([9dd247b](https://github.com/mag123c/toktrack/commit/9dd247bfb4eefab3fc5b176d2ff2ab8d23e44b66))
+* **services:** label estimated (LiteLLM-calculated) source costs ([3bbef87](https://github.com/mag123c/toktrack/commit/3bbef87d8cf35c3dd701b2eae14a94a3172e853b))
+* **services:** vendored pricing snapshot as offline fallback ([f0026e9](https://github.com/mag123c/toktrack/commit/f0026e9da6b5246b8625e165da1040ccdad4dadf))
+* **types:** token semantics v2 (reasoning rename, reported total, Gemini cached fix) ([9876a72](https://github.com/mag123c/toktrack/commit/9876a725d4779fa8c68b4e46875efec1e2e87cb0))
+
+
+### Bug Fixes
+
+* address 2.8.0 review findings ([2fbee2e](https://github.com/mag123c/toktrack/commit/2fbee2ebbdd8c133eefacb7de584e8172d2dcc34))
+* **services:** correct web search and reasoning token cost ([8c7ed0d](https://github.com/mag123c/toktrack/commit/8c7ed0d4eeb47e67f9b1420bd26b395ab3aeb8e5))
+
 ## [2.7.4](https://github.com/mag123c/toktrack/compare/v2.7.3...v2.7.4) (2026-05-14)
 
 
