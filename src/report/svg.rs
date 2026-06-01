@@ -377,6 +377,7 @@ mod tests {
                 name: "claude".to_string(),
                 total_tokens: 1_802_457,
                 cost_usd: 42.37,
+                estimated: false,
             }],
             daily: vec![DayReport {
                 date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),

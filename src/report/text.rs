@@ -122,13 +122,22 @@ pub fn render(data: &ReportData) -> String {
         out.push_str(&format!("\u{2502}{}\u{2502}\n", "\u{2508}".repeat(w)));
         boxed_line(&mut out, w, " BY SOURCE");
 
+        let mut any_estimated = false;
         for source in &data.by_source {
             let name = truncate(&source.name, 18);
-            let cost = format_cost(source.cost_usd);
+            let cost = if source.estimated {
+                any_estimated = true;
+                format!("~{}", format_cost(source.cost_usd))
+            } else {
+                format_cost(source.cost_usd)
+            };
             let tokens = format_tokens(source.total_tokens);
 
             let content = format!("   {:<18}  {:>9} {:>7}", name, cost, tokens);
             boxed_line(&mut out, w, &content);
+        }
+        if any_estimated {
+            boxed_line(&mut out, w, "   ~ = estimated cost (LiteLLM pricing)");
         }
     }
 
@@ -236,6 +245,7 @@ mod tests {
                 name: "claude".to_string(),
                 total_tokens: 1_802_457,
                 cost_usd: 42.37,
+                estimated: false,
             }],
             daily: vec![
                 DayReport {
@@ -360,6 +370,7 @@ mod tests {
                 name: "very-long-source-name".to_string(),
                 total_tokens: 999_999_999,
                 cost_usd: 99999.99,
+                estimated: false,
             }],
             daily: vec![DayReport {
                 date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),

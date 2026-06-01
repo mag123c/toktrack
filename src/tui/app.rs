@@ -1013,6 +1013,7 @@ mod tests {
                     total_tokens: 3000,
                     total_cost_usd: 0.20,
                     supported: true,
+                    estimated: false,
                 }],
                 source_daily_data: HashMap::new(),
                 source_models_data: HashMap::new(),
@@ -1145,6 +1146,7 @@ mod tests {
                 total_tokens: 1000,
                 total_cost_usd: 0.05,
                 supported: true,
+                estimated: false,
             });
         }
 

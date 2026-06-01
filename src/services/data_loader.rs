@@ -118,6 +118,7 @@ impl DataLoaderService {
 
         let mut all_summaries = Vec::new();
         let mut source_stats: HashMap<String, (u64, f64)> = HashMap::new();
+        let mut source_estimated: HashMap<String, bool> = HashMap::new();
         let mut source_summaries: HashMap<String, Vec<DailySummary>> = HashMap::new();
         let mut cache_warning = None;
 
@@ -157,6 +158,11 @@ impl DataLoaderService {
                 }
             };
 
+            let est = Self::batch_estimated(&entries);
+            source_estimated
+                .entry(parser.name().to_string())
+                .and_modify(|e| *e |= est)
+                .or_insert(est);
             let entries = self.apply_pricing(entries);
 
             match cache_service.load_or_compute(parser.name(), &entries) {
@@ -182,7 +188,7 @@ impl DataLoaderService {
         }
 
         let all_summaries = Aggregator::merge_by_date(all_summaries);
-        let mut source_usage = Self::build_source_usage(source_stats);
+        let mut source_usage = Self::build_source_usage(source_stats, &source_estimated);
         source_usage.extend(Self::antigravity_notice());
 
         Ok(LoadResult {
@@ -207,6 +213,7 @@ impl DataLoaderService {
 
         let mut all_summaries = Vec::new();
         let mut source_stats: HashMap<String, (u64, f64)> = HashMap::new();
+        let mut source_estimated: HashMap<String, bool> = HashMap::new();
         let mut source_summaries: HashMap<String, Vec<DailySummary>> = HashMap::new();
         let mut cache_warning = None;
         let mut any_entries = false;
@@ -225,6 +232,11 @@ impl DataLoaderService {
             }
             any_entries = true;
 
+            let est = Self::batch_estimated(&entries);
+            source_estimated
+                .entry(parser.name().to_string())
+                .and_modify(|e| *e |= est)
+                .or_insert(est);
             let entries = self.apply_pricing_with_ref(entries, pricing_ref);
 
             // Try to use cache service
@@ -269,7 +281,7 @@ impl DataLoaderService {
         }
 
         let all_summaries = Aggregator::merge_by_date(all_summaries);
-        let mut source_usage = Self::build_source_usage(source_stats);
+        let mut source_usage = Self::build_source_usage(source_stats, &source_estimated);
         source_usage.extend(Self::antigravity_notice());
 
         Ok(LoadResult {
@@ -283,6 +295,14 @@ impl DataLoaderService {
     /// Apply pricing to entries using cached pricing service
     fn apply_pricing(&self, entries: Vec<UsageEntry>) -> Vec<UsageEntry> {
         self.apply_pricing_with_ref(entries, self.pricing.as_ref())
+    }
+
+    /// Whether a batch of entries is "estimated" — at least one non-Copilot entry
+    /// had no upstream cost, so its cost will be LiteLLM-calculated.
+    fn batch_estimated(entries: &[UsageEntry]) -> bool {
+        entries
+            .iter()
+            .any(|e| e.cost_usd.is_none() && !is_copilot_provider(e.provider.as_deref()))
     }
 
     /// Apply pricing to entries using the given pricing service reference
@@ -327,14 +347,18 @@ impl DataLoaderService {
     }
 
     /// Convert source stats map to sorted SourceUsage vector
-    fn build_source_usage(source_stats: HashMap<String, (u64, f64)>) -> Vec<SourceUsage> {
+    fn build_source_usage(
+        source_stats: HashMap<String, (u64, f64)>,
+        estimated: &HashMap<String, bool>,
+    ) -> Vec<SourceUsage> {
         let mut result: Vec<SourceUsage> = source_stats
             .into_iter()
             .map(|(source, (total_tokens, total_cost_usd))| SourceUsage {
+                supported: true,
+                estimated: estimated.get(&source).copied().unwrap_or(false),
                 source,
                 total_tokens,
                 total_cost_usd,
-                supported: true,
             })
             .collect();
         // Sort by total_tokens descending
@@ -363,6 +387,7 @@ impl DataLoaderService {
                 total_tokens: 0,
                 total_cost_usd: 0.0,
                 supported: false,
+                estimated: false,
             })
         } else {
             None
@@ -445,7 +470,7 @@ mod tests {
     #[test]
     fn test_build_source_usage_empty() {
         let stats = HashMap::new();
-        let result = DataLoaderService::build_source_usage(stats);
+        let result = DataLoaderService::build_source_usage(stats, &HashMap::new());
         assert!(result.is_empty());
     }
 
@@ -453,13 +478,51 @@ mod tests {
     fn test_build_source_usage_single_source() {
         let mut stats = HashMap::new();
         stats.insert("claude".to_string(), (1000u64, 0.05f64));
+        let estimated = HashMap::from([("claude".to_string(), true)]);
 
-        let result = DataLoaderService::build_source_usage(stats);
+        let result = DataLoaderService::build_source_usage(stats, &estimated);
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].source, "claude");
         assert_eq!(result[0].total_tokens, 1000);
         assert!((result[0].total_cost_usd - 0.05).abs() < f64::EPSILON);
+        assert!(result[0].supported);
+        assert!(
+            result[0].estimated,
+            "estimated flag should flow from the map"
+        );
+    }
+
+    #[test]
+    fn test_batch_estimated() {
+        use chrono::Utc;
+        let mk = |cost: Option<f64>, provider: Option<&str>| UsageEntry {
+            timestamp: Utc::now(),
+            model: Some("m".into()),
+            input_tokens: 1,
+            output_tokens: 1,
+            cache_read_tokens: 0,
+            cache_creation_tokens: 0,
+            reasoning_tokens: 0,
+            cache_creation_5m_tokens: 0,
+            cache_creation_1h_tokens: 0,
+            web_search_requests: 0,
+            reported_total_tokens: None,
+            cost_usd: cost,
+            message_id: None,
+            request_id: None,
+            source: None,
+            provider: provider.map(String::from),
+        };
+        // upstream cost present → not estimated
+        assert!(!DataLoaderService::batch_estimated(&[mk(Some(0.1), None)]));
+        // calculated (no upstream cost) → estimated
+        assert!(DataLoaderService::batch_estimated(&[mk(None, None)]));
+        // copilot without cost → free, not an estimate
+        assert!(!DataLoaderService::batch_estimated(&[mk(
+            None,
+            Some("github-copilot")
+        )]));
     }
 
     #[test]
@@ -469,7 +532,7 @@ mod tests {
         stats.insert("opencode".to_string(), (2000u64, 0.10f64));
         stats.insert("gemini".to_string(), (1000u64, 0.05f64));
 
-        let result = DataLoaderService::build_source_usage(stats);
+        let result = DataLoaderService::build_source_usage(stats, &HashMap::new());
 
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].source, "opencode");

@@ -239,6 +239,10 @@ pub struct SourceUsage {
     /// not write file-readable token usage). Rendered as a disabled row.
     #[serde(default = "default_true")]
     pub supported: bool,
+    /// True when this source's cost was LiteLLM-calculated (the source did not
+    /// provide its own cost), i.e. an estimate. Rendered with a marker + legend.
+    #[serde(default)]
+    pub estimated: bool,
 }
 
 impl Default for SourceUsage {
@@ -248,6 +252,7 @@ impl Default for SourceUsage {
             total_tokens: 0,
             total_cost_usd: 0.0,
             supported: true,
+            estimated: false,
         }
     }
 }

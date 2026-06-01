@@ -368,6 +368,7 @@ impl Aggregator {
                 total_tokens,
                 total_cost_usd,
                 supported: true,
+                estimated: false,
             })
             .collect();
 

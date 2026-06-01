@@ -149,7 +149,17 @@ fn run_report(_week: bool, month: bool, days: Option<u32>, svg: Option<PathBuf>)
     let end = today;
 
     let result = load_data_full()?;
-    let data = ReportData::from_summaries(&result.summaries, &result.source_summaries, start, end);
+    let mut data =
+        ReportData::from_summaries(&result.summaries, &result.source_summaries, start, end);
+    // Carry per-source "estimated" (LiteLLM-calculated cost) onto the report.
+    let estimated: std::collections::HashMap<&str, bool> = result
+        .source_usage
+        .iter()
+        .map(|s| (s.source.as_str(), s.estimated))
+        .collect();
+    for sr in &mut data.by_source {
+        sr.estimated = estimated.get(sr.name.as_str()).copied().unwrap_or(false);
+    }
 
     // Always print text report
     println!("{}", crate::report::text::render(&data));
