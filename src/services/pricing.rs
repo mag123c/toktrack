@@ -175,6 +175,9 @@ struct CustomModelPricing {
 #[derive(Debug, Deserialize)]
 struct GlobalPricing {
     web_search_per_request: Option<f64>,
+    /// Optional per-request web fetch cost. No LiteLLM source exists, so web fetch
+    /// is priced only when the user sets this.
+    web_fetch_per_request: Option<f64>,
 }
 
 /// Pricing service for calculating token costs
@@ -527,8 +530,24 @@ impl PricingService {
 
         // Web search cost
         let web_search_cost = self.get_web_search_cost(entry, pricing);
+        let web_fetch_cost = self.get_web_fetch_cost(entry);
 
-        input + output + cache_read + cache_creation + reasoning + web_search_cost
+        input + output + cache_read + cache_creation + reasoning + web_search_cost + web_fetch_cost
+    }
+
+    /// Web fetch cost. No LiteLLM source exists, so this is priced only via the
+    /// custom `global.web_fetch_per_request` override (else 0).
+    fn get_web_fetch_cost(&self, entry: &UsageEntry) -> f64 {
+        if entry.web_fetch_requests == 0 {
+            return 0.0;
+        }
+        let cost_per_request = self
+            .custom
+            .as_ref()
+            .and_then(|c| c.global.as_ref())
+            .and_then(|g| g.web_fetch_per_request)
+            .unwrap_or(0.0);
+        entry.web_fetch_requests as f64 * cost_per_request
     }
 
     /// Get web search cost per request (custom global override > pricing per model)
@@ -628,6 +647,7 @@ mod tests {
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            web_fetch_requests: 0,
             reported_total_tokens: None,
             cost_usd,
             message_id: None,
@@ -1516,6 +1536,7 @@ mod tests {
             models: None,
             global: Some(GlobalPricing {
                 web_search_per_request: Some(0.02), // $0.02 per search
+                web_fetch_per_request: None,
             }),
         };
 
@@ -1879,6 +1900,7 @@ web_search_per_request = 0.01
             models: None,
             global: Some(GlobalPricing {
                 web_search_per_request: Some(0.03),
+                web_fetch_per_request: None,
             }),
         };
         let service = PricingService::from_cache_only_with_path(&cache_path)
@@ -1891,6 +1913,36 @@ web_search_per_request = 0.01
 
         // custom global $0.03 wins over LiteLLM medium $0.01 → 2 * 0.03 = 0.06
         assert!((cost - 0.06).abs() < 1e-9, "expected 0.06, got {}", cost);
+    }
+
+    #[test]
+    fn test_web_fetch_zero_without_override_and_priced_with_override() {
+        let temp_dir = TempDir::new().unwrap();
+        let cache_path = temp_dir.path().join("pricing.json");
+        create_mock_cache(&cache_path);
+
+        // No override → web fetch contributes nothing (no LiteLLM source).
+        let service = PricingService::from_cache_only_with_path(&cache_path).unwrap();
+        let mut entry = make_entry(Some("claude-sonnet-4"), 0, 0, 0, 0, None);
+        entry.web_fetch_requests = 4;
+        assert!(
+            service.calculate_cost(&entry).abs() < 1e-12,
+            "web fetch must be free without a custom override"
+        );
+
+        // Custom global override → priced per request.
+        let custom = CustomPricingConfig {
+            models: None,
+            global: Some(GlobalPricing {
+                web_search_per_request: None,
+                web_fetch_per_request: Some(0.01),
+            }),
+        };
+        let service = PricingService::from_cache_only_with_path(&cache_path)
+            .unwrap()
+            .with_custom_pricing(Some(custom));
+        let cost = service.calculate_cost(&entry);
+        assert!((cost - 0.04).abs() < 1e-12, "expected 0.04, got {}", cost);
     }
 
     #[test]

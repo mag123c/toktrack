@@ -195,6 +195,7 @@ fn to_usage_entry(id: String, session_id: String, msg: OpenCodeMessageData) -> O
         cache_creation_5m_tokens: 0,
         cache_creation_1h_tokens: 0,
         web_search_requests: 0,
+        web_fetch_requests: 0,
         reported_total_tokens: None,
         cost_usd: msg.cost,
         message_id: Some(id),

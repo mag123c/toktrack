@@ -34,5 +34,7 @@ structure is preserved.
 | OpenCode | `opencode/...`, in-test SQLite | message rows with reasoning + cache + cost |
 | PI Agent | `pi_agent/*.jsonl` | assistant usage; nested `cost.total` |
 
-## Known upstream fields not yet consumed
-- Claude `usage.server_tool_use.web_fetch_requests` — web fetch may be billable; not yet priced.
+## Notes
+- Claude `usage.server_tool_use.web_fetch_requests` — captured into
+  `UsageEntry.web_fetch_requests`. No LiteLLM price exists, so it is priced only
+  via a custom `global.web_fetch_per_request` override (else $0).

@@ -214,6 +214,7 @@ impl CLIParser for PiAgentParser {
                         cache_creation_5m_tokens: 0,
                         cache_creation_1h_tokens: 0,
                         web_search_requests: 0,
+                        web_fetch_requests: 0,
                         reported_total_tokens: None,
                         cost_usd: event.usage.cost.and_then(|c| c.total),
                         message_id: event.message_id,

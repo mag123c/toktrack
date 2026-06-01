@@ -36,6 +36,7 @@ struct CacheCreationDetail {
 #[derive(Deserialize, Default)]
 struct ServerToolUse {
     web_search_requests: Option<u64>,
+    web_fetch_requests: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -124,6 +125,7 @@ impl ClaudeCodeParser {
                 .and_then(|d| d.ephemeral_1h_input_tokens)
                 .unwrap_or(0),
             web_search_requests: tool_use.and_then(|t| t.web_search_requests).unwrap_or(0),
+            web_fetch_requests: tool_use.and_then(|t| t.web_fetch_requests).unwrap_or(0),
             reported_total_tokens: None,
             cost_usd: data.cost_usd,
             message_id: message.id.map(String::from),
@@ -214,6 +216,7 @@ mod tests {
         assert_eq!(e.cache_creation_5m_tokens, 0);
         assert_eq!(e.cache_creation_1h_tokens, 19693);
         assert_eq!(e.web_search_requests, 2);
+        assert_eq!(e.web_fetch_requests, 1); // captured though not auto-priced
         assert_eq!(e.reasoning_tokens, 0); // folded into output by Anthropic
         assert_eq!(e.reported_total_tokens, None);
         assert_eq!(e.cost_usd, None); // modern logs omit costUSD → LiteLLM-calculated

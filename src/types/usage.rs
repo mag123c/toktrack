@@ -99,6 +99,11 @@ pub struct UsageEntry {
     pub cache_creation_1h_tokens: u64,
     #[serde(default)]
     pub web_search_requests: u64,
+    /// Web fetch tool invocations. No LiteLLM price exists (Anthropic bills the
+    /// fetched content as tokens), so this is tracked for completeness and priced
+    /// only via a custom `global.web_fetch_per_request` override.
+    #[serde(default)]
+    pub web_fetch_requests: u64,
     /// Upstream-reported total token count, when the source provides one
     /// (e.g. Gemini `tokens.total`). Reconciliation only — not summed, not priced.
     #[serde(default)]
@@ -365,6 +370,7 @@ mod tests {
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            web_fetch_requests: 0,
             reported_total_tokens: None,
             cost_usd: None,
             message_id: None,
@@ -388,6 +394,7 @@ mod tests {
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            web_fetch_requests: 0,
             reported_total_tokens: None,
             cost_usd: None,
             message_id: None,
@@ -411,6 +418,7 @@ mod tests {
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            web_fetch_requests: 0,
             reported_total_tokens: None,
             cost_usd: None,
             message_id: Some("msg123".into()),
@@ -434,6 +442,7 @@ mod tests {
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            web_fetch_requests: 0,
             reported_total_tokens: None,
             cost_usd: None,
             message_id: None,
@@ -457,6 +466,7 @@ mod tests {
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            web_fetch_requests: 0,
             reported_total_tokens: None,
             cost_usd: None,
             message_id: Some("msg789".into()),
@@ -485,6 +495,7 @@ mod tests {
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            web_fetch_requests: 0,
             reported_total_tokens: None,
             cost_usd: None,
             message_id: None,
@@ -513,6 +524,7 @@ mod tests {
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            web_fetch_requests: 0,
             reported_total_tokens: None,
             cost_usd: None,
             message_id: None,
@@ -543,6 +555,7 @@ mod tests {
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            web_fetch_requests: 0,
             reported_total_tokens: None,
             cost_usd: None,
             message_id: None,
