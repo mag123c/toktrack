@@ -31,6 +31,7 @@ structure is preserved.
 | Claude | `claude-sample.jsonl`, `claude/real-shape-session.jsonl` | real-shape from `~/.claude/projects` (sanitized); covers cache TTL 5m/1h, web_search, and fields toktrack ignores (`web_fetch_requests`, `service_tier`, `iterations`) |
 | Codex | `codex/*.jsonl` | token_count delta sessions, session_meta provider |
 | Gemini | `gemini/tmp*/chats/*` | legacy `.json` + streaming `.jsonl`; `total` reconciles with `total_tokens()` (input excludes cached) |
+| Qwen | `qwen/proj/chats/*.jsonl` | Gemini CLI fork — identical format; parsed by the same parser with source "qwen" |
 | OpenCode | `opencode/...`, in-test SQLite | message rows with reasoning + cache + cost |
 | PI Agent | `pi_agent/*.jsonl` | assistant usage; nested `cost.total` |
 

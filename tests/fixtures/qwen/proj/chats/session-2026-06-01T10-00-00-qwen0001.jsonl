@@ -1,0 +1,3 @@
+{"sessionId":"qwen-sess-0001","projectHash":"deadbeef","startTime":"2026-06-01T10:00:00Z","lastUpdated":"2026-06-01T10:00:00Z","kind":"main"}
+{"id":"q1","timestamp":"2026-06-01T10:00:00Z","type":"user","content":"redacted"}
+{"id":"q2","timestamp":"2026-06-01T10:00:01Z","type":"gemini","model":"qwen3-coder","content":"redacted","tokens":{"input":200,"output":80,"cached":40,"thoughts":20,"tool":0,"total":300}}

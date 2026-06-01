@@ -110,6 +110,7 @@ impl ParserRegistry {
                 Box::new(ClaudeCodeParser::new()),
                 Box::new(CodexParser::new()),
                 Box::new(GeminiParser::new()),
+                Box::new(GeminiParser::new_qwen()),
                 Box::new(OpenCodeParser::new()),
                 Box::new(PiAgentParser::new()),
             ],
@@ -144,10 +145,11 @@ mod tests {
     #[test]
     fn test_registry_default_parsers() {
         let registry = ParserRegistry::new();
-        assert_eq!(registry.parsers().len(), 5);
+        assert_eq!(registry.parsers().len(), 6);
         assert!(registry.get("claude-code").is_some());
         assert!(registry.get("codex").is_some());
         assert!(registry.get("gemini").is_some());
+        assert!(registry.get("qwen").is_some());
         assert!(registry.get("opencode").is_some());
         assert!(registry.get("pi-agent").is_some());
     }
@@ -233,7 +235,8 @@ mod tests {
         // gemini/tmp_jsonl_malformed/chats/session-bad.jsonl,
         // gemini/tmp_jsonl_no_meta/chats/session-*.jsonl
         // claude/real-shape-session.jsonl
-        // (claude parser uses `**/*.jsonl`; gemini-format files parse to 0 entries.)
-        assert_eq!(files.len(), 14);
+        // qwen/proj/chats/session-*.jsonl
+        // (claude parser uses `**/*.jsonl`; gemini/qwen-format files parse to 0 entries.)
+        assert_eq!(files.len(), 15);
     }
 }
