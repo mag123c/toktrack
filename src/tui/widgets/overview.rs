@@ -158,7 +158,7 @@ impl Overview<'_> {
             + self.data.total.total_output_tokens
             + self.data.total.total_cache_read_tokens
             + self.data.total.total_cache_creation_tokens
-            + self.data.total.total_thinking_tokens;
+            + self.data.total.total_reasoning_tokens;
         let formatted = format_number(total_tokens);
 
         let hero = Paragraph::new(vec![

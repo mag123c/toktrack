@@ -35,9 +35,9 @@ fn accumulate_summary(target: &mut DailySummary, source: &DailySummary) {
     target.total_cache_creation_tokens = target
         .total_cache_creation_tokens
         .saturating_add(source.total_cache_creation_tokens);
-    target.total_thinking_tokens = target
-        .total_thinking_tokens
-        .saturating_add(source.total_thinking_tokens);
+    target.total_reasoning_tokens = target
+        .total_reasoning_tokens
+        .saturating_add(source.total_reasoning_tokens);
     target.total_cache_creation_5m_tokens = target
         .total_cache_creation_5m_tokens
         .saturating_add(source.total_cache_creation_5m_tokens);
@@ -65,9 +65,9 @@ fn merge_model_usage(target: &mut ModelUsage, source: &ModelUsage) {
     target.cache_creation_tokens = target
         .cache_creation_tokens
         .saturating_add(source.cache_creation_tokens);
-    target.thinking_tokens = target
-        .thinking_tokens
-        .saturating_add(source.thinking_tokens);
+    target.reasoning_tokens = target
+        .reasoning_tokens
+        .saturating_add(source.reasoning_tokens);
     target.cache_creation_5m_tokens = target
         .cache_creation_5m_tokens
         .saturating_add(source.cache_creation_5m_tokens);
@@ -104,7 +104,7 @@ impl Aggregator {
                 total_output_tokens: 0,
                 total_cache_read_tokens: 0,
                 total_cache_creation_tokens: 0,
-                total_thinking_tokens: 0,
+                total_reasoning_tokens: 0,
                 total_cache_creation_5m_tokens: 0,
                 total_cache_creation_1h_tokens: 0,
                 total_web_search_requests: 0,
@@ -124,9 +124,9 @@ impl Aggregator {
             summary.total_cache_creation_tokens = summary
                 .total_cache_creation_tokens
                 .saturating_add(entry.cache_creation_tokens);
-            summary.total_thinking_tokens = summary
-                .total_thinking_tokens
-                .saturating_add(entry.thinking_tokens);
+            summary.total_reasoning_tokens = summary
+                .total_reasoning_tokens
+                .saturating_add(entry.reasoning_tokens);
             summary.total_cache_creation_5m_tokens = summary
                 .total_cache_creation_5m_tokens
                 .saturating_add(entry.cache_creation_5m_tokens);
@@ -171,7 +171,7 @@ impl Aggregator {
                 total_output_tokens: 0,
                 total_cache_read_tokens: 0,
                 total_cache_creation_tokens: 0,
-                total_thinking_tokens: 0,
+                total_reasoning_tokens: 0,
                 total_cache_creation_5m_tokens: 0,
                 total_cache_creation_1h_tokens: 0,
                 total_web_search_requests: 0,
@@ -206,7 +206,7 @@ impl Aggregator {
                 total_output_tokens: 0,
                 total_cache_read_tokens: 0,
                 total_cache_creation_tokens: 0,
-                total_thinking_tokens: 0,
+                total_reasoning_tokens: 0,
                 total_cache_creation_5m_tokens: 0,
                 total_cache_creation_1h_tokens: 0,
                 total_web_search_requests: 0,
@@ -260,9 +260,9 @@ impl Aggregator {
             summary.total_cache_creation_tokens = summary
                 .total_cache_creation_tokens
                 .saturating_add(s.total_cache_creation_tokens);
-            summary.total_thinking_tokens = summary
-                .total_thinking_tokens
-                .saturating_add(s.total_thinking_tokens);
+            summary.total_reasoning_tokens = summary
+                .total_reasoning_tokens
+                .saturating_add(s.total_reasoning_tokens);
             summary.total_cache_creation_5m_tokens = summary
                 .total_cache_creation_5m_tokens
                 .saturating_add(s.total_cache_creation_5m_tokens);
@@ -320,9 +320,9 @@ impl Aggregator {
             summary.total_cache_creation_tokens = summary
                 .total_cache_creation_tokens
                 .saturating_add(entry.cache_creation_tokens);
-            summary.total_thinking_tokens = summary
-                .total_thinking_tokens
-                .saturating_add(entry.thinking_tokens);
+            summary.total_reasoning_tokens = summary
+                .total_reasoning_tokens
+                .saturating_add(entry.reasoning_tokens);
             summary.total_cache_creation_5m_tokens = summary
                 .total_cache_creation_5m_tokens
                 .saturating_add(entry.cache_creation_5m_tokens);
@@ -353,7 +353,7 @@ impl Aggregator {
                 + entry.output_tokens
                 + entry.cache_read_tokens
                 + entry.cache_creation_tokens
-                + entry.thinking_tokens;
+                + entry.reasoning_tokens;
             let cost = entry.cost_usd.unwrap_or(0.0);
 
             let entry_stats = source_map.entry(source).or_insert((0, 0.0));
@@ -393,7 +393,7 @@ impl Aggregator {
                     total_output_tokens: 0,
                     total_cache_read_tokens: 0,
                     total_cache_creation_tokens: 0,
-                    total_thinking_tokens: 0,
+                    total_reasoning_tokens: 0,
                     total_cache_creation_5m_tokens: 0,
                     total_cache_creation_1h_tokens: 0,
                     total_web_search_requests: 0,
@@ -430,10 +430,11 @@ mod tests {
             output_tokens: output,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
-            thinking_tokens: 0,
+            reasoning_tokens: 0,
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            reported_total_tokens: None,
             cost_usd: cost,
             message_id: None,
             request_id: None,
@@ -461,10 +462,11 @@ mod tests {
             output_tokens: output,
             cache_read_tokens: cache_read,
             cache_creation_tokens: cache_creation,
-            thinking_tokens: 0,
+            reasoning_tokens: 0,
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            reported_total_tokens: None,
             cost_usd: cost,
             message_id: None,
             request_id: None,
@@ -737,7 +739,7 @@ mod tests {
             total_output_tokens: output,
             total_cache_read_tokens: 0,
             total_cache_creation_tokens: 0,
-            total_thinking_tokens: 0,
+            total_reasoning_tokens: 0,
             total_cache_creation_5m_tokens: 0,
             total_cache_creation_1h_tokens: 0,
             total_web_search_requests: 0,
@@ -761,7 +763,7 @@ mod tests {
             total_output_tokens: output,
             total_cache_read_tokens: 0,
             total_cache_creation_tokens: 0,
-            total_thinking_tokens: 0,
+            total_reasoning_tokens: 0,
             total_cache_creation_5m_tokens: 0,
             total_cache_creation_1h_tokens: 0,
             total_web_search_requests: 0,
@@ -1002,7 +1004,7 @@ mod tests {
                 output_tokens: 50,
                 cache_read_tokens: 10,
                 cache_creation_tokens: 5,
-                thinking_tokens: 0,
+                reasoning_tokens: 0,
                 cache_creation_5m_tokens: 0,
                 cache_creation_1h_tokens: 0,
                 web_search_requests: 0,
@@ -1132,7 +1134,7 @@ mod tests {
             total_output_tokens: 50,
             total_cache_read_tokens: 10,
             total_cache_creation_tokens: 5,
-            total_thinking_tokens: 0,
+            total_reasoning_tokens: 0,
             total_cache_creation_5m_tokens: 0,
             total_cache_creation_1h_tokens: 0,
             total_web_search_requests: 0,
@@ -1145,7 +1147,7 @@ mod tests {
             total_output_tokens: 100,
             total_cache_read_tokens: 30,
             total_cache_creation_tokens: 15,
-            total_thinking_tokens: 0,
+            total_reasoning_tokens: 0,
             total_cache_creation_5m_tokens: 0,
             total_cache_creation_1h_tokens: 0,
             total_web_search_requests: 0,
@@ -1169,7 +1171,7 @@ mod tests {
             output_tokens: 50,
             cache_read_tokens: 10,
             cache_creation_tokens: 5,
-            thinking_tokens: 0,
+            reasoning_tokens: 0,
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
@@ -1181,7 +1183,7 @@ mod tests {
             output_tokens: 100,
             cache_read_tokens: 20,
             cache_creation_tokens: 10,
-            thinking_tokens: 0,
+            reasoning_tokens: 0,
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
@@ -1252,7 +1254,7 @@ mod tests {
             total_output_tokens: 50,
             total_cache_read_tokens: 0,
             total_cache_creation_tokens: 0,
-            total_thinking_tokens: 0,
+            total_reasoning_tokens: 0,
             total_cache_creation_5m_tokens: 0,
             total_cache_creation_1h_tokens: 0,
             total_web_search_requests: 0,
@@ -1287,7 +1289,7 @@ mod tests {
             total_output_tokens: 125,
             total_cache_read_tokens: 0,
             total_cache_creation_tokens: 0,
-            total_thinking_tokens: 0,
+            total_reasoning_tokens: 0,
             total_cache_creation_5m_tokens: 0,
             total_cache_creation_1h_tokens: 0,
             total_web_search_requests: 0,
@@ -1327,10 +1329,11 @@ mod tests {
             output_tokens: output,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
-            thinking_tokens: 0,
+            reasoning_tokens: 0,
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            reported_total_tokens: None,
             cost_usd: cost,
             message_id: None,
             request_id: None,
@@ -1356,10 +1359,11 @@ mod tests {
             output_tokens: 50,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
-            thinking_tokens: 0,
+            reasoning_tokens: 0,
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            reported_total_tokens: None,
             cost_usd: Some(0.01),
             message_id: None,
             request_id: None,
@@ -1373,10 +1377,11 @@ mod tests {
             output_tokens: 100,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
-            thinking_tokens: 0,
+            reasoning_tokens: 0,
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            reported_total_tokens: None,
             cost_usd: Some(0.02),
             message_id: None,
             request_id: None,
@@ -1426,10 +1431,11 @@ mod tests {
                 output_tokens: 50,
                 cache_read_tokens: 0,
                 cache_creation_tokens: 0,
-                thinking_tokens: 0,
+                reasoning_tokens: 0,
                 cache_creation_5m_tokens: 0,
                 cache_creation_1h_tokens: 0,
                 web_search_requests: 0,
+                reported_total_tokens: None,
                 cost_usd: Some(0.01),
                 message_id: None,
                 request_id: None,
@@ -1443,10 +1449,11 @@ mod tests {
                 output_tokens: 100,
                 cache_read_tokens: 0,
                 cache_creation_tokens: 0,
-                thinking_tokens: 0,
+                reasoning_tokens: 0,
                 cache_creation_5m_tokens: 0,
                 cache_creation_1h_tokens: 0,
                 web_search_requests: 0,
+                reported_total_tokens: None,
                 cost_usd: Some(0.02),
                 message_id: None,
                 request_id: None,
@@ -1676,10 +1683,11 @@ mod tests {
             output_tokens: output,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
-            thinking_tokens: 0,
+            reasoning_tokens: 0,
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            reported_total_tokens: None,
             cost_usd: cost,
             message_id: None,
             request_id: None,

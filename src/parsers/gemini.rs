@@ -42,6 +42,8 @@ struct GeminiTokens {
     cached: u64,
     #[serde(default)]
     thoughts: u64,
+    #[serde(default)]
+    total: Option<u64>,
 }
 
 /// JSONL line — combines metadata, message, and dispatch markers.
@@ -79,6 +81,8 @@ struct GeminiTokensJsonl {
     // `tool` (toolUsePromptTokenCount, added 2026-04-09) is merged into input_tokens.
     #[serde(default)]
     tool: Option<u64>,
+    #[serde(default)]
+    total: Option<u64>,
 }
 
 /// Parser for Gemini CLI usage data
@@ -146,14 +150,18 @@ impl GeminiParser {
             entries.push(UsageEntry {
                 timestamp,
                 model: msg.model.clone().or_else(|| session.model.clone()),
-                input_tokens: tokens.input,
+                // Gemini's `input` (promptTokenCount) INCLUDES cached tokens; subtract
+                // so input_tokens is billable non-cached input (contract) and cached is
+                // not double-charged (input rate + cache-read rate).
+                input_tokens: tokens.input.saturating_sub(tokens.cached),
                 output_tokens: tokens.output,
                 cache_read_tokens: tokens.cached,
                 cache_creation_tokens: 0,
-                thinking_tokens: tokens.thoughts,
+                reasoning_tokens: tokens.thoughts,
                 cache_creation_5m_tokens: 0,
                 cache_creation_1h_tokens: 0,
                 web_search_requests: 0,
+                reported_total_tokens: tokens.total,
                 cost_usd: None,
                 message_id: Some(msg.id),
                 request_id: Some(session.session_id.clone()),
@@ -229,19 +237,23 @@ impl GeminiParser {
                 .clone()
                 .unwrap_or_else(|| fallback_session_id.clone());
 
+            let cached = tokens.cached.unwrap_or(0);
             entries.push(UsageEntry {
                 timestamp,
                 model: parsed.model.map(String::from),
-                // `tokens.tool` is gemini-cli's toolUsePromptTokenCount — folded into input
-                // so user-visible totals match gemini-cli's own `total` (which sums it in).
-                input_tokens: tokens.input + tokens.tool.unwrap_or(0),
+                // Gemini's `input` (promptTokenCount) INCLUDES cached; subtract it so
+                // input_tokens is billable non-cached input and cached isn't double-charged.
+                // `tokens.tool` (toolUsePromptTokenCount) is folded into input so totals
+                // match gemini-cli's own `total` (which sums it in).
+                input_tokens: tokens.input.saturating_sub(cached) + tokens.tool.unwrap_or(0),
                 output_tokens: tokens.output,
-                cache_read_tokens: tokens.cached.unwrap_or(0),
+                cache_read_tokens: cached,
                 cache_creation_tokens: 0,
-                thinking_tokens: tokens.thoughts.unwrap_or(0),
+                reasoning_tokens: tokens.thoughts.unwrap_or(0),
                 cache_creation_5m_tokens: 0,
                 cache_creation_1h_tokens: 0,
                 web_search_requests: 0,
+                reported_total_tokens: tokens.total,
                 cost_usd: None,
                 message_id: parsed.id.map(String::from),
                 request_id: Some(request_id),
@@ -379,11 +391,12 @@ mod tests {
 
         let first = &entries[0];
         assert_eq!(first.model, Some("gemini-2.5-pro".to_string()));
-        assert_eq!(first.input_tokens, 100);
+        // input(100) includes cached(20) upstream → billable non-cached = 80
+        assert_eq!(first.input_tokens, 80);
         assert_eq!(first.output_tokens, 50);
         assert_eq!(first.cache_read_tokens, 20);
         assert_eq!(first.cache_creation_tokens, 0);
-        assert_eq!(first.thinking_tokens, 30);
+        assert_eq!(first.reasoning_tokens, 30);
         assert_eq!(first.source, Some("gemini".into()));
         assert_eq!(first.message_id, Some("msg-002".to_string()));
         assert_eq!(first.request_id, Some("abc123".to_string()));
@@ -395,10 +408,11 @@ mod tests {
         let entries = parser.parse_file(&fixture_path()).unwrap();
 
         let second = &entries[1];
-        assert_eq!(second.input_tokens, 250);
+        // input(250) includes cached(50) upstream → billable non-cached = 200
+        assert_eq!(second.input_tokens, 200);
         assert_eq!(second.output_tokens, 150);
         assert_eq!(second.cache_read_tokens, 50);
-        assert_eq!(second.thinking_tokens, 100);
+        assert_eq!(second.reasoning_tokens, 100);
         assert_eq!(second.message_id, Some("msg-004".to_string()));
     }
 
@@ -433,8 +447,10 @@ mod tests {
     fn test_total_tokens_includes_thinking() {
         let parser = GeminiParser::with_data_dir(PathBuf::from("tests/fixtures/gemini"));
         let entries = parser.parse_file(&fixture_path()).unwrap();
-        assert_eq!(entries[0].total_tokens(), 200);
-        assert_eq!(entries[1].total_tokens(), 550);
+        // non-cached input + output + cache_read + reasoning
+        // e0: 80 + 50 + 20 + 30 = 180 ; e1: 200 + 150 + 50 + 100 = 500
+        assert_eq!(entries[0].total_tokens(), 180);
+        assert_eq!(entries[1].total_tokens(), 500);
     }
 
     fn fixture_no_session_model_path() -> PathBuf {
@@ -479,10 +495,39 @@ mod tests {
         let parser = GeminiParser::with_data_dir(PathBuf::from("tests/fixtures/gemini"));
         let entries = parser.parse_file(&jsonl_fixture_path()).unwrap();
 
-        // m2: tokens.input=100, tokens.tool=10 → input_tokens=110
-        assert_eq!(entries[0].input_tokens, 110);
-        // m4: tokens.input=250, no `tool` → input_tokens=250
-        assert_eq!(entries[1].input_tokens, 250);
+        // m2: input=100 (incl. cached=20), tool=10 → (100-20)+10 = 90
+        assert_eq!(entries[0].input_tokens, 90);
+        // m4: input=250 (incl. cached=50), no tool → 250-50 = 200
+        assert_eq!(entries[1].input_tokens, 200);
+    }
+
+    #[test]
+    fn test_jsonl_reported_total_reconciles_with_total_tokens() {
+        // Contract: when the source reports a total, it must equal total_tokens()
+        // (input non-cached + output + cache_read + reasoning). Guards future drift
+        // in the input/cached/total relationship.
+        let parser = GeminiParser::with_data_dir(PathBuf::from("tests/fixtures/gemini"));
+        let entries = parser.parse_file(&jsonl_fixture_path()).unwrap();
+        for e in &entries {
+            let reported = e
+                .reported_total_tokens
+                .expect("jsonl fixture carries total");
+            assert_eq!(
+                e.total_tokens(),
+                reported,
+                "total_tokens() must reconcile with upstream reported total"
+            );
+        }
+        // m2: 90 + 50 + 20 + 30 = 190
+        assert_eq!(entries[0].reported_total_tokens, Some(190));
+    }
+
+    #[test]
+    fn test_legacy_json_has_no_reported_total() {
+        // Legacy .json fixtures carry no `total` field → None.
+        let parser = GeminiParser::with_data_dir(PathBuf::from("tests/fixtures/gemini"));
+        let entries = parser.parse_file(&fixture_path()).unwrap();
+        assert!(entries.iter().all(|e| e.reported_total_tokens.is_none()));
     }
 
     #[test]
@@ -515,7 +560,8 @@ mod tests {
 
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].message_id, Some("sm2".to_string()));
-        assert_eq!(entries[0].input_tokens, 40);
+        // input=40 includes cached=5 → billable non-cached = 35
+        assert_eq!(entries[0].input_tokens, 35);
         assert_eq!(
             entries[0].request_id,
             Some("sub-abc-0000-4d2e-8a1f-000000000002".to_string())

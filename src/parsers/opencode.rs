@@ -184,10 +184,11 @@ fn to_usage_entry(id: String, session_id: String, msg: OpenCodeMessageData) -> O
         output_tokens: tokens.output,
         cache_read_tokens: cache_read,
         cache_creation_tokens: cache_write,
-        thinking_tokens: tokens.reasoning,
+        reasoning_tokens: tokens.reasoning,
         cache_creation_5m_tokens: 0,
         cache_creation_1h_tokens: 0,
         web_search_requests: 0,
+        reported_total_tokens: None,
         cost_usd: msg.cost,
         message_id: Some(id),
         request_id: Some(session_id),
@@ -328,7 +329,7 @@ mod tests {
         assert_eq!(entry.output_tokens, 500);
         assert_eq!(entry.cache_read_tokens, 100);
         assert_eq!(entry.cache_creation_tokens, 50);
-        assert_eq!(entry.thinking_tokens, 0);
+        assert_eq!(entry.reasoning_tokens, 0);
         assert_eq!(entry.cost_usd, Some(0.05));
         assert_eq!(entry.source, Some("opencode".into()));
         assert_eq!(entry.message_id, Some("msg_001".to_string()));
@@ -344,7 +345,7 @@ mod tests {
         assert_eq!(entry.output_tokens, 800);
         assert_eq!(entry.cache_read_tokens, 200);
         assert_eq!(entry.cache_creation_tokens, 100);
-        assert_eq!(entry.thinking_tokens, 150);
+        assert_eq!(entry.reasoning_tokens, 150);
         assert_eq!(entry.cost_usd, Some(0.12));
     }
 
@@ -618,7 +619,7 @@ mod tests {
         assert_eq!(e.provider, Some("anthropic".to_string()));
         assert_eq!(e.input_tokens, 1000);
         assert_eq!(e.output_tokens, 500);
-        assert_eq!(e.thinking_tokens, 150);
+        assert_eq!(e.reasoning_tokens, 150);
         assert_eq!(e.cache_read_tokens, 200);
         assert_eq!(e.cache_creation_tokens, 100);
         assert_eq!(e.cost_usd, Some(0.42));

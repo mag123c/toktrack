@@ -317,7 +317,7 @@ impl DataLoaderService {
                 + s.total_output_tokens
                 + s.total_cache_read_tokens
                 + s.total_cache_creation_tokens
-                + s.total_thinking_tokens;
+                + s.total_reasoning_tokens;
             let stat = stats.entry(source_name.to_string()).or_default();
             stat.0 = stat.0.saturating_add(tokens);
             stat.1 += s.total_cost_usd;
@@ -502,10 +502,11 @@ mod tests {
             output_tokens: 500,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
-            thinking_tokens: 0,
+            reasoning_tokens: 0,
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            reported_total_tokens: None,
             cost_usd,
             message_id: None,
             request_id: None,
@@ -567,10 +568,11 @@ mod tests {
             output_tokens: 10_000_000,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
-            thinking_tokens: 0,
+            reasoning_tokens: 0,
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            reported_total_tokens: None,
             cost_usd: Some(100.0),
             message_id: None,
             request_id: None,
@@ -584,10 +586,11 @@ mod tests {
             output_tokens: 500,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
-            thinking_tokens: 0,
+            reasoning_tokens: 0,
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            reported_total_tokens: None,
             cost_usd: Some(0.01),
             message_id: None,
             request_id: None,
@@ -601,10 +604,11 @@ mod tests {
             output_tokens: 1000,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
-            thinking_tokens: 0,
+            reasoning_tokens: 0,
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            reported_total_tokens: None,
             cost_usd: Some(0.02),
             message_id: None,
             request_id: None,

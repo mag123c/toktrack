@@ -39,7 +39,7 @@ impl StatsData {
                 + summary.total_output_tokens
                 + summary.total_cache_read_tokens
                 + summary.total_cache_creation_tokens
-                + summary.total_thinking_tokens;
+                + summary.total_reasoning_tokens;
 
             total_tokens = total_tokens.saturating_add(day_tokens);
             total_cost += summary.total_cost_usd;
@@ -67,6 +67,22 @@ impl StatsData {
     }
 }
 
+/// A single usage record, normalized across all CLI sources.
+///
+/// # Token field contract (v2)
+/// Every parser MUST populate these fields with the same meaning so that
+/// aggregation and cost are consistent regardless of source:
+/// - `input_tokens`: billable **non-cached** input (does NOT include `cache_read_tokens`)
+/// - `cache_read_tokens`: cached input that was read
+/// - `cache_creation_tokens`: cache write
+/// - `output_tokens`: **visible** output only (does NOT include reasoning)
+/// - `reasoning_tokens`: hidden/reasoning output (formerly `thinking_tokens`)
+/// - `reported_total_tokens`: upstream-reported total, for **reconciliation only** —
+///   never summed into `total_tokens()` and never priced.
+///
+/// Invariants: `total_tokens() == input + output + cache_read + cache_creation + reasoning`;
+/// cost charges `(output + reasoning)` at the output rate; where
+/// `reported_total_tokens` is `Some`, it must equal `total_tokens()`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UsageEntry {
     pub timestamp: DateTime<Utc>,
@@ -75,14 +91,18 @@ pub struct UsageEntry {
     pub output_tokens: u64,
     pub cache_read_tokens: u64,
     pub cache_creation_tokens: u64,
-    #[serde(default)]
-    pub thinking_tokens: u64,
+    #[serde(default, alias = "thinking_tokens")]
+    pub reasoning_tokens: u64,
     #[serde(default)]
     pub cache_creation_5m_tokens: u64,
     #[serde(default)]
     pub cache_creation_1h_tokens: u64,
     #[serde(default)]
     pub web_search_requests: u64,
+    /// Upstream-reported total token count, when the source provides one
+    /// (e.g. Gemini `tokens.total`). Reconciliation only — not summed, not priced.
+    #[serde(default)]
+    pub reported_total_tokens: Option<u64>,
     pub cost_usd: Option<f64>,
     pub message_id: Option<String>,
     pub request_id: Option<String>,
@@ -100,7 +120,7 @@ impl UsageEntry {
             + self.output_tokens
             + self.cache_read_tokens
             + self.cache_creation_tokens
-            + self.thinking_tokens
+            + self.reasoning_tokens
     }
 
     /// Convert UTC timestamp to local timezone date.
@@ -131,8 +151,8 @@ pub struct DailySummary {
     pub total_output_tokens: u64,
     pub total_cache_read_tokens: u64,
     pub total_cache_creation_tokens: u64,
-    #[serde(default)]
-    pub total_thinking_tokens: u64,
+    #[serde(default, alias = "total_thinking_tokens")]
+    pub total_reasoning_tokens: u64,
     #[serde(default)]
     pub total_cache_creation_5m_tokens: u64,
     #[serde(default)]
@@ -149,8 +169,8 @@ pub struct ModelUsage {
     pub output_tokens: u64,
     pub cache_read_tokens: u64,
     pub cache_creation_tokens: u64,
-    #[serde(default)]
-    pub thinking_tokens: u64,
+    #[serde(default, alias = "thinking_tokens")]
+    pub reasoning_tokens: u64,
     #[serde(default)]
     pub cache_creation_5m_tokens: u64,
     #[serde(default)]
@@ -171,7 +191,7 @@ impl ModelUsage {
         self.cache_creation_tokens = self
             .cache_creation_tokens
             .saturating_add(entry.cache_creation_tokens);
-        self.thinking_tokens = self.thinking_tokens.saturating_add(entry.thinking_tokens);
+        self.reasoning_tokens = self.reasoning_tokens.saturating_add(entry.reasoning_tokens);
         self.cache_creation_5m_tokens = self
             .cache_creation_5m_tokens
             .saturating_add(entry.cache_creation_5m_tokens);
@@ -192,8 +212,8 @@ pub struct TotalSummary {
     pub total_output_tokens: u64,
     pub total_cache_read_tokens: u64,
     pub total_cache_creation_tokens: u64,
-    #[serde(default)]
-    pub total_thinking_tokens: u64,
+    #[serde(default, alias = "total_thinking_tokens")]
+    pub total_reasoning_tokens: u64,
     #[serde(default)]
     pub total_cache_creation_5m_tokens: u64,
     #[serde(default)]
@@ -234,7 +254,7 @@ mod tests {
             total_output_tokens: output,
             total_cache_read_tokens: cache_read,
             total_cache_creation_tokens: cache_creation,
-            total_thinking_tokens: 0,
+            total_reasoning_tokens: 0,
             total_cache_creation_5m_tokens: 0,
             total_cache_creation_1h_tokens: 0,
             total_web_search_requests: 0,
@@ -317,10 +337,11 @@ mod tests {
             output_tokens: 50,
             cache_read_tokens: 20,
             cache_creation_tokens: 10,
-            thinking_tokens: 0,
+            reasoning_tokens: 0,
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            reported_total_tokens: None,
             cost_usd: None,
             message_id: None,
             request_id: None,
@@ -339,10 +360,11 @@ mod tests {
             output_tokens: 50,
             cache_read_tokens: 20,
             cache_creation_tokens: 10,
-            thinking_tokens: 30,
+            reasoning_tokens: 30,
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            reported_total_tokens: None,
             cost_usd: None,
             message_id: None,
             request_id: None,
@@ -361,10 +383,11 @@ mod tests {
             output_tokens: 0,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
-            thinking_tokens: 0,
+            reasoning_tokens: 0,
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            reported_total_tokens: None,
             cost_usd: None,
             message_id: Some("msg123".into()),
             request_id: Some("req456".into()),
@@ -383,10 +406,11 @@ mod tests {
             output_tokens: 0,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
-            thinking_tokens: 0,
+            reasoning_tokens: 0,
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            reported_total_tokens: None,
             cost_usd: None,
             message_id: None,
             request_id: Some("req456".into()),
@@ -405,10 +429,11 @@ mod tests {
             output_tokens: 50,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
-            thinking_tokens: 0,
+            reasoning_tokens: 0,
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            reported_total_tokens: None,
             cost_usd: None,
             message_id: Some("msg789".into()),
             request_id: None,
@@ -432,10 +457,11 @@ mod tests {
             output_tokens: 50,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
-            thinking_tokens: 0,
+            reasoning_tokens: 0,
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            reported_total_tokens: None,
             cost_usd: None,
             message_id: None,
             request_id: None,
@@ -459,10 +485,11 @@ mod tests {
             output_tokens: 0,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
-            thinking_tokens: 0,
+            reasoning_tokens: 0,
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            reported_total_tokens: None,
             cost_usd: None,
             message_id: None,
             request_id: None,
@@ -488,10 +515,11 @@ mod tests {
             output_tokens: 50,
             cache_read_tokens: 20,
             cache_creation_tokens: 10,
-            thinking_tokens: 0,
+            reasoning_tokens: 0,
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            reported_total_tokens: None,
             cost_usd: None,
             message_id: None,
             request_id: None,

@@ -420,13 +420,13 @@ impl PricingService {
 
         // Reasoning/thinking tokens: billed at the reasoning rate when the model
         // declares one, otherwise at the output rate (Claude folds thinking into
-        // output and reports thinking_tokens=0, so it is unaffected). Flat — LiteLLM
+        // output and reports reasoning_tokens=0, so it is unaffected). Flat — LiteLLM
         // has no reasoning `_above_200k` tier.
         let reasoning_rate = pricing
             .output_cost_per_reasoning_token
             .or(pricing.output_cost_per_token)
             .unwrap_or(0.0);
-        let reasoning = entry.thinking_tokens as f64 * reasoning_rate;
+        let reasoning = entry.reasoning_tokens as f64 * reasoning_rate;
 
         // Web search cost
         let web_search_cost = self.get_web_search_cost(entry, pricing);
@@ -527,10 +527,11 @@ mod tests {
             output_tokens: output,
             cache_read_tokens: cache_read,
             cache_creation_tokens: cache_creation,
-            thinking_tokens: 0,
+            reasoning_tokens: 0,
             cache_creation_5m_tokens: 0,
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
+            reported_total_tokens: None,
             cost_usd,
             message_id: None,
             request_id: None,
@@ -1729,7 +1730,7 @@ web_search_per_request = 0.01
     // ========== #2 reasoning/thinking token cost ==========
 
     #[test]
-    fn test_thinking_tokens_priced_at_output_rate_by_default() {
+    fn test_reasoning_tokens_priced_at_output_rate_by_default() {
         let temp_dir = TempDir::new().unwrap();
         let cache_path = temp_dir.path().join("pricing.json");
         // No reasoning-specific rate → thinking billed at output rate.
@@ -1744,7 +1745,7 @@ web_search_per_request = 0.01
         );
         let service = PricingService::from_cache_only_with_path(&cache_path).unwrap();
         let mut entry = make_entry(Some("gemini-2-5-pro"), 1000, 500, 0, 0, None);
-        entry.thinking_tokens = 2000;
+        entry.reasoning_tokens = 2000;
 
         let cost = service.calculate_cost(&entry);
 
@@ -1759,7 +1760,7 @@ web_search_per_request = 0.01
     }
 
     #[test]
-    fn test_thinking_tokens_priced_at_reasoning_rate_when_present() {
+    fn test_reasoning_tokens_priced_at_reasoning_rate_when_present() {
         let temp_dir = TempDir::new().unwrap();
         let cache_path = temp_dir.path().join("pricing.json");
         write_cache_json(
@@ -1774,7 +1775,7 @@ web_search_per_request = 0.01
         );
         let service = PricingService::from_cache_only_with_path(&cache_path).unwrap();
         let mut entry = make_entry(Some("reasoner"), 0, 0, 0, 0, None);
-        entry.thinking_tokens = 1000;
+        entry.reasoning_tokens = 1000;
 
         let cost = service.calculate_cost(&entry);
 
@@ -1791,7 +1792,7 @@ web_search_per_request = 0.01
             r#"{ "claude-x": { "input_cost_per_token": 0.000003, "output_cost_per_token": 0.000015 } }"#,
         );
         let service = PricingService::from_cache_only_with_path(&cache_path).unwrap();
-        // thinking_tokens defaults to 0 (Claude folds thinking into output)
+        // reasoning_tokens defaults to 0 (Claude folds thinking into output)
         let entry = make_entry(Some("claude-x"), 1000, 500, 0, 0, None);
 
         let cost = service.calculate_cost(&entry);
@@ -1817,7 +1818,7 @@ web_search_per_request = 0.01
         );
         let service = PricingService::from_cache_only_with_path(&cache_path).unwrap();
         let mut entry = make_entry(Some("rate-less"), 0, 0, 0, 0, None);
-        entry.thinking_tokens = 5000;
+        entry.reasoning_tokens = 5000;
 
         let cost = service.calculate_cost(&entry);
 

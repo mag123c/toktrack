@@ -239,7 +239,7 @@ mod tests {
             total_output_tokens: 200_000,
             total_cache_read_tokens: 100_000,
             total_cache_creation_tokens: 50_000,
-            total_thinking_tokens: 0,
+            total_reasoning_tokens: 0,
             total_cache_creation_5m_tokens: 0,
             total_cache_creation_1h_tokens: 0,
             total_web_search_requests: 0,

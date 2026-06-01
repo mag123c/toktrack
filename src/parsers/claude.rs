@@ -111,7 +111,7 @@ impl ClaudeCodeParser {
             output_tokens: usage.output_tokens,
             cache_read_tokens: usage.cache_read_input_tokens.unwrap_or(0),
             cache_creation_tokens: usage.cache_creation_input_tokens.unwrap_or(0),
-            thinking_tokens: 0,
+            reasoning_tokens: 0,
             cache_creation_5m_tokens: cache_detail
                 .and_then(|d| d.ephemeral_5m_input_tokens)
                 .unwrap_or(0),
@@ -119,6 +119,7 @@ impl ClaudeCodeParser {
                 .and_then(|d| d.ephemeral_1h_input_tokens)
                 .unwrap_or(0),
             web_search_requests: tool_use.and_then(|t| t.web_search_requests).unwrap_or(0),
+            reported_total_tokens: None,
             cost_usd: data.cost_usd,
             message_id: message.id.map(String::from),
             request_id: data.request_id.map(String::from),
