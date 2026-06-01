@@ -21,6 +21,27 @@ const CACHE_TTL_SECS: i64 = 3600;
 /// HTTP request timeout in seconds
 const REQUEST_TIMEOUT_SECS: u64 = 10;
 
+/// LiteLLM web search pricing: nested `search_context_cost_per_query` object.
+/// Tiers are per-query USD; many models set all three equal (Claude = 0.01).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SearchContextCost {
+    #[serde(default)]
+    pub search_context_size_low: Option<f64>,
+    #[serde(default)]
+    pub search_context_size_medium: Option<f64>,
+    #[serde(default)]
+    pub search_context_size_high: Option<f64>,
+}
+
+impl SearchContextCost {
+    /// Per-query cost, preferring the medium tier, then low, then high.
+    fn per_query_cost(&self) -> Option<f64> {
+        self.search_context_size_medium
+            .or(self.search_context_size_low)
+            .or(self.search_context_size_high)
+    }
+}
+
 /// Pricing information for a model
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ModelPricing {
@@ -46,9 +67,12 @@ pub struct ModelPricing {
     pub cache_creation_5m_token_cost: Option<f64>,
     #[serde(default)]
     pub cache_creation_1h_token_cost: Option<f64>,
-    // Web search pricing
+    // Web search pricing (LiteLLM nested object `search_context_cost_per_query`)
     #[serde(default)]
-    pub web_search_cost_per_request: Option<f64>,
+    pub search_context_cost_per_query: Option<SearchContextCost>,
+    // Reasoning/thinking token cost; falls back to the output rate when absent
+    #[serde(default)]
+    pub output_cost_per_reasoning_token: Option<f64>,
 }
 
 /// Cached pricing data
@@ -257,7 +281,8 @@ impl PricingService {
             cache_creation_input_token_cost_above_200k_tokens: to_per_token(
                 custom_model.cache_creation_above_200k,
             ),
-            web_search_cost_per_request: None,
+            search_context_cost_per_query: None,
+            output_cost_per_reasoning_token: None,
         })
     }
 
@@ -393,10 +418,20 @@ impl PricingService {
             )
         };
 
+        // Reasoning/thinking tokens: billed at the reasoning rate when the model
+        // declares one, otherwise at the output rate (Claude folds thinking into
+        // output and reports thinking_tokens=0, so it is unaffected). Flat — LiteLLM
+        // has no reasoning `_above_200k` tier.
+        let reasoning_rate = pricing
+            .output_cost_per_reasoning_token
+            .or(pricing.output_cost_per_token)
+            .unwrap_or(0.0);
+        let reasoning = entry.thinking_tokens as f64 * reasoning_rate;
+
         // Web search cost
         let web_search_cost = self.get_web_search_cost(entry, pricing);
 
-        input + output + cache_read + cache_creation + web_search_cost
+        input + output + cache_read + cache_creation + reasoning + web_search_cost
     }
 
     /// Get web search cost per request (custom global override > pricing per model)
@@ -409,7 +444,12 @@ impl PricingService {
             .as_ref()
             .and_then(|c| c.global.as_ref())
             .and_then(|g| g.web_search_per_request)
-            .or(pricing.web_search_cost_per_request)
+            .or_else(|| {
+                pricing
+                    .search_context_cost_per_query
+                    .as_ref()
+                    .and_then(SearchContextCost::per_query_cost)
+            })
             .unwrap_or(0.0);
         entry.web_search_requests as f64 * cost_per_request
     }
@@ -1568,5 +1608,245 @@ web_search_per_request = 0.01
         assert_eq!(sonnet.output_above_200k, Some(30.0));
         assert_eq!(sonnet.cache_read_above_200k, Some(0.60));
         assert_eq!(sonnet.cache_creation_above_200k, Some(7.50));
+    }
+
+    // ========== #1 web search: search_context_cost_per_query ==========
+
+    /// Write a pricing cache file with a raw JSON `models` object (so tests can
+    /// exercise LiteLLM field names without going through the typed struct).
+    fn write_cache_json(cache_path: &std::path::Path, models_json: &str) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let content = format!(r#"{{"fetched_at":{now},"models":{models_json}}}"#);
+        fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+        fs::write(cache_path, content).unwrap();
+    }
+
+    #[test]
+    fn test_web_search_cost_from_search_context_cost_per_query() {
+        let temp_dir = TempDir::new().unwrap();
+        let cache_path = temp_dir.path().join("pricing.json");
+        write_cache_json(
+            &cache_path,
+            r#"{
+                "claude-opus-4-1": {
+                    "input_cost_per_token": 0.000015,
+                    "output_cost_per_token": 0.000075,
+                    "search_context_cost_per_query": {
+                        "search_context_size_low": 0.01,
+                        "search_context_size_medium": 0.01,
+                        "search_context_size_high": 0.01
+                    }
+                }
+            }"#,
+        );
+        let service = PricingService::from_cache_only_with_path(&cache_path).unwrap();
+        let mut entry = make_entry(Some("claude-opus-4-1"), 0, 0, 0, 0, None);
+        entry.web_search_requests = 2;
+
+        let cost = service.calculate_cost(&entry);
+
+        // 2 requests * $0.01 (medium tier) = $0.02
+        assert!((cost - 0.02).abs() < 1e-9, "expected 0.02, got {}", cost);
+    }
+
+    #[test]
+    fn test_web_search_cost_medium_falls_back_to_low_then_high() {
+        let temp_dir = TempDir::new().unwrap();
+        let cache_path = temp_dir.path().join("pricing.json");
+        // medium absent → fall back to low
+        write_cache_json(
+            &cache_path,
+            r#"{
+                "model-low-only": {
+                    "search_context_cost_per_query": { "search_context_size_low": 0.05 }
+                }
+            }"#,
+        );
+        let service = PricingService::from_cache_only_with_path(&cache_path).unwrap();
+        let mut entry = make_entry(Some("model-low-only"), 0, 0, 0, 0, None);
+        entry.web_search_requests = 3;
+
+        let cost = service.calculate_cost(&entry);
+
+        // 3 * $0.05 (low fallback) = $0.15
+        assert!((cost - 0.15).abs() < 1e-9, "expected 0.15, got {}", cost);
+    }
+
+    #[test]
+    fn test_custom_global_web_search_overrides_search_context() {
+        let temp_dir = TempDir::new().unwrap();
+        let cache_path = temp_dir.path().join("pricing.json");
+        write_cache_json(
+            &cache_path,
+            r#"{
+                "claude-opus-4-1": {
+                    "search_context_cost_per_query": { "search_context_size_medium": 0.01 }
+                }
+            }"#,
+        );
+        let custom = CustomPricingConfig {
+            models: None,
+            global: Some(GlobalPricing {
+                web_search_per_request: Some(0.03),
+            }),
+        };
+        let service = PricingService::from_cache_only_with_path(&cache_path)
+            .unwrap()
+            .with_custom_pricing(Some(custom));
+        let mut entry = make_entry(Some("claude-opus-4-1"), 0, 0, 0, 0, None);
+        entry.web_search_requests = 2;
+
+        let cost = service.calculate_cost(&entry);
+
+        // custom global $0.03 wins over LiteLLM medium $0.01 → 2 * 0.03 = 0.06
+        assert!((cost - 0.06).abs() < 1e-9, "expected 0.06, got {}", cost);
+    }
+
+    #[test]
+    fn test_no_search_context_field_yields_zero_web_search_cost() {
+        let temp_dir = TempDir::new().unwrap();
+        let cache_path = temp_dir.path().join("pricing.json");
+        write_cache_json(
+            &cache_path,
+            r#"{ "plain-model": { "input_cost_per_token": 0.000001 } }"#,
+        );
+        let service = PricingService::from_cache_only_with_path(&cache_path).unwrap();
+        let mut entry = make_entry(Some("plain-model"), 0, 0, 0, 0, None);
+        entry.web_search_requests = 5;
+
+        let cost = service.calculate_cost(&entry);
+
+        assert!(
+            (cost - 0.0).abs() < f64::EPSILON,
+            "expected 0.0, got {}",
+            cost
+        );
+    }
+
+    // ========== #2 reasoning/thinking token cost ==========
+
+    #[test]
+    fn test_thinking_tokens_priced_at_output_rate_by_default() {
+        let temp_dir = TempDir::new().unwrap();
+        let cache_path = temp_dir.path().join("pricing.json");
+        // No reasoning-specific rate → thinking billed at output rate.
+        write_cache_json(
+            &cache_path,
+            r#"{
+                "gemini-2-5-pro": {
+                    "input_cost_per_token": 0.00000125,
+                    "output_cost_per_token": 0.00001
+                }
+            }"#,
+        );
+        let service = PricingService::from_cache_only_with_path(&cache_path).unwrap();
+        let mut entry = make_entry(Some("gemini-2-5-pro"), 1000, 500, 0, 0, None);
+        entry.thinking_tokens = 2000;
+
+        let cost = service.calculate_cost(&entry);
+
+        // input 1000*1.25e-6 + output 500*1e-5 + thinking 2000*1e-5(output rate)
+        let expected = 1000.0 * 0.00000125 + 500.0 * 0.00001 + 2000.0 * 0.00001;
+        assert!(
+            (cost - expected).abs() < 1e-12,
+            "expected {}, got {}",
+            expected,
+            cost
+        );
+    }
+
+    #[test]
+    fn test_thinking_tokens_priced_at_reasoning_rate_when_present() {
+        let temp_dir = TempDir::new().unwrap();
+        let cache_path = temp_dir.path().join("pricing.json");
+        write_cache_json(
+            &cache_path,
+            r#"{
+                "reasoner": {
+                    "input_cost_per_token": 0.000001,
+                    "output_cost_per_token": 0.00001,
+                    "output_cost_per_reasoning_token": 0.00002
+                }
+            }"#,
+        );
+        let service = PricingService::from_cache_only_with_path(&cache_path).unwrap();
+        let mut entry = make_entry(Some("reasoner"), 0, 0, 0, 0, None);
+        entry.thinking_tokens = 1000;
+
+        let cost = service.calculate_cost(&entry);
+
+        // thinking 1000 * reasoning rate 2e-5 = 0.02 (NOT output rate 1e-5)
+        assert!((cost - 0.02).abs() < 1e-12, "expected 0.02, got {}", cost);
+    }
+
+    #[test]
+    fn test_thinking_zero_leaves_cost_unchanged() {
+        let temp_dir = TempDir::new().unwrap();
+        let cache_path = temp_dir.path().join("pricing.json");
+        write_cache_json(
+            &cache_path,
+            r#"{ "claude-x": { "input_cost_per_token": 0.000003, "output_cost_per_token": 0.000015 } }"#,
+        );
+        let service = PricingService::from_cache_only_with_path(&cache_path).unwrap();
+        // thinking_tokens defaults to 0 (Claude folds thinking into output)
+        let entry = make_entry(Some("claude-x"), 1000, 500, 0, 0, None);
+
+        let cost = service.calculate_cost(&entry);
+
+        let expected = 1000.0 * 0.000003 + 500.0 * 0.000015;
+        assert!(
+            (cost - expected).abs() < 1e-12,
+            "expected {}, got {}",
+            expected,
+            cost
+        );
+    }
+
+    #[test]
+    fn test_thinking_with_no_output_or_reasoning_rate_is_zero() {
+        // Neither output_cost_per_reasoning_token nor output_cost_per_token present
+        // → reasoning rate falls back to 0.0 (no panic / NaN).
+        let temp_dir = TempDir::new().unwrap();
+        let cache_path = temp_dir.path().join("pricing.json");
+        write_cache_json(
+            &cache_path,
+            r#"{ "rate-less": { "input_cost_per_token": 0.000001 } }"#,
+        );
+        let service = PricingService::from_cache_only_with_path(&cache_path).unwrap();
+        let mut entry = make_entry(Some("rate-less"), 0, 0, 0, 0, None);
+        entry.thinking_tokens = 5000;
+
+        let cost = service.calculate_cost(&entry);
+
+        assert!(
+            (cost - 0.0).abs() < f64::EPSILON,
+            "expected 0.0, got {}",
+            cost
+        );
+    }
+
+    #[test]
+    fn test_search_context_present_but_all_tiers_empty_is_zero() {
+        // search_context_cost_per_query object with no tier values → per_query_cost None → 0.
+        let temp_dir = TempDir::new().unwrap();
+        let cache_path = temp_dir.path().join("pricing.json");
+        write_cache_json(
+            &cache_path,
+            r#"{ "empty-tiers": { "search_context_cost_per_query": {} } }"#,
+        );
+        let service = PricingService::from_cache_only_with_path(&cache_path).unwrap();
+        let mut entry = make_entry(Some("empty-tiers"), 0, 0, 0, 0, None);
+        entry.web_search_requests = 4;
+
+        let cost = service.calculate_cost(&entry);
+
+        assert!(
+            (cost - 0.0).abs() < f64::EPSILON,
+            "expected 0.0, got {}",
+            cost
+        );
     }
 }
