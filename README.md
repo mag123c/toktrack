@@ -251,7 +251,7 @@ cargo bench   # Benchmarks
 
 ## Roadmap
 
-OpenCode support has been added! See [Supported AI CLIs](#supported-ai-clis).
+Now tracking 6 CLIs (Claude Code, Codex, Gemini, Qwen Code, OpenCode, PI Agent) — see [Supported AI CLIs](#supported-ai-clis). Planned: live/burn-rate monitoring, MCP server / statusline, more CLIs (Goose, Amp, Kimi, Copilot).
 
 ## Contributing
 

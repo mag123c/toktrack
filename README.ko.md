@@ -8,7 +8,7 @@
 
 > **⚠️ 알고 계셨나요?** Claude Code는 **기본적으로 30일 후 세션 데이터를 삭제**합니다. 삭제되면 토큰 사용량과 비용 기록은 영원히 사라집니다 — 보존하지 않는 한.
 
-**모든 AI 코딩 CLI**의 토큰 사용량과 비용을 한 곳에서 — Claude Code, Codex CLI, Gemini CLI, OpenCode 통합 대시보드.
+**모든 AI 코딩 CLI**의 토큰 사용량과 비용을 한 곳에서 — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent 통합 대시보드.
 
 Rust 기반 초고속 성능 (simd-json + rayon 병렬 처리).
 
@@ -20,7 +20,7 @@ Rust 기반 초고속 성능 (simd-json + rayon 병렬 처리).
 |------|--------|
 | 🐌 **기존 도구가 느림** — 대용량에서 40초 이상 | ⚡ **1000배 빠름** — 캐시 시 ~0.04초 |
 | 🗑️ **Claude Code 30일 후 데이터 삭제** — 비용 기록 사라짐 | 💾 **영구 캐시** — CLI가 파일 삭제해도 기록 유지 |
-| 📊 **통합 뷰 없음** — CLI별로 데이터 분산 | 🎯 **원 대시보드** — Claude Code, Codex CLI, Gemini CLI 통합 |
+| 📊 **통합 뷰 없음** — CLI별로 데이터 분산 | 🎯 **원 대시보드** — Claude Code, Codex, Gemini, Qwen, OpenCode, PI Agent 통합 |
 
 ### 성능 비교
 
@@ -40,7 +40,7 @@ toktrack (캐시):      ▏ ~0.04초 (일상 사용)
 - **TUI 대시보드** — 3개 탭 (Overview, Stats, Models), 일별/주별/월별 뷰
 - **CLI 명령어** — `daily`, `weekly`, `monthly`, `stats` (JSON 출력 지원)
 - **사용량 리포트** — 공유 가능한 텍스트 & SVG 영수증 (`toktrack report`)
-- **멀티 CLI 지원** — Claude Code, Codex CLI, Gemini CLI, OpenCode 한 곳에서
+- **멀티 CLI 지원** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent 한 곳에서
 - **데이터 보존** — CLI 데이터 삭제 후에도 비용 기록 유지
 
 ## 설치
@@ -140,16 +140,33 @@ toktrack report --svg        # 텍스트 + SVG 파일
 | Claude Code | ✅ | `~/.claude/projects/` |
 | Codex CLI | ✅ | `~/.codex/sessions/` |
 | Gemini CLI | ✅ | `~/.gemini/tmp/*/chats/` |
+| Qwen Code | ✅ | `~/.qwen/tmp/*/chats/` |
 | OpenCode | ✅ | `~/.local/share/opencode/storage/message/` |
 | PI Agent | ✅ | `~/.pi/agent/sessions/` |
+| Antigravity | ⚠️ 감지됨, 미지원 | `~/.gemini/antigravity-cli/` (로컬 파일에 토큰 사용량 없음) |
+
+> 자체 비용을 기록하지 않는 소스(Gemini, Qwen, Codex, 최신 Claude 로그)의 비용은
+> [LiteLLM](https://github.com/BerriAI/litellm) 가격으로 계산되며 `~` 마커(추정치)로 표시됩니다.
+> 네트워크가 없을 때도 번들된 스냅샷으로 가격 계산이 동작합니다.
 
 ### 환경 변수
 
-- `PI_AGENT_DIR`: PI Agent 세션 루트를 기본값(`~/.pi/agent/sessions/`) 대신 지정할 때 사용
+각 소스의 데이터 디렉터리는 상위 CLI가 쓰는 변수명으로 재지정할 수 있습니다:
+
+| 변수 | 소스 | 기본값 |
+|------|------|--------|
+| `CLAUDE_CONFIG_DIR` | Claude Code (루트) | `~/.claude` (+ `/projects`) |
+| `CODEX_HOME` | Codex CLI (루트) | `~/.codex` (+ `/sessions`) |
+| `GEMINI_CLI_HOME` | Gemini CLI (홈 루트) | `~` (+ `/.gemini/tmp`) |
+| `QWEN_HOME` | Qwen Code | `~/.qwen` (+ `/tmp`) |
+| `OPENCODE_DATA_DIR` / `XDG_DATA_HOME` | OpenCode | `~/.local/share/opencode` |
+| `PI_CODING_AGENT_SESSION_DIR` (이후 `PI_AGENT_DIR`) | PI Agent | `~/.pi/agent/sessions` |
 
 ```bash
-export PI_AGENT_DIR="/path/to/.pi/agent/sessions"
+export CLAUDE_CONFIG_DIR="/path/to/.claude"
 ```
+
+커스텀 가격(`web_search`/`web_fetch` 요청당 단가 포함)은 `~/.toktrack/pricing.toml`에 설정할 수 있습니다.
 
 ## 성능
 
@@ -229,7 +246,7 @@ cargo bench   # 벤치마크 실행
 
 ## 로드맵
 
-OpenCode 지원이 추가되었습니다! [지원하는 AI CLI](#지원하는-ai-cli)를 참조하세요.
+현재 6개 CLI 지원 (Claude Code, Codex, Gemini, Qwen Code, OpenCode, PI Agent) — [지원하는 AI CLI](#지원하는-ai-cli) 참조. 예정: 실시간/번레이트 모니터링, MCP 서버 / statusline, 추가 CLI(Goose, Amp, Kimi, Copilot).
 
 ## 기여하기
 
