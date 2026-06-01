@@ -59,13 +59,28 @@ pub struct ModelPricing {
     pub cache_read_input_token_cost: Option<f64>,
     #[serde(default)]
     pub cache_creation_input_token_cost: Option<f64>,
-    // Tiered pricing fields (above 200k tokens)
+    // Tiered pricing fields. A model carries at most one breakpoint per token
+    // kind; LiteLLM uses 128k / 200k / 256k / 272k variants.
+    #[serde(default)]
+    pub input_cost_per_token_above_128k_tokens: Option<f64>,
     #[serde(default)]
     pub input_cost_per_token_above_200k_tokens: Option<f64>,
     #[serde(default)]
+    pub input_cost_per_token_above_256k_tokens: Option<f64>,
+    #[serde(default)]
+    pub input_cost_per_token_above_272k_tokens: Option<f64>,
+    #[serde(default)]
+    pub output_cost_per_token_above_128k_tokens: Option<f64>,
+    #[serde(default)]
     pub output_cost_per_token_above_200k_tokens: Option<f64>,
     #[serde(default)]
+    pub output_cost_per_token_above_256k_tokens: Option<f64>,
+    #[serde(default)]
+    pub output_cost_per_token_above_272k_tokens: Option<f64>,
+    #[serde(default)]
     pub cache_read_input_token_cost_above_200k_tokens: Option<f64>,
+    #[serde(default)]
+    pub cache_read_input_token_cost_above_272k_tokens: Option<f64>,
     #[serde(default)]
     pub cache_creation_input_token_cost_above_200k_tokens: Option<f64>,
     // Cache TTL-specific pricing (for Bedrock/Vertex)
@@ -101,15 +116,33 @@ impl PricingCache {
     }
 }
 
-/// Token threshold for tiered pricing (200k tokens)
-const TIERED_THRESHOLD: u64 = 200_000;
+/// Resolve the single active tiered breakpoint for a token kind. A model
+/// declares at most one above-tier; pick the present one (128k→200k→256k→272k).
+/// Returns `(threshold_tokens, above_rate)`.
+fn tier(
+    above_128k: Option<f64>,
+    above_200k: Option<f64>,
+    above_256k: Option<f64>,
+    above_272k: Option<f64>,
+) -> Option<(u64, f64)> {
+    if let Some(r) = above_128k {
+        Some((128_000, r))
+    } else if let Some(r) = above_200k {
+        Some((200_000, r))
+    } else if let Some(r) = above_256k {
+        Some((256_000, r))
+    } else {
+        above_272k.map(|r| (272_000, r))
+    }
+}
 
-/// Calculate cost with tiered pricing: base rate up to threshold, tiered rate above.
-fn tiered_cost(tokens: u64, base_price: f64, tiered_price: Option<f64>) -> f64 {
-    match tiered_price {
-        Some(tiered) if tokens > TIERED_THRESHOLD => {
-            let below = TIERED_THRESHOLD as f64 * base_price;
-            let above = (tokens - TIERED_THRESHOLD) as f64 * tiered;
+/// Calculate cost with tiered pricing: base rate up to the breakpoint, tiered
+/// rate above. `tier` is `(threshold_tokens, above_rate)` when the model is tiered.
+fn tiered_cost(tokens: u64, base_price: f64, tier: Option<(u64, f64)>) -> f64 {
+    match tier {
+        Some((threshold, above_rate)) if tokens > threshold => {
+            let below = threshold as f64 * base_price;
+            let above = (tokens - threshold) as f64 * above_rate;
             below + above
         }
         _ => tokens as f64 * base_price,
@@ -288,11 +321,19 @@ impl PricingService {
             cache_read_input_token_cost: to_per_token(custom_model.cache_read),
             cache_creation_5m_token_cost: to_per_token(custom_model.cache_creation_5m),
             cache_creation_1h_token_cost: to_per_token(custom_model.cache_creation_1h),
+            // Custom pricing keeps the 200k breakpoint; other tiers stay None.
+            input_cost_per_token_above_128k_tokens: None,
             input_cost_per_token_above_200k_tokens: to_per_token(custom_model.input_above_200k),
+            input_cost_per_token_above_256k_tokens: None,
+            input_cost_per_token_above_272k_tokens: None,
+            output_cost_per_token_above_128k_tokens: None,
             output_cost_per_token_above_200k_tokens: to_per_token(custom_model.output_above_200k),
+            output_cost_per_token_above_256k_tokens: None,
+            output_cost_per_token_above_272k_tokens: None,
             cache_read_input_token_cost_above_200k_tokens: to_per_token(
                 custom_model.cache_read_above_200k,
             ),
+            cache_read_input_token_cost_above_272k_tokens: None,
             cache_creation_input_token_cost_above_200k_tokens: to_per_token(
                 custom_model.cache_creation_above_200k,
             ),
@@ -417,17 +458,32 @@ impl PricingService {
         let input = tiered_cost(
             entry.input_tokens,
             pricing.input_cost_per_token.unwrap_or(0.0),
-            pricing.input_cost_per_token_above_200k_tokens,
+            tier(
+                pricing.input_cost_per_token_above_128k_tokens,
+                pricing.input_cost_per_token_above_200k_tokens,
+                pricing.input_cost_per_token_above_256k_tokens,
+                pricing.input_cost_per_token_above_272k_tokens,
+            ),
         );
         let output = tiered_cost(
             entry.output_tokens,
             pricing.output_cost_per_token.unwrap_or(0.0),
-            pricing.output_cost_per_token_above_200k_tokens,
+            tier(
+                pricing.output_cost_per_token_above_128k_tokens,
+                pricing.output_cost_per_token_above_200k_tokens,
+                pricing.output_cost_per_token_above_256k_tokens,
+                pricing.output_cost_per_token_above_272k_tokens,
+            ),
         );
         let cache_read = tiered_cost(
             entry.cache_read_tokens,
             pricing.cache_read_input_token_cost.unwrap_or(0.0),
-            pricing.cache_read_input_token_cost_above_200k_tokens,
+            tier(
+                None,
+                pricing.cache_read_input_token_cost_above_200k_tokens,
+                None,
+                pricing.cache_read_input_token_cost_above_272k_tokens,
+            ),
         );
 
         // Cache creation: use TTL-specific pricing only when entry has TTL breakdown
@@ -450,7 +506,12 @@ impl PricingService {
             tiered_cost(
                 entry.cache_creation_tokens,
                 pricing.cache_creation_input_token_cost.unwrap_or(0.0),
-                pricing.cache_creation_input_token_cost_above_200k_tokens,
+                tier(
+                    None,
+                    pricing.cache_creation_input_token_cost_above_200k_tokens,
+                    None,
+                    None,
+                ),
             )
         };
 
@@ -1061,7 +1122,7 @@ mod tests {
     #[test]
     fn test_tiered_cost_below_threshold() {
         // 100k tokens at $15/1M → all at base rate
-        let cost = tiered_cost(100_000, 0.000015, Some(0.00003));
+        let cost = tiered_cost(100_000, 0.000015, Some((200_000, 0.00003)));
         let expected = 100_000.0 * 0.000015;
         assert!(
             (cost - expected).abs() < 1e-10,
@@ -1074,7 +1135,7 @@ mod tests {
     #[test]
     fn test_tiered_cost_at_threshold() {
         // Exactly 200k tokens → all at base rate (threshold is inclusive)
-        let cost = tiered_cost(200_000, 0.000015, Some(0.00003));
+        let cost = tiered_cost(200_000, 0.000015, Some((200_000, 0.00003)));
         let expected = 200_000.0 * 0.000015;
         assert!(
             (cost - expected).abs() < 1e-10,
@@ -1087,7 +1148,7 @@ mod tests {
     #[test]
     fn test_tiered_cost_above_threshold() {
         // 300k tokens: 200k at base ($15/1M), 100k at tiered ($30/1M)
-        let cost = tiered_cost(300_000, 0.000015, Some(0.00003));
+        let cost = tiered_cost(300_000, 0.000015, Some((200_000, 0.00003)));
         let expected = 200_000.0 * 0.000015 + 100_000.0 * 0.00003;
         assert!(
             (cost - expected).abs() < 1e-10,
@@ -1100,7 +1161,7 @@ mod tests {
     #[test]
     fn test_tiered_cost_just_above_threshold() {
         // 200,001 tokens: 200k at base, 1 token at tiered
-        let cost = tiered_cost(200_001, 0.000015, Some(0.00003));
+        let cost = tiered_cost(200_001, 0.000015, Some((200_000, 0.00003)));
         let expected = 200_000.0 * 0.000015 + 1.0 * 0.00003;
         assert!(
             (cost - expected).abs() < 1e-10,
@@ -1125,8 +1186,75 @@ mod tests {
 
     #[test]
     fn test_tiered_cost_zero_tokens() {
-        let cost = tiered_cost(0, 0.000015, Some(0.00003));
+        let cost = tiered_cost(0, 0.000015, Some((200_000, 0.00003)));
         assert!((cost - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_tier_resolver_precedence() {
+        // 128k present → wins
+        assert_eq!(
+            tier(Some(0.1), Some(0.2), Some(0.3), Some(0.4)),
+            Some((128_000, 0.1))
+        );
+        // only 272k present
+        assert_eq!(tier(None, None, None, Some(0.4)), Some((272_000, 0.4)));
+        // only 200k present
+        assert_eq!(tier(None, Some(0.2), None, None), Some((200_000, 0.2)));
+        // none → flat
+        assert_eq!(tier(None, None, None, None), None);
+    }
+
+    #[test]
+    fn test_tiered_cost_128k_breakpoint() {
+        // 200k tokens at base $15/1M up to 128k, then $30/1M above
+        let cost = tiered_cost(200_000, 0.000015, Some((128_000, 0.00003)));
+        let expected = 128_000.0 * 0.000015 + 72_000.0 * 0.00003;
+        assert!(
+            (cost - expected).abs() < 1e-12,
+            "expected {}, got {}",
+            expected,
+            cost
+        );
+    }
+
+    #[test]
+    fn test_tiered_cost_272k_breakpoint() {
+        // 300k tokens: 272k at base, 28k above
+        let cost = tiered_cost(300_000, 0.000015, Some((272_000, 0.00003)));
+        let expected = 272_000.0 * 0.000015 + 28_000.0 * 0.00003;
+        assert!(
+            (cost - expected).abs() < 1e-12,
+            "expected {}, got {}",
+            expected,
+            cost
+        );
+    }
+
+    #[test]
+    fn test_calculate_cost_uses_272k_breakpoint() {
+        let temp_dir = TempDir::new().unwrap();
+        let cache_path = temp_dir.path().join("pricing.json");
+        write_cache_json(
+            &cache_path,
+            r#"{
+                "gemini-3-pro": {
+                    "input_cost_per_token": 0.000002,
+                    "input_cost_per_token_above_272k_tokens": 0.000004
+                }
+            }"#,
+        );
+        let service = PricingService::from_cache_only_with_path(&cache_path).unwrap();
+        let entry = make_entry(Some("gemini-3-pro"), 300_000, 0, 0, 0, None);
+        let cost = service.calculate_cost(&entry);
+        // 272k * $2/1M + 28k * $4/1M
+        let expected = 272_000.0 * 0.000002 + 28_000.0 * 0.000004;
+        assert!(
+            (cost - expected).abs() < 1e-12,
+            "expected {}, got {}",
+            expected,
+            cost
+        );
     }
 
     // ========== calculate_cost tiered integration tests ==========
