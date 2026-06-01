@@ -187,6 +187,33 @@ mod tests {
             .join(name)
     }
 
+    /// Token-semantics contract test pinned to the REAL Claude Code log shape
+    /// (sanitized from `~/.claude/projects`). Proves toktrack (a) tolerates fields
+    /// it does not read (`web_fetch_requests`, `service_tier`, `iterations`, `speed`)
+    /// and (b) extracts each token field per the v2 contract. Modern Claude logs
+    /// omit top-level `costUSD`, so cost is LiteLLM-calculated → `cost_usd` is None.
+    #[test]
+    fn test_real_shape_claude_contract() {
+        let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
+        let entries = parser
+            .parse_file(&fixture_path("claude/real-shape-session.jsonl"))
+            .unwrap();
+
+        assert_eq!(entries.len(), 1, "only the assistant line carries usage");
+        let e = &entries[0];
+        assert_eq!(e.model.as_deref(), Some("claude-opus-4-1-20250805"));
+        assert_eq!(e.input_tokens, 6); // non-cached (Anthropic input excludes cache)
+        assert_eq!(e.cache_creation_tokens, 19693);
+        assert_eq!(e.cache_read_tokens, 17079);
+        assert_eq!(e.output_tokens, 1075);
+        assert_eq!(e.cache_creation_5m_tokens, 0);
+        assert_eq!(e.cache_creation_1h_tokens, 19693);
+        assert_eq!(e.web_search_requests, 2);
+        assert_eq!(e.reasoning_tokens, 0); // folded into output by Anthropic
+        assert_eq!(e.reported_total_tokens, None);
+        assert_eq!(e.cost_usd, None); // modern logs omit costUSD → LiteLLM-calculated
+    }
+
     #[test]
     fn test_parse_claude_jsonl() {
         let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
