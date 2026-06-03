@@ -368,7 +368,8 @@ impl DataLoaderService {
 
     /// Detect an Antigravity CLI install (`<gemini home>/.gemini/antigravity-cli`).
     /// It is unsupported — Antigravity does not write file-readable token usage —
-    /// so surface a one-line notice and a disabled source row rather than silence.
+    /// so surface a disabled source row (shown in the Sources list) rather than
+    /// silence. No stderr notice: it would bleed over the TUI while it renders.
     fn antigravity_notice() -> Option<SourceUsage> {
         let base = crate::parsers::discovery::first_env_dir(&["GEMINI_CLI_HOME"])
             .or_else(|| directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf()))?;
@@ -378,10 +379,6 @@ impl DataLoaderService {
     /// Detection split out for testing without touching the global `GEMINI_CLI_HOME`.
     fn antigravity_notice_at(home_base: &std::path::Path) -> Option<SourceUsage> {
         if home_base.join(".gemini").join("antigravity-cli").exists() {
-            eprintln!(
-                "[toktrack] Note: Antigravity CLI detected but unsupported — it does \
-                 not write file-readable token usage, so its usage cannot be tracked."
-            );
             Some(SourceUsage {
                 source: "antigravity".into(),
                 total_tokens: 0,
