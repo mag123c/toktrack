@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.8.1](https://github.com/mag123c/toktrack/compare/v2.8.0...v2.8.1) (2026-06-04)
+
+
+### Bug Fixes
+
+* **services:** Stop antigravity notice from bleeding over the TUI ([#174](https://github.com/mag123c/toktrack/issues/174)) ([d857c7f](https://github.com/mag123c/toktrack/commit/d857c7f6a839e32912186e2b1e3372536cbf88ae))
+
 ## [2.8.0](https://github.com/mag123c/toktrack/compare/v2.7.4...v2.8.0) (2026-06-01)
 
 
