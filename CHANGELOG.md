@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.9.0](https://github.com/mag123c/toktrack/compare/v2.8.1...v2.9.0) (2026-06-06)
+
+
+### Features
+
+* Add support for tracking codex usage from SSH remote environments. ([#156](https://github.com/mag123c/toktrack/issues/156)) ([6d0cdd7](https://github.com/mag123c/toktrack/commit/6d0cdd7df12cfdca7a9b5e1da3f58605f0c66762))
+
 ## [2.8.1](https://github.com/mag123c/toktrack/compare/v2.8.0...v2.8.1) (2026-06-04)
 
 
