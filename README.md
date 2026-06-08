@@ -117,6 +117,17 @@ toktrack audit               # Per-source coverage report
 toktrack audit --json        # Machine-readable
 ```
 
+### Shell Integration
+
+Show today's AI spend right in your prompt, updated after every command:
+
+```
+~/projects/api  main  $12.40
+❯
+```
+
+A few lines of zsh/bash/fish — see **[Shell integration](docs/shell-integration.md)**.
+
 ### Remote Codex Sources
 
 toktrack can include Codex session logs from SSH servers by syncing remote JSONL

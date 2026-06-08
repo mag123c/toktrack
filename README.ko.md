@@ -113,6 +113,17 @@ toktrack audit               # 소스별 커버리지 리포트
 toktrack audit --json        # 머신 리더블
 ```
 
+### 셸 통합
+
+오늘의 AI 지출을 프롬프트에 바로 표시 (명령마다 갱신):
+
+```
+~/projects/api  main  $12.40
+❯
+```
+
+zsh/bash/fish 몇 줄이면 됩니다 — **[셸 통합 가이드](docs/shell-integration.md)** 참고.
+
 ### 키보드 단축키
 
 | 키 | 동작 |
