@@ -2,7 +2,7 @@
 name = "toktrack"
 version = "2.9.0"
 edition = "2021"
-description = "Ultra-fast token & cost tracker for Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, and PI Agent"
+description = "Never lose your AI coding cost history — fast token & cost tracker for Claude Code, Codex, Gemini, Qwen Code, OpenCode & PI Agent with a persistent cache"
 license = "MIT"
 repository = "https://github.com/mag123c/toktrack"
 keywords = ["claude-code", "token-tracker", "ai-cost", "tui", "llm"]

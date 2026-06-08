@@ -1,7 +1,7 @@
 {
   "name": "toktrack",
   "version": "2.9.0",
-  "description": "Ultra-fast token & cost tracker for Claude Code, Codex CLI, and Gemini CLI",
+  "description": "Never lose your AI coding cost history — token & cost tracker for Claude Code, Codex, Gemini, Qwen Code, OpenCode & PI Agent, with a persistent cache that survives CLI data deletion.",
   "bin": {
     "toktrack": "./bin/run.js"
   },

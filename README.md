@@ -12,9 +12,9 @@
 
 > **⚠️ Did you know?** Claude Code **deletes your session data after 30 days** by default. Once deleted, your token usage and cost history are gone forever — unless you preserve them.
 
-Track token usage and costs across **all your AI coding CLIs** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, and PI Agent — in one dashboard.
+**The token & cost tracker that never loses your history.** Most tools re-read your CLI's session files on every run — so when Claude Code deletes them after 30 days, your cost history goes with them. toktrack keeps a **persistent cache**, so your history survives.
 
-Built with Rust for ultra-fast performance (simd-json + rayon parallel processing).
+Track usage across **all your AI coding CLIs** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, and PI Agent — in one dashboard. Built in Rust, so it stays fast even on huge histories (simd-json + rayon).
 
 ![toktrack overview](assets/demo.gif)
 
@@ -22,30 +22,18 @@ Built with Rust for ultra-fast performance (simd-json + rayon parallel processin
 
 | Problem | Solution |
 |---------|----------|
-| 🐌 **Existing tools are slow** — 40+ seconds on large datasets | ⚡ **1000x faster** — cached queries in ~0.04s |
-| 🗑️ **Claude Code deletes data after 30 days** — your cost history disappears | 💾 **Persistent cache** — history survives even after CLI deletes files |
-| 📊 **No unified view** — each CLI has separate data | 🎯 **One dashboard** — Claude Code, Codex, Gemini, Qwen, OpenCode, PI Agent in one place |
-
-### Performance Comparison
-
-```
-Dataset: 2,000+ JSONL files, 3.4 GB total
-
-Existing tools:     ████████████████████████████████████████ 40s+
-toktrack (cold):    █ ~1s (first run)
-toktrack (cached):  ▏ ~0.04s (daily use)
-
-                    └── up to 1000x faster
-```
+| 🗑️ **Claude Code deletes data after 30 days** — your cost history disappears | 💾 **Persistent cache** — history survives even after the CLI deletes its files |
+| 📊 **No unified view** — each CLI keeps its own separate data | 🎯 **One dashboard** — Claude Code, Codex, Gemini, Qwen, OpenCode, PI Agent in one place |
+| 🐌 **Re-scanning big histories is slow** | ⚡ **Cached queries in ~0.04s** — instant on every run |
 
 ## Features
 
-- **Ultra-Fast Parsing** — simd-json + rayon parallel processing (~3 GiB/s throughput)
+- **Data Preservation** — Persistent cache keeps your cost history even after a CLI deletes its own session files
+- **Multi-CLI Support** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent in one place
 - **TUI Dashboard** — 3 tabs (Overview, Stats, Models) with daily/weekly/monthly views
 - **CLI Commands** — `daily`, `weekly`, `monthly`, `stats` with JSON output support
 - **Usage Reports** — Shareable text & SVG receipts via `toktrack report`
-- **Multi-CLI Support** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent in one place
-- **Data Preservation** — Cached daily summaries survive CLI data deletion
+- **Fast on huge histories** — simd-json + rayon parallel parsing (~3 GiB/s); cached runs in ~0.04s
 
 ## Installation
 
@@ -232,15 +220,14 @@ Custom pricing (including `web_search` / `web_fetch` per-request rates) can be s
 
 ## Performance
 
-| Tool | Time | Speedup |
-|------|------|---------|
-| Existing tools | 40s+ | baseline |
-| **toktrack** (cold) | **~1.0s** | **40x faster** |
-| **toktrack** (cached) | **~0.04s** | **1000x faster** |
+| Run | Time |
+|-----|------|
+| First run (cold) | **~1.0s** |
+| Daily use (cached) | **~0.04s** |
 
-> Measured on Apple Silicon with 2,000+ JSONL files (3.4 GB).
+> Measured on Apple Silicon with 2,000+ JSONL files (3.4 GB). The persistent cache means only the current day is recomputed on each run — past days are read straight from cache, so daily use stays instant no matter how large your history grows.
 >
-> **Why so fast?** SIMD JSON parsing ([simd-json](https://github.com/simd-lite/simd-json)) + parallel processing ([rayon](https://github.com/rayon-rs/rayon)) = ~3 GiB/s throughput.
+> **Why it's fast:** SIMD JSON parsing ([simd-json](https://github.com/simd-lite/simd-json)) + parallel processing ([rayon](https://github.com/rayon-rs/rayon)) = ~3 GiB/s throughput on the cold path.
 
 ## Data Preservation
 

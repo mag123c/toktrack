@@ -8,9 +8,9 @@
 
 > **⚠️ 알고 계셨나요?** Claude Code는 **기본적으로 30일 후 세션 데이터를 삭제**합니다. 삭제되면 토큰 사용량과 비용 기록은 영원히 사라집니다 — 보존하지 않는 한.
 
-**모든 AI 코딩 CLI**의 토큰 사용량과 비용을 한 곳에서 — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent 통합 대시보드.
+**비용 기록을 절대 잃지 않는 토큰 & 비용 트래커.** 대부분의 도구는 매 실행마다 CLI 세션 파일을 다시 읽습니다 — 그래서 Claude Code가 30일 후 파일을 삭제하면 비용 기록도 함께 사라집니다. toktrack은 **영구 캐시**를 유지해 기록이 살아남습니다.
 
-Rust 기반 초고속 성능 (simd-json + rayon 병렬 처리).
+**모든 AI 코딩 CLI**의 사용량을 한 곳에서 — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent 통합 대시보드. Rust 기반이라 대용량 기록에서도 빠릅니다 (simd-json + rayon).
 
 ![toktrack overview](assets/demo.gif)
 
@@ -18,30 +18,18 @@ Rust 기반 초고속 성능 (simd-json + rayon 병렬 처리).
 
 | 문제 | 해결책 |
 |------|--------|
-| 🐌 **기존 도구가 느림** — 대용량에서 40초 이상 | ⚡ **1000배 빠름** — 캐시 시 ~0.04초 |
-| 🗑️ **Claude Code 30일 후 데이터 삭제** — 비용 기록 사라짐 | 💾 **영구 캐시** — CLI가 파일 삭제해도 기록 유지 |
+| 🗑️ **Claude Code 30일 후 데이터 삭제** — 비용 기록 사라짐 | 💾 **영구 캐시** — CLI가 파일을 삭제해도 기록 유지 |
 | 📊 **통합 뷰 없음** — CLI별로 데이터 분산 | 🎯 **원 대시보드** — Claude Code, Codex, Gemini, Qwen, OpenCode, PI Agent 통합 |
-
-### 성능 비교
-
-```
-데이터셋: 2,000+ JSONL 파일, 3.4 GB
-
-기존 도구:            ████████████████████████████████████████ 40초+
-toktrack (콜드):      █ ~1초 (첫 실행)
-toktrack (캐시):      ▏ ~0.04초 (일상 사용)
-
-                      └── 최대 1000배 빠름
-```
+| 🐌 **대용량 기록 재스캔이 느림** | ⚡ **캐시 시 ~0.04초** — 매 실행 즉시 |
 
 ## 주요 기능
 
-- **초고속 파싱** — simd-json + rayon 병렬 처리 (~3 GiB/s 처리량)
+- **데이터 보존** — 영구 캐시로 CLI가 세션 파일을 삭제한 뒤에도 비용 기록 유지
+- **멀티 CLI 지원** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent 한 곳에서
 - **TUI 대시보드** — 3개 탭 (Overview, Stats, Models), 일별/주별/월별 뷰
 - **CLI 명령어** — `daily`, `weekly`, `monthly`, `stats` (JSON 출력 지원)
 - **사용량 리포트** — 공유 가능한 텍스트 & SVG 영수증 (`toktrack report`)
-- **멀티 CLI 지원** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent 한 곳에서
-- **데이터 보존** — CLI 데이터 삭제 후에도 비용 기록 유지
+- **대용량에서도 빠름** — simd-json + rayon 병렬 파싱 (~3 GiB/s), 캐시 시 ~0.04초
 
 ## 설치
 
@@ -170,15 +158,14 @@ export CLAUDE_CONFIG_DIR="/path/to/.claude"
 
 ## 성능
 
-| 도구 | 시간 | 속도 향상 |
-|------|------|-----------|
-| 기존 도구 | 40초+ | 기준 |
-| **toktrack** (콜드) | **~1.0초** | **40배 빠름** |
-| **toktrack** (캐시) | **~0.04초** | **1000배 빠름** |
+| 실행 | 시간 |
+|------|------|
+| 첫 실행 (콜드) | **~1.0초** |
+| 일상 사용 (캐시) | **~0.04초** |
 
-> Apple Silicon 기준, 2,000+ JSONL 파일 (3.4 GB).
+> Apple Silicon 기준, 2,000+ JSONL 파일 (3.4 GB). 영구 캐시 덕분에 매 실행 시 현재 날짜만 재계산하고 지난 날짜는 캐시에서 바로 읽으므로, 기록이 아무리 커져도 일상 사용은 즉시 끝납니다.
 >
-> **왜 이렇게 빠른가?** SIMD JSON 파싱 ([simd-json](https://github.com/simd-lite/simd-json)) + 병렬 처리 ([rayon](https://github.com/rayon-rs/rayon)) = ~3 GiB/s 처리량.
+> **왜 빠른가?** SIMD JSON 파싱 ([simd-json](https://github.com/simd-lite/simd-json)) + 병렬 처리 ([rayon](https://github.com/rayon-rs/rayon)) = 콜드 경로에서 ~3 GiB/s 처리량.
 
 ## 데이터 보존
 
