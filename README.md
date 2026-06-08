@@ -123,6 +123,10 @@ toktrack report              # Last 7 days (text)
 toktrack report --month      # Last 30 days
 toktrack report --days 14    # Last N days
 toktrack report --svg        # Text + SVG file
+
+# Data-preservation audit (live on disk vs cache-only)
+toktrack audit               # Per-source coverage report
+toktrack audit --json        # Machine-readable
 ```
 
 ### Remote Codex Sources
@@ -186,7 +190,7 @@ existing snapshot/cache for that remote.
 
 | Key | Action |
 |-----|--------|
-| `1-3` | Switch tabs directly |
+| `1-4` | Switch tabs directly (incl. Audit) |
 | `Tab` / `Shift+Tab` | Next / Previous tab |
 | `j` / `k` or `↑` / `↓` | Scroll up / down |
 | `Enter` | Open model breakdown popup (Daily tab) |
@@ -274,6 +278,26 @@ Custom pricing (including `web_search` / `web_fetch` per-request rates) can be s
 ```
 
 Past dates in each `*_daily.json` are **immutable** — once a day is summarized, the cached result is never modified. Only the current day is recomputed on each run. This means even if Claude Code deletes session files after 30 days, your cost history remains intact in the cache.
+
+### See Exactly What's Preserved
+
+`toktrack audit` shows, per source and per day, whether the data is still **live** (raw session file on disk), **cache-only** (the CLI deleted the raw file — only toktrack still has it), or **missing** (no data — an unused day, or one lost before toktrack first saw it; never claimed as a loss).
+
+```
+$ toktrack audit
+
+Data preservation audit (2026-06-08)
+
+  claude-code   2025-12-22 → 2026-06-08
+    live (raw on disk):         79 days
+    preserved (CLI deleted):    83 days
+    no data (unused or lost):    7 days
+  ...
+
+  ► 100 days of cost history preserved that your CLIs already deleted.
+```
+
+Use `toktrack audit --json` for the full per-day breakdown, or open the **Audit** tab in the TUI (press `4`) for a visual coverage map.
 
 ### Disable Claude Code Auto-Deletion
 

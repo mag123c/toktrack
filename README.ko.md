@@ -119,13 +119,17 @@ toktrack report              # 최근 7일 (텍스트)
 toktrack report --month      # 최근 30일
 toktrack report --days 14    # 최근 N일
 toktrack report --svg        # 텍스트 + SVG 파일
+
+# 데이터 보존 감사 (디스크에 살아있음 vs 캐시에만 있음)
+toktrack audit               # 소스별 커버리지 리포트
+toktrack audit --json        # 머신 리더블
 ```
 
 ### 키보드 단축키
 
 | 키 | 동작 |
 |-----|--------|
-| `1-3` | 탭 직접 전환 |
+| `1-4` | 탭 직접 전환 (Audit 포함) |
 | `Tab` / `Shift+Tab` | 다음 / 이전 탭 |
 | `j` / `k` 또는 `↑` / `↓` | 위 / 아래 스크롤 |
 | `Enter` | 모델 상세 팝업 열기 (Daily 탭) |
@@ -201,13 +205,37 @@ export CLAUDE_CONFIG_DIR="/path/to/.claude"
 ├── cache/
 │   ├── claude-code_daily.json   # 일별 비용 요약
 │   ├── codex_daily.json
+│   ├── codex@devbox_daily.json
 │   ├── gemini_daily.json
 │   ├── opencode_daily.json
 │   └── pi-agent_daily.json
+├── remotes/
+│   └── devbox/codex/sessions/   # 동기화된 원격 Codex JSONL 스냅샷
+├── config.toml                  # 선택: 원격 소스 설정
 └── pricing.json                 # LiteLLM 가격 정보 (1시간 TTL)
 ```
 
 각 `*_daily.json`의 지난 날짜 데이터는 **불변**입니다 — 한번 집계된 날의 결과는 수정되지 않습니다. 현재 날짜만 매 실행마다 재계산됩니다. 따라서 Claude Code가 30일 후 세션 파일을 삭제하더라도, 캐시에 비용 기록이 그대로 남습니다.
+
+### 무엇이 보존됐는지 직접 확인
+
+`toktrack audit`는 소스별·날짜별로 데이터가 아직 **live**(raw 세션 파일이 디스크에 존재)인지, **cache-only**(CLI가 raw를 삭제 — toktrack만 보유)인지, **missing**(데이터 없음 — 안 쓴 날이거나 toktrack이 보기 전에 사라진 날; 손실로 단정하지 않음)인지 보여줍니다.
+
+```
+$ toktrack audit
+
+Data preservation audit (2026-06-08)
+
+  claude-code   2025-12-22 → 2026-06-08
+    live (raw on disk):         79 days
+    preserved (CLI deleted):    83 days
+    no data (unused or lost):    7 days
+  ...
+
+  ► 100 days of cost history preserved that your CLIs already deleted.
+```
+
+전체 일별 내역은 `toktrack audit --json`, 또는 TUI에서 **Audit** 탭(`4` 키)으로 시각적 커버리지 맵을 확인하세요.
 
 ### Claude Code 자동 삭제 비활성화
 
