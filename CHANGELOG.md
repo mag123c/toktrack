@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.10.0](https://github.com/mag123c/toktrack/compare/v2.9.0...v2.10.0) (2026-06-08)
+
+
+### Features
+
+* data-preservation audit (CLI + TUI) ([#178](https://github.com/mag123c/toktrack/issues/178)) ([a2794d9](https://github.com/mag123c/toktrack/commit/a2794d9c7c62178af96d0c823985ed5aefd1fc45))
+
 ## [2.9.0](https://github.com/mag123c/toktrack/compare/v2.8.1...v2.9.0) (2026-06-06)
 
 
