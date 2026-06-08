@@ -1,5 +1,6 @@
 //! TUI widgets
 
+pub mod audit;
 pub mod daily;
 pub mod heatmap;
 pub mod help;

@@ -68,7 +68,7 @@ impl Widget for HelpPopup {
             Constraint::Length(1), // [1] Navigation header
             Constraint::Length(1), // [2] Separator
             Constraint::Length(1), // [3] Tab/Shift+Tab
-            Constraint::Length(1), // [4] 1-3
+            Constraint::Length(1), // [4] 1-4
             Constraint::Length(1), // [5] Up/Down
             Constraint::Length(1), // [6] Enter
             Constraint::Length(1), // [7] Esc
@@ -107,7 +107,7 @@ impl Widget for HelpPopup {
 
         // Keybindings
         render_keybinding(chunks[3], buf, "Tab / Shift+Tab", "Switch view", self.theme);
-        render_keybinding(chunks[4], buf, "1 / 2 / 3", "Jump to tab", self.theme);
+        render_keybinding(chunks[4], buf, "1 / 2 / 3 / 4", "Jump to tab", self.theme);
         render_keybinding(chunks[5], buf, "Up/Down or j/k", "Navigate", self.theme);
         render_keybinding(chunks[6], buf, "Enter", "View source details", self.theme);
         render_keybinding(chunks[7], buf, "Esc", "Back to dashboard", self.theme);

@@ -13,8 +13,12 @@ use ratatui::{
 
 use super::theme::Theme;
 
+use crate::parsers::ParserRegistry;
+use crate::services::audit::{self, AuditReport};
 use crate::services::update_checker::{check_for_update, execute_update, UpdateCheckResult};
-use crate::services::{Aggregator, DataLoaderService, RemoteOptions, RemoteSourceService};
+use crate::services::{
+    Aggregator, DailySummaryCacheService, DataLoaderService, RemoteOptions, RemoteSourceService,
+};
 use crate::types::{CacheWarning, DailySummary, SourceUsage, StatsData, TotalSummary};
 
 use super::widgets::{
@@ -137,6 +141,14 @@ pub struct App {
     quit_confirm: Option<QuitConfirmState>,
     model_breakdown: Option<ModelBreakdownState>,
     terminal_height: u16,
+    /// Remote options retained for the on-demand audit computation.
+    remote_options: RemoteOptions,
+    /// Lazily-computed data-preservation audit (Audit tab).
+    audit: Option<AuditReport>,
+    /// Receiver for the background audit computation, if one is in flight.
+    audit_rx: Option<mpsc::Receiver<std::result::Result<AuditReport, String>>>,
+    /// Error from the audit computation, if it failed.
+    audit_error: Option<String>,
 }
 
 impl App {
@@ -167,6 +179,10 @@ impl App {
             quit_confirm: None,
             model_breakdown: None,
             terminal_height: 24,
+            remote_options: config.remote_options.clone(),
+            audit: None,
+            audit_rx: None,
+            audit_error: None,
         }
     }
 
@@ -250,6 +266,38 @@ impl App {
     /// Set the current dashboard tab
     fn set_tab(&mut self, tab: Tab) {
         self.view_mode = ViewMode::Dashboard { tab };
+        if tab == Tab::Audit {
+            self.ensure_audit_loading();
+        }
+    }
+
+    /// Kick off the background audit computation the first time the Audit tab
+    /// is opened. The audit needs a full raw parse, so it must never run on the
+    /// startup hot path — only on demand.
+    fn ensure_audit_loading(&mut self) {
+        if self.audit.is_some() || self.audit_rx.is_some() {
+            return;
+        }
+        self.audit_error = None;
+        let remote_options = self.remote_options.clone();
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = tx.send(compute_audit(remote_options));
+        });
+        self.audit_rx = Some(rx);
+    }
+
+    /// Poll the background audit thread without blocking the event loop.
+    fn poll_audit(&mut self) {
+        if let Some(rx) = &self.audit_rx {
+            if let Ok(result) = rx.try_recv() {
+                match result {
+                    Ok(report) => self.audit = Some(report),
+                    Err(e) => self.audit_error = Some(e),
+                }
+                self.audit_rx = None;
+            }
+        }
     }
 
     /// Handle keyboard events in Dashboard mode
@@ -286,6 +334,12 @@ impl App {
             }
             KeyCode::Char('3') => {
                 if let Some(tab) = Tab::from_number(3) {
+                    self.set_tab(tab);
+                }
+                return;
+            }
+            KeyCode::Char('4') => {
+                if let Some(tab) = Tab::from_number(4) {
                     self.set_tab(tab);
                 }
                 return;
@@ -348,8 +402,8 @@ impl App {
                 }
                 _ => {}
             },
-            Tab::Stats | Tab::Models => {
-                // Stats/Models tabs have no additional keys beyond common ones
+            Tab::Stats | Tab::Models | Tab::Audit => {
+                // These tabs have no additional keys beyond the common ones.
             }
         }
     }
@@ -692,6 +746,14 @@ impl Widget for &App {
                             .with_tab(*tab);
                             models_view.render(area, buf);
                         }
+                        Tab::Audit => {
+                            super::widgets::audit::AuditView::new(
+                                self.audit.as_ref(),
+                                self.audit_error.as_deref(),
+                                self.theme,
+                            )
+                            .render(area, buf);
+                        }
                     },
                     ViewMode::SourceDetail { source } => {
                         let daily_data = data
@@ -780,6 +842,20 @@ pub fn run(config: TuiConfig) -> anyhow::Result<()> {
     let result = run_app(&mut terminal, config, theme);
     ratatui::restore();
     result
+}
+
+/// Compute the data-preservation audit (runs on a background thread when the
+/// Audit tab is first opened — never on the startup hot path).
+fn compute_audit(remote_options: RemoteOptions) -> Result<AuditReport, String> {
+    let extra_sources =
+        RemoteSourceService::sync_and_build_sources(&remote_options).map_err(|e| e.to_string())?;
+    let registry = ParserRegistry::with_extra_sources(extra_sources);
+    let cache = DailySummaryCacheService::new().map_err(|e| e.to_string())?;
+    Ok(audit::build_report(
+        registry.sources(),
+        &cache,
+        Local::now().date_naive(),
+    ))
 }
 
 /// Load data synchronously (extracted for background thread).
@@ -902,6 +978,9 @@ fn run_app(terminal: &mut DefaultTerminal, config: TuiConfig, theme: Theme) -> a
                 }
             }
         }
+
+        // Check for on-demand audit completion (non-blocking)
+        app.poll_audit();
 
         // Check for update check completion (non-blocking)
         if app.update_status == UpdateStatus::Checking {
@@ -1702,6 +1781,12 @@ mod tests {
         app.handle_event(Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
         assert!(matches!(
             app.view_mode,
+            ViewMode::Dashboard { tab: Tab::Audit }
+        ));
+
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
+        assert!(matches!(
+            app.view_mode,
             ViewMode::Dashboard { tab: Tab::Overview }
         ));
     }
@@ -1710,13 +1795,14 @@ mod tests {
     fn test_backtab_switches_tab() {
         let mut app = App::default();
 
+        // From Overview, BackTab wraps to the last tab (Audit).
         app.handle_event(Event::Key(KeyEvent::new(
             KeyCode::BackTab,
             KeyModifiers::SHIFT,
         )));
         assert!(matches!(
             app.view_mode,
-            ViewMode::Dashboard { tab: Tab::Models }
+            ViewMode::Dashboard { tab: Tab::Audit }
         ));
     }
 
