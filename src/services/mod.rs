@@ -1,6 +1,7 @@
 //! Services for data aggregation and processing
 
 pub mod aggregator;
+pub mod audit;
 pub mod cache;
 pub mod config;
 pub mod data_loader;

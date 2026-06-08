@@ -5,9 +5,13 @@ use std::path::PathBuf;
 use chrono::Local;
 use clap::{Parser, Subcommand};
 
+use crate::parsers::ParserRegistry;
 use crate::report::data::ReportData;
 use crate::services::config::{ConfigService, RemoteConfig as StoredRemoteConfig};
-use crate::services::{Aggregator, DataLoaderService, RemoteOptions, RemoteSourceService};
+use crate::services::{
+    audit, Aggregator, DailySummaryCacheService, DataLoaderService, RemoteOptions,
+    RemoteSourceService,
+};
 use crate::tui::widgets::daily::DailyViewMode;
 use crate::tui::widgets::tabs::Tab;
 use crate::tui::TuiConfig;
@@ -84,6 +88,13 @@ enum Commands {
         /// Output SVG file (default: toktrack-report.svg)
         #[arg(long, num_args = 0..=1, default_missing_value = "toktrack-report.svg")]
         svg: Option<PathBuf>,
+    },
+
+    /// Audit data preservation: which days are live on disk vs cache-only
+    Audit {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
 
     /// Manage configured SSH remote sources
@@ -206,6 +217,7 @@ impl Cli {
                 days,
                 svg,
             }) => Ok(run_report(week, month, days, svg, &remote_options)?),
+            Some(Commands::Audit { json }) => Ok(run_audit(json, &remote_options)?),
             Some(Commands::Remote { command }) => Ok(run_remote_config(command)?),
         }
     }
@@ -341,6 +353,26 @@ fn run_report(
         println!("\nSVG saved to: {}", path.display());
     }
 
+    Ok(())
+}
+
+/// Audit data preservation across all sources (text, or JSON with --json).
+fn run_audit(json: bool, remote_options: &RemoteOptions) -> Result<()> {
+    let extra_sources = RemoteSourceService::sync_and_build_sources(remote_options)?;
+    let registry = ParserRegistry::with_extra_sources(extra_sources);
+    let cache = DailySummaryCacheService::new()?;
+    let today = Local::now().date_naive();
+    let report = audit::build_report(registry.sources(), &cache, today);
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report)
+                .map_err(|e| ToktrackError::Parse(e.to_string()))?
+        );
+    } else {
+        print!("{}", crate::report::audit::render(&report));
+    }
     Ok(())
 }
 
@@ -550,6 +582,18 @@ mod tests {
     fn test_cli_parse_report_week_month_conflict() {
         let result = Cli::try_parse_from(["toktrack", "report", "--week", "--month"]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_cli_parse_audit() {
+        let cli = Cli::try_parse_from(["toktrack", "audit"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::Audit { json: false })));
+    }
+
+    #[test]
+    fn test_cli_parse_audit_json() {
+        let cli = Cli::try_parse_from(["toktrack", "audit", "--json"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::Audit { json: true })));
     }
 
     #[test]

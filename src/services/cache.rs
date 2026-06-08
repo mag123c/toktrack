@@ -181,6 +181,20 @@ impl DailySummaryCacheService {
         cache.summaries.iter().map(|s| s.date).max()
     }
 
+    /// Return the set of dates present in the cached summaries.
+    /// Empty when the cache file is absent or unreadable (no panic) — the audit
+    /// treats an unreadable cache as "nothing preserved" rather than failing.
+    pub fn cached_dates(&self, cli: &str) -> HashSet<NaiveDate> {
+        let path = self.cache_path(cli);
+        let Ok(content) = fs::read_to_string(&path) else {
+            return HashSet::new();
+        };
+        match serde_json::from_str::<DailySummaryCache>(&content) {
+            Ok(cache) => cache.summaries.iter().map(|s| s.date).collect(),
+            Err(_) => HashSet::new(),
+        }
+    }
+
     /// Load cached summaries for past dates (excludes today).
     /// Uses shared file lock for concurrent read safety.
     fn load_past_summaries(
@@ -980,6 +994,59 @@ mod tests {
             service.latest_cached_date("claude-code"),
             Some(NaiveDate::from_ymd_opt(2026, 2, 27).unwrap())
         );
+    }
+
+    // Test: cached_dates is empty when no cache file exists
+    #[test]
+    fn test_cached_dates_empty_when_no_file() {
+        let (service, _temp) = create_test_service();
+        assert!(service.cached_dates("claude-code").is_empty());
+    }
+
+    // Test: cached_dates collects every date from the cached summaries
+    #[test]
+    fn test_cached_dates_collects_all_summary_dates() {
+        let (service, _temp) = create_test_service();
+        let summary_on = |date: NaiveDate| DailySummary {
+            date,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            total_cache_read_tokens: 0,
+            total_cache_creation_tokens: 0,
+            total_reasoning_tokens: 0,
+            total_cache_creation_5m_tokens: 0,
+            total_cache_creation_1h_tokens: 0,
+            total_web_search_requests: 0,
+            total_cost_usd: 0.0,
+            models: HashMap::new(),
+        };
+        let cache = DailySummaryCache {
+            cli: "claude-code".to_string(),
+            version: CACHE_VERSION,
+            updated_at: chrono::Utc::now().timestamp(),
+            summaries: vec![
+                summary_on(NaiveDate::from_ymd_opt(2026, 3, 1).unwrap()),
+                summary_on(NaiveDate::from_ymd_opt(2026, 3, 3).unwrap()),
+            ],
+        };
+        let cache_path = service.cache_path("claude-code");
+        fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+        fs::write(&cache_path, serde_json::to_string(&cache).unwrap()).unwrap();
+
+        let dates = service.cached_dates("claude-code");
+        assert_eq!(dates.len(), 2);
+        assert!(dates.contains(&NaiveDate::from_ymd_opt(2026, 3, 1).unwrap()));
+        assert!(dates.contains(&NaiveDate::from_ymd_opt(2026, 3, 3).unwrap()));
+    }
+
+    // Test: cached_dates returns empty on a corrupted cache file (no panic)
+    #[test]
+    fn test_cached_dates_empty_on_corrupted_file() {
+        let (service, _temp) = create_test_service();
+        let cache_path = service.cache_path("claude-code");
+        fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+        fs::write(&cache_path, "not valid json {{{").unwrap();
+        assert!(service.cached_dates("claude-code").is_empty());
     }
 
     // Test 17: latest_cached_date returns None for empty summaries
