@@ -289,14 +289,25 @@ impl App {
 
     /// Poll the background audit thread without blocking the event loop.
     fn poll_audit(&mut self) {
-        if let Some(rx) = &self.audit_rx {
-            if let Ok(result) = rx.try_recv() {
-                match result {
-                    Ok(report) => self.audit = Some(report),
-                    Err(e) => self.audit_error = Some(e),
-                }
+        let Some(rx) = &self.audit_rx else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(Ok(report)) => {
+                self.audit = Some(report);
                 self.audit_rx = None;
             }
+            Ok(Err(e)) => {
+                self.audit_error = Some(e);
+                self.audit_rx = None;
+            }
+            // Sender dropped without sending (e.g. the worker thread panicked) —
+            // surface an error instead of spinning on "Computing…" forever.
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.audit_error = Some("Audit computation failed unexpectedly".to_string());
+                self.audit_rx = None;
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
         }
     }
 
@@ -1804,6 +1815,23 @@ mod tests {
             app.view_mode,
             ViewMode::Dashboard { tab: Tab::Audit }
         ));
+    }
+
+    #[test]
+    fn test_poll_audit_surfaces_disconnected_worker() {
+        // If the audit worker thread dies without sending (sender dropped),
+        // poll_audit must surface an error and clear the receiver instead of
+        // leaving the Audit tab stuck on "Computing…" forever.
+        let mut app = App::default();
+        let (tx, rx) = mpsc::channel::<std::result::Result<AuditReport, String>>();
+        drop(tx);
+        app.audit_rx = Some(rx);
+
+        app.poll_audit();
+
+        assert!(app.audit_error.is_some());
+        assert!(app.audit_rx.is_none());
+        assert!(app.audit.is_none());
     }
 
     #[test]

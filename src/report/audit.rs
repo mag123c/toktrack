@@ -100,7 +100,7 @@ mod tests {
     }
 
     #[test]
-    fn render_includes_headline_count() {
+    fn test_render_includes_headline_count() {
         let r = report_with(
             vec![source("claude-code", Some(date(2026, 3, 1)), 72, 28, 0)],
             28,
@@ -113,21 +113,21 @@ mod tests {
     }
 
     #[test]
-    fn render_labels_missing_honestly() {
+    fn test_render_labels_missing_honestly() {
         let r = report_with(vec![source("codex", Some(date(2026, 3, 1)), 1, 1, 1)], 1);
         let text = render(&r);
         assert!(text.contains("no data (unused or lost)"), "got:\n{text}");
     }
 
     #[test]
-    fn render_empty_source_shows_no_data() {
+    fn test_render_empty_source_shows_no_data() {
         let r = report_with(vec![source("pi-agent", None, 0, 0, 0)], 0);
         let text = render(&r);
         assert!(text.contains("pi-agent   (no data)"), "got:\n{text}");
     }
 
     #[test]
-    fn render_zero_preserved_uses_live_headline() {
+    fn test_render_zero_preserved_uses_live_headline() {
         let r = report_with(vec![source("gemini", Some(date(2026, 3, 1)), 5, 0, 0)], 0);
         let text = render(&r);
         assert!(text.contains("still live on disk"), "got:\n{text}");

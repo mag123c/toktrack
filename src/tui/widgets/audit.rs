@@ -23,8 +23,10 @@ const MAX_CONTENT_WIDTH: u16 = 170;
 const BAR_WIDTH: usize = 48;
 
 /// Split a bar of `width` cells proportionally across the three coverage
-/// categories. Any non-zero category gets at least one cell (so a single
-/// preserved day is still visible), and `missing` absorbs the remainder.
+/// categories. `live` and `cache_only` are each bumped to at least one cell so
+/// a single preserved day stays visible; if the bar is too narrow to fit both,
+/// `cache_only` (the headline metric) is kept and `live` may fall to zero.
+/// `missing` absorbs the remainder.
 fn segment_widths(live: u32, cache_only: u32, missing: u32, width: usize) -> (usize, usize, usize) {
     let total = (live + cache_only + missing) as usize;
     if total == 0 || width == 0 {
@@ -72,12 +74,6 @@ impl<'a> AuditView<'a> {
             selected_tab: Tab::Audit,
             theme,
         }
-    }
-
-    #[allow(dead_code)] // Parity with the other views; selected tab is always Audit here.
-    pub fn with_tab(mut self, tab: Tab) -> Self {
-        self.selected_tab = tab;
-        self
     }
 }
 
@@ -316,7 +312,7 @@ mod tests {
     }
 
     #[test]
-    fn segment_widths_split_proportionally() {
+    fn test_segment_widths_split_proportionally() {
         // 50/50 live vs missing over 48 cells.
         let (l, c, m) = segment_widths(10, 0, 10, 48);
         assert_eq!(c, 0);
@@ -325,20 +321,20 @@ mod tests {
     }
 
     #[test]
-    fn segment_widths_keeps_single_preserved_day_visible() {
+    fn test_segment_widths_keeps_single_preserved_day_visible() {
         // 1 preserved day out of 1000 must still light at least one cell.
         let (_l, c, _m) = segment_widths(999, 1, 0, 48);
         assert!(c >= 1, "preserved segment vanished");
     }
 
     #[test]
-    fn segment_widths_never_exceed_width() {
+    fn test_segment_widths_never_exceed_width() {
         let (l, c, m) = segment_widths(1, 1, 0, 2);
         assert_eq!(l + c + m, 2);
     }
 
     #[test]
-    fn segment_widths_empty_is_zero() {
+    fn test_segment_widths_empty_is_zero() {
         assert_eq!(segment_widths(0, 0, 0, 48), (0, 0, 0));
     }
 
@@ -357,19 +353,19 @@ mod tests {
     }
 
     #[test]
-    fn renders_loading_state_without_panic() {
+    fn test_renders_loading_state_without_panic() {
         let text = render_to_string(AuditView::new(None, None, Theme::Dark));
         assert!(text.contains("Computing"), "got:\n{text}");
     }
 
     #[test]
-    fn renders_error_state_without_panic() {
+    fn test_renders_error_state_without_panic() {
         let text = render_to_string(AuditView::new(None, Some("boom"), Theme::Dark));
         assert!(text.contains("Audit failed"), "got:\n{text}");
     }
 
     #[test]
-    fn renders_report_with_headline() {
+    fn test_renders_report_with_headline() {
         let report = AuditReport {
             generated_for: date(2026, 6, 8),
             total_cache_only_days: 28,

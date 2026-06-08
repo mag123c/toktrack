@@ -98,9 +98,9 @@ pub fn audit_source(
             if date == end {
                 break;
             }
-            date = date
-                .succ_opt()
-                .expect("range end is reachable within representable dates");
+            // The `date == end` break above guarantees `date < end` here, so
+            // `date` is strictly below the max representable NaiveDate.
+            date = date.succ_opt().expect("date is strictly before end");
         }
     }
 
@@ -178,7 +178,7 @@ mod tests {
     }
 
     #[test]
-    fn live_takes_precedence_over_cache() {
+    fn test_live_takes_precedence_over_cache() {
         // A day present in BOTH live and cache is reported as live (recoverable).
         let day = d(2026, 3, 1);
         let audit = audit_source("claude-code", "claude-code", &set(&[day]), &set(&[day]));
@@ -190,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    fn cache_only_when_raw_gone() {
+    fn test_cache_only_when_raw_gone() {
         // In cache but not on disk → preserved-by-toktrack.
         let day = d(2026, 3, 1);
         let audit = audit_source("codex", "codex", &HashSet::new(), &set(&[day]));
@@ -201,7 +201,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_for_gap_days_inside_range() {
+    fn test_missing_for_gap_days_inside_range() {
         // Range is 03-01..=03-03; only the endpoints have data, the middle is a gap.
         let live = set(&[d(2026, 3, 1)]);
         let cache = set(&[d(2026, 3, 3)]);
@@ -218,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_source_yields_none_range() {
+    fn test_empty_source_yields_none_range() {
         let audit = audit_source("pi-agent", "pi-agent", &HashSet::new(), &HashSet::new());
 
         assert_eq!(audit.start, None);
@@ -228,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn single_day_source() {
+    fn test_single_day_source() {
         let day = d(2026, 6, 8);
         let audit = audit_source("opencode", "opencode", &set(&[day]), &HashSet::new());
 
@@ -239,7 +239,7 @@ mod tests {
     }
 
     #[test]
-    fn counts_sum_to_total_days() {
+    fn test_counts_sum_to_total_days() {
         // 03-01 live, 03-02 missing, 03-03 cache_only, 03-04 missing, 03-05 live.
         let live = set(&[d(2026, 3, 1), d(2026, 3, 5)]);
         let cache = set(&[d(2026, 3, 3)]);
@@ -256,7 +256,7 @@ mod tests {
     }
 
     #[test]
-    fn coverage_serializes_to_snake_case() {
+    fn test_coverage_serializes_to_snake_case() {
         let day = d(2026, 3, 1);
         let audit = audit_source("codex", "codex", &HashSet::new(), &set(&[day]));
         let json = serde_json::to_string(&audit.days[0]).unwrap();
@@ -264,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn build_report_counts_cached_dates_as_cache_only_when_no_raw() {
+    fn test_build_report_counts_cached_dates_as_cache_only_when_no_raw() {
         use crate::parsers::ClaudeCodeParser;
         use crate::services::cache::DailySummaryCache;
         use crate::types::DailySummary;
