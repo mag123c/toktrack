@@ -31,7 +31,7 @@ Track usage across **all your AI coding CLIs** — Claude Code, Codex CLI, Gemin
 - **Data Preservation** — Persistent cache keeps your cost history even after a CLI deletes its own session files
 - **Multi-CLI Support** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent in one place
 - **TUI Dashboard** — 5 tabs (Overview, Stats, Models, Projects, Audit) with daily/weekly/monthly views
-- **Per-Project Breakdown** — the Projects tab shows token & cost usage per project (the session working directory), for CLIs that record one — currently Claude Code, Codex, and PI Agent. Drill into any project for its day-by-day, per-model breakdown. Usage from CLIs that don't record a project is grouped under `(no project)`. Project details are cached, so they survive past the CLI's 30-day deletion
+- **Per-Project Breakdown** — the Projects tab shows token & cost usage per project (the session working directory), for CLIs that record one — currently Claude Code, Codex, OpenCode, and PI Agent. Drill into any project for its day-by-day, per-model breakdown. Usage from CLIs that don't record a project is grouped under `(no project)`. Project details are cached, so they survive past the CLI's 30-day deletion
 - **CLI Commands** — `daily`, `weekly`, `monthly`, `stats` with JSON output support
 - **Usage Reports** — Shareable text & SVG receipts via `toktrack report`
 - **Fast on huge histories** — simd-json + rayon parallel parsing (~3 GiB/s); cached runs in ~0.04s

@@ -113,6 +113,7 @@ impl OpenCodeParser {
             id,
             session_id,
             mut data_json,
+            directory,
         } in rows
         {
             // SAFETY: `data_json` is exclusively owned and not aliased; safe for simd_json in-place mutation.
@@ -126,7 +127,9 @@ impl OpenCodeParser {
                     continue;
                 }
             };
-            if let Some(entry) = to_usage_entry(id, session_id, data) {
+            if let Some(mut entry) = to_usage_entry(id, session_id, data) {
+                // Attribute to the session's working directory (empty → no project).
+                entry.project = directory.filter(|d| !d.is_empty());
                 entries.push(entry);
             }
         }
@@ -138,23 +141,52 @@ impl OpenCodeParser {
         // need URI percent-encoding. SQLITE_OPEN_READ_ONLY alone gives read-only access.
         let conn = Connection::open_with_flags(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
 
-        let base_sql = "SELECT id, session_id, data \
-             FROM message \
-             WHERE json_extract(data, '$.role') = 'assistant' \
-               AND COALESCE(json_extract(data, '$.tokens.input'), 0) \
-                 + COALESCE(json_extract(data, '$.tokens.output'), 0) > 0";
+        // Prefer the directory-aware query (joins `session.directory` so each
+        // message can be attributed to a project). Older OpenCode schemas may
+        // lack the `session` table/column, so fall back to a directory-less
+        // query that yields `project = None`.
+        Self::run_message_query(&conn, since_ms, true)
+            .or_else(|_| Self::run_message_query(&conn, since_ms, false))
+    }
 
-        let map_row = |r: &rusqlite::Row<'_>| -> rusqlite::Result<SqliteMessageRow> {
+    fn run_message_query(
+        conn: &Connection,
+        since_ms: Option<i64>,
+        with_directory: bool,
+    ) -> rusqlite::Result<Vec<SqliteMessageRow>> {
+        let (base_sql, time_col) = if with_directory {
+            (
+                "SELECT m.id, m.session_id, m.data, s.directory \
+                 FROM message m \
+                 LEFT JOIN session s ON s.id = m.session_id \
+                 WHERE json_extract(m.data, '$.role') = 'assistant' \
+                   AND COALESCE(json_extract(m.data, '$.tokens.input'), 0) \
+                     + COALESCE(json_extract(m.data, '$.tokens.output'), 0) > 0",
+                "m.time_created",
+            )
+        } else {
+            (
+                "SELECT id, session_id, data, NULL \
+                 FROM message \
+                 WHERE json_extract(data, '$.role') = 'assistant' \
+                   AND COALESCE(json_extract(data, '$.tokens.input'), 0) \
+                     + COALESCE(json_extract(data, '$.tokens.output'), 0) > 0",
+                "time_created",
+            )
+        };
+
+        fn map_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<SqliteMessageRow> {
             Ok(SqliteMessageRow {
                 id: r.get(0)?,
                 session_id: r.get(1)?,
                 data_json: r.get(2)?,
+                directory: r.get(3)?,
             })
-        };
+        }
 
         match since_ms {
             Some(ms) => {
-                let sql = format!("{} AND time_created >= ?", base_sql);
+                let sql = format!("{} AND {} >= ?", base_sql, time_col);
                 let mut stmt = conn.prepare(&sql)?;
                 stmt.query_map([ms], map_row).and_then(Iterator::collect)
             }
@@ -170,6 +202,9 @@ struct SqliteMessageRow {
     id: String,
     session_id: String,
     data_json: String,
+    /// `session.directory` (the session's working directory) when available —
+    /// used as the project identifier.
+    directory: Option<String>,
 }
 
 fn to_usage_entry(id: String, session_id: String, msg: OpenCodeMessageData) -> Option<UsageEntry> {
@@ -620,6 +655,59 @@ mod tests {
         let parser = OpenCodeParser::with_base_dir(base);
         let entries = parser.parse_all().unwrap();
         assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn sqlite_attributes_project_from_session_directory() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path().to_path_buf();
+        let db = base.join("opencode.db");
+        create_test_db(
+            &db,
+            &[(
+                "m1",
+                "ses_x",
+                1_700_000_000_000,
+                &assistant_data("opus-4", 1_700_000_000_000, 100, 50),
+            )],
+        );
+        // Add the `session` table (new OpenCode schema) with a directory.
+        let conn = Connection::open(&db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT NOT NULL);\n\
+             INSERT INTO session (id, directory) VALUES ('ses_x', '/home/me/proj');",
+        )
+        .unwrap();
+        drop(conn);
+
+        let parser = OpenCodeParser::with_base_dir(base);
+        let entries = parser.parse_all().unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].project.as_deref(), Some("/home/me/proj"));
+    }
+
+    #[test]
+    fn sqlite_project_none_when_no_session_table() {
+        // Older schema without a `session` table must fall back gracefully and
+        // leave project = None (no error).
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path().to_path_buf();
+        create_test_db(
+            &base.join("opencode.db"),
+            &[(
+                "m1",
+                "ses_x",
+                1_700_000_000_000,
+                &assistant_data("opus-4", 1_700_000_000_000, 100, 50),
+            )],
+        );
+
+        let parser = OpenCodeParser::with_base_dir(base);
+        let entries = parser.parse_all().unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].project, None);
     }
 
     #[test]
