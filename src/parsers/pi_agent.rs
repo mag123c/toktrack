@@ -29,13 +29,9 @@ struct PiAgentLine<'a> {
     id: Option<&'a str>,
     timestamp: Option<&'a str>,
     message: Option<PiAgentMessage<'a>>,
-    /// Working directory of the session (present on the `session` line) — used
-    /// as the project identifier.
-    ///
-    /// NOTE: this was implemented against the `pi_agent` test fixture, which has
-    /// `cwd` on the leading `session` line. It has NOT yet been verified against
-    /// a live PI Agent session directory, so the real-world field name/placement
-    /// may differ.
+    /// Working directory of the session (present on the leading `session` line)
+    /// — used as the project identifier. Verified against live PI Agent v3
+    /// session files (top-level `"cwd"` on the `session` line).
     cwd: Option<&'a str>,
 }
 
