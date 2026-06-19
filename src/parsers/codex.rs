@@ -430,10 +430,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(entries.len(), 1);
-        assert_eq!(
-            entries[0].project.as_deref(),
-            Some("/home/user/code/myrepo")
-        );
+        assert_eq!(entries[0].project.as_deref(), Some("/work/myrepo"));
         assert_eq!(entries[0].model, Some("gpt-5.5".to_string()));
     }
 

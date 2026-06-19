@@ -301,20 +301,16 @@ mod tests {
 
     #[test]
     fn test_project_display_name_two_segments() {
-        assert_eq!(
-            project_display_name("/home/me/Scripts/toktrack"),
-            "Scripts/toktrack"
-        );
-        assert_eq!(
-            project_display_name("G:\\Scripts\\toktrack"),
-            "Scripts/toktrack"
-        );
+        // Forward slashes (POSIX-style).
+        assert_eq!(project_display_name("/srv/work/alpha/beta"), "alpha/beta");
+        // Backslashes (Windows-style) — synthetic placeholder, not a real path.
+        assert_eq!(project_display_name("Z:\\work\\alpha\\beta"), "alpha/beta");
     }
 
     #[test]
     fn test_project_display_name_single_segment() {
-        assert_eq!(project_display_name("/toktrack"), "toktrack");
-        assert_eq!(project_display_name("toktrack"), "toktrack");
+        assert_eq!(project_display_name("/solo"), "solo");
+        assert_eq!(project_display_name("solo"), "solo");
     }
 
     #[test]
@@ -351,7 +347,7 @@ mod tests {
     #[test]
     fn test_projects_view_renders_without_panic() {
         let mut map: HashMap<String, ProjectUsage> = HashMap::new();
-        map.insert("/home/me/Scripts/toktrack".to_string(), usage(1.0, 1000));
+        map.insert("/srv/work/alpha/beta".to_string(), usage(1.0, 1000));
         let data = ProjectsData::from_project_usage(&map);
         let view = ProjectsView::new(&data, Some(0), Theme::Dark);
         let area = Rect::new(0, 0, 120, 20);
@@ -364,7 +360,7 @@ mod tests {
                 content.push_str(buf[(x, y)].symbol());
             }
         }
-        assert!(content.contains("Scripts/toktrack"));
+        assert!(content.contains("alpha/beta"));
         assert!(content.contains("Project"));
     }
 

@@ -416,10 +416,10 @@ mod tests {
     #[test]
     fn test_parse_line_extracts_cwd_as_project() {
         let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
-        let line = r#"{"type":"assistant","timestamp":"2026-01-15T10:00:01.500Z","cwd":"/home/me/Scripts/toktrack","message":{"model":"claude-sonnet-4","id":"msg-x","usage":{"input_tokens":100,"output_tokens":50}}}"#;
+        let line = r#"{"type":"assistant","timestamp":"2026-01-15T10:00:01.500Z","cwd":"/work/demo","message":{"model":"claude-sonnet-4","id":"msg-x","usage":{"input_tokens":100,"output_tokens":50}}}"#;
         let mut bytes = line.as_bytes().to_vec();
         let entry = parser.parse_line(&mut bytes).expect("entry parsed");
-        assert_eq!(entry.project.as_deref(), Some("/home/me/Scripts/toktrack"));
+        assert_eq!(entry.project.as_deref(), Some("/work/demo"));
     }
 
     #[test]

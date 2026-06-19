@@ -2099,7 +2099,7 @@ mod tests {
 
     #[test]
     fn test_projects_tab_enter_drills_into_project_detail() {
-        let key = "/home/me/Scripts/toktrack";
+        let key = "/srv/work/alpha/beta";
         let mut app = ready_app_with_one_project(key);
 
         // Jump to the Projects tab (key '4').

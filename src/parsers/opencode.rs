@@ -675,7 +675,7 @@ mod tests {
         let conn = Connection::open(&db).unwrap();
         conn.execute_batch(
             "CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT NOT NULL);\n\
-             INSERT INTO session (id, directory) VALUES ('ses_x', '/home/me/proj');",
+             INSERT INTO session (id, directory) VALUES ('ses_x', '/work/proj');",
         )
         .unwrap();
         drop(conn);
@@ -684,7 +684,7 @@ mod tests {
         let entries = parser.parse_all().unwrap();
 
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].project.as_deref(), Some("/home/me/proj"));
+        assert_eq!(entries[0].project.as_deref(), Some("/work/proj"));
     }
 
     #[test]
