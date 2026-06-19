@@ -134,7 +134,16 @@ impl DataLoaderService {
         for source in self.registry.sources() {
             let parser = source.parser.as_ref();
             debug_assert_eq!(source.kind, parser.name());
-            let has_source_cache = cache_service.cache_path(&source.id).exists();
+            // A cache is only usable on the warm (recent-only) path when it both
+            // exists AND matches the current CACHE_VERSION. A stale-version cache
+            // must be fully re-parsed so schema changes (e.g. the per-project
+            // breakdown) are backfilled for every date whose raw files still
+            // exist — `load_or_compute` still merges in older cache-only days, so
+            // preserved >30-day history is kept. Without this, a stale source is
+            // never refreshed as long as any *other* source has a current cache
+            // (which keeps the global warm path active).
+            let has_source_cache = cache_service.cache_path(&source.id).exists()
+                && cache_service.is_version_current(&source.id);
 
             let entries = if has_source_cache {
                 let latest = cache_service.latest_cached_date(&source.id);
@@ -683,6 +692,97 @@ mod tests {
             .collect();
         assert!(sources.contains("codex"));
         assert!(sources.contains("codex@testbox"));
+    }
+
+    #[test]
+    fn test_stale_version_source_is_reparsed_and_preserves_history() {
+        // A source whose cache is STALE-versioned must be fully re-parsed (so
+        // schema changes like the per-project breakdown are backfilled), while
+        // older cache-only days are preserved — even when another source keeps
+        // the global warm path active. The stale cache's latest date is recent
+        // (no date gap), so the ONLY thing that can trigger the reparse is the
+        // version check added to the warm path.
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache_dir = temp_dir.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let pricing_path = temp_dir.path().join("pricing.json");
+        let fetched_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        std::fs::write(
+            &pricing_path,
+            format!(r#"{{"fetched_at":{},"models":{{}}}}"#, fetched_at),
+        )
+        .unwrap();
+
+        let cache_service = DailySummaryCacheService::with_cache_dir(cache_dir.clone());
+
+        // Seed a CURRENT-version cache for a second source so has_valid_cache()
+        // is true and load() takes the warm path.
+        let today = Local::now().date_naive();
+        let mut keepwarm_entry = make_entry(Some(0.01), Some("openai"));
+        keepwarm_entry.timestamp = today.and_hms_opt(12, 0, 0).unwrap().and_utc();
+        cache_service
+            .load_or_compute("keepwarm", &[keepwarm_entry])
+            .unwrap();
+
+        // Seed a STALE (version 0) codex cache: an ancient cache-only day (no raw
+        // backing → preserved history) + a recent day so latest_cached_date is
+        // recent (no gap).
+        let yesterday = today - chrono::Duration::days(1);
+        let stale = format!(
+            r#"{{"cli":"codex","version":0,"updated_at":0,"summaries":[
+                {{"date":"2020-01-01","total_input_tokens":111,"total_output_tokens":0,
+                  "total_cache_read_tokens":0,"total_cache_creation_tokens":0,
+                  "total_cost_usd":0.0,"models":{{}},"projects":{{}}}},
+                {{"date":"{}","total_input_tokens":5,"total_output_tokens":5,
+                  "total_cache_read_tokens":0,"total_cache_creation_tokens":0,
+                  "total_cost_usd":0.0,"models":{{}},"projects":{{}}}}
+            ]}}"#,
+            yesterday
+        );
+        std::fs::write(cache_dir.join("codex_daily.json"), stale).unwrap();
+
+        let service = DataLoaderService {
+            registry: ParserRegistry::with_sources(vec![
+                SourceInstance::new(
+                    "codex",
+                    "codex",
+                    "codex",
+                    Box::new(CodexParser::with_data_dir(PathBuf::from(
+                        "tests/fixtures/codex",
+                    ))),
+                ),
+                SourceInstance::new(
+                    "keepwarm",
+                    "keepwarm",
+                    "codex",
+                    Box::new(CodexParser::with_data_dir(temp_dir.path().to_path_buf())),
+                ),
+            ]),
+            cache_service: Some(DailySummaryCacheService::with_cache_dir(cache_dir.clone())),
+            pricing: PricingService::from_cache_only_with_path(&pricing_path),
+        };
+
+        let result = service.load().unwrap();
+        let codex = result
+            .source_summaries
+            .get("codex")
+            .expect("codex summaries present");
+        let dates: Vec<String> = codex.iter().map(|s| s.date.to_string()).collect();
+
+        // Ancient cache-only day preserved across the reparse.
+        assert!(
+            dates.iter().any(|d| d == "2020-01-01"),
+            "preserved >30-day history was dropped: {dates:?}"
+        );
+        // Fixture dates re-parsed — proves the stale source was fully re-parsed
+        // rather than served recent-only.
+        assert!(
+            dates.iter().any(|d| d.starts_with("2026-01")),
+            "stale-version source was not re-parsed (no backfill): {dates:?}"
+        );
     }
 
     // ========== apply_pricing tests ==========
