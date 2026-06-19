@@ -29,6 +29,14 @@ struct PiAgentLine<'a> {
     id: Option<&'a str>,
     timestamp: Option<&'a str>,
     message: Option<PiAgentMessage<'a>>,
+    /// Working directory of the session (present on the `session` line) — used
+    /// as the project identifier.
+    ///
+    /// NOTE: this was implemented against the `pi_agent` test fixture, which has
+    /// `cwd` on the leading `session` line. It has NOT yet been verified against
+    /// a live PI Agent session directory, so the real-world field name/placement
+    /// may differ.
+    cwd: Option<&'a str>,
 }
 
 #[derive(Deserialize)]
@@ -68,7 +76,10 @@ struct PiAgentEvent {
 
 enum ParseResult {
     Skip,
-    Session(String),
+    Session {
+        id: Option<String>,
+        cwd: Option<String>,
+    },
     Usage(PiAgentEvent),
 }
 
@@ -116,10 +127,16 @@ impl PiAgentParser {
 
         match line_data.line_type {
             "session" => {
-                if let Some(id) = line_data.id {
-                    return ParseResult::Session(id.to_string());
+                // Capture the session id (used as request_id) and the cwd (used
+                // as the project). Emit even if id is absent so the project still
+                // gets recorded for this file's entries.
+                if line_data.id.is_none() && line_data.cwd.is_none() {
+                    return ParseResult::Skip;
                 }
-                ParseResult::Skip
+                ParseResult::Session {
+                    id: line_data.id.map(String::from),
+                    cwd: line_data.cwd.map(String::from),
+                }
             }
             "message" => {
                 let message = match line_data.message {
@@ -189,6 +206,7 @@ impl CLIParser for PiAgentParser {
         let reader = BufReader::new(file);
         let mut entries = Vec::new();
         let mut current_session: Option<String> = None;
+        let mut current_project: Option<String> = None;
 
         for line_result in reader.lines() {
             let line = match line_result {
@@ -199,8 +217,13 @@ impl CLIParser for PiAgentParser {
             let mut line_bytes = line.into_bytes();
             match self.parse_line(&mut line_bytes) {
                 ParseResult::Skip => {}
-                ParseResult::Session(session_id) => {
-                    current_session = Some(session_id);
+                ParseResult::Session { id, cwd } => {
+                    if id.is_some() {
+                        current_session = id;
+                    }
+                    if cwd.is_some() {
+                        current_project = cwd;
+                    }
                 }
                 ParseResult::Usage(event) => {
                     entries.push(UsageEntry {
@@ -221,7 +244,7 @@ impl CLIParser for PiAgentParser {
                         request_id: current_session.clone(),
                         source: Some("pi-agent".into()),
                         provider: event.provider,
-                        project: None,
+                        project: current_project.clone(),
                     });
                 }
             }
@@ -273,6 +296,18 @@ mod tests {
             Some("00000000-0000-0000-0000-000000000001".to_string())
         );
         assert_eq!(entry.cost_usd, Some(0.004788));
+    }
+
+    #[test]
+    fn test_parse_pi_agent_extracts_project_from_session_cwd() {
+        let parser = PiAgentParser::with_data_dir(PathBuf::from("tests/fixtures"));
+        let entries = parser
+            .parse_file(&fixture_path("sample-session.jsonl"))
+            .unwrap();
+
+        // The leading `session` line carries cwd="/tmp/example-project"; it must
+        // be attached to the file's usage entries as the project.
+        assert_eq!(entries[0].project.as_deref(), Some("/tmp/example-project"));
     }
 
     #[test]
