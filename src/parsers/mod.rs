@@ -343,6 +343,7 @@ mod tests {
         // claude-sample.jsonl, empty.jsonl, multi/file1.jsonl, multi/file2.jsonl,
         // codex/sample-session.jsonl, codex/multi-turn-session.jsonl,
         // codex/openai-session.jsonl, codex/multi-session-meta.jsonl,
+        // codex/cwd-session.jsonl,
         // pi_agent/sample-session.jsonl,
         // gemini/tmp_jsonl/chats/session-*.jsonl,
         // gemini/tmp_jsonl/chats/parent-session-xyz/sub-abc.jsonl,
@@ -351,6 +352,6 @@ mod tests {
         // claude/real-shape-session.jsonl
         // qwen/proj/chats/session-*.jsonl
         // (claude parser uses `**/*.jsonl`; gemini/qwen-format files parse to 0 entries.)
-        assert_eq!(files.len(), 15);
+        assert_eq!(files.len(), 16);
     }
 }

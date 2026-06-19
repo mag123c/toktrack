@@ -31,6 +31,10 @@ struct CodexPayload {
     id: Option<String>,
     #[serde(default)]
     model_provider: Option<String>,
+    /// Working directory — present on `turn_context` (and sometimes
+    /// `session_meta`) payloads; used as the project identifier.
+    #[serde(default)]
+    cwd: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -102,19 +106,23 @@ impl CodexParser {
         };
 
         if data.line_type == "turn_context" {
-            if let Some(ref model) = payload.model {
-                return ParseResult::Model(model.clone());
+            if payload.model.is_none() && payload.cwd.is_none() {
+                return ParseResult::Skip;
             }
-            return ParseResult::Skip;
+            return ParseResult::TurnContext {
+                model: payload.model.clone(),
+                cwd: payload.cwd.clone(),
+            };
         }
 
         if data.line_type == "session_meta" {
-            if payload.id.is_none() && payload.model_provider.is_none() {
+            if payload.id.is_none() && payload.model_provider.is_none() && payload.cwd.is_none() {
                 return ParseResult::Skip;
             }
             return ParseResult::SessionMeta {
                 id: payload.id.clone(),
                 provider: payload.model_provider.clone(),
+                cwd: payload.cwd.clone(),
             };
         }
 
@@ -163,10 +171,14 @@ impl CodexParser {
 /// Result of parsing a single line
 enum ParseResult {
     Skip,
-    Model(String),
+    TurnContext {
+        model: Option<String>,
+        cwd: Option<String>,
+    },
     SessionMeta {
         id: Option<String>,
         provider: Option<String>,
+        cwd: Option<String>,
     },
     TokenCount(TokenCountData),
 }
@@ -197,6 +209,7 @@ impl CLIParser for CodexParser {
         let mut current_model: Option<String> = None;
         let mut session_id: Option<String> = None;
         let mut current_provider: Option<String> = None;
+        let mut current_project: Option<String> = None;
         let mut prev_totals = CodexTokenUsage {
             input_tokens: 0,
             output_tokens: 0,
@@ -216,8 +229,15 @@ impl CLIParser for CodexParser {
             let mut line_bytes = line.into_bytes();
             match self.parse_line(&mut line_bytes) {
                 ParseResult::Skip => {}
-                ParseResult::Model(m) => current_model = Some(m),
-                ParseResult::SessionMeta { id, provider } => {
+                ParseResult::TurnContext { model, cwd } => {
+                    if model.is_some() {
+                        current_model = model;
+                    }
+                    if cwd.is_some() {
+                        current_project = cwd;
+                    }
+                }
+                ParseResult::SessionMeta { id, provider, cwd } => {
                     if let Some(id) = id {
                         session_id = Some(id);
                     }
@@ -225,6 +245,9 @@ impl CLIParser for CodexParser {
                     // model_provider_id, the previous provider must NOT stick —
                     // sticking would silently misattribute billing.
                     current_provider = provider;
+                    if cwd.is_some() {
+                        current_project = cwd;
+                    }
                 }
                 ParseResult::TokenCount(data) => {
                     // Compute delta: prefer last_token_usage, fallback to diff
@@ -277,7 +300,7 @@ impl CLIParser for CodexParser {
                         request_id: None,
                         source: Some("codex".into()),
                         provider: current_provider.clone(),
-                        project: None,
+                        project: current_project.clone(),
                     });
                 }
             }
@@ -394,6 +417,36 @@ mod tests {
         for entry in &entries {
             assert_eq!(entry.source, Some("codex".into()));
             assert_eq!(entry.message_id, Some("session-001".to_string()));
+        }
+    }
+
+    #[test]
+    fn test_project_extracted_from_turn_context_cwd() {
+        // Real Codex `turn_context.payload` carries `cwd` (and workspace_roots);
+        // it must be attached to that session's usage as the project.
+        let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
+        let entries = parser
+            .parse_file(&fixture_path("cwd-session.jsonl"))
+            .unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            entries[0].project.as_deref(),
+            Some("/home/user/code/myrepo")
+        );
+        assert_eq!(entries[0].model, Some("gpt-5.5".to_string()));
+    }
+
+    #[test]
+    fn test_project_none_when_no_cwd() {
+        // Legacy fixtures without cwd must keep project=None.
+        let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
+        let entries = parser
+            .parse_file(&fixture_path("sample-session.jsonl"))
+            .unwrap();
+        assert!(!entries.is_empty());
+        for entry in &entries {
+            assert_eq!(entry.project, None);
         }
     }
 
