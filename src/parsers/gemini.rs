@@ -152,6 +152,7 @@ impl GeminiParser {
             simd_json::from_str(&mut content).map_err(|e| ToktrackError::Parse(e.to_string()))?
         };
 
+        let project = project_root_for(path);
         let mut entries = Vec::new();
 
         for msg in session.messages {
@@ -196,7 +197,7 @@ impl GeminiParser {
                 request_id: Some(session.session_id.clone()),
                 source: Some(self.source.into()),
                 provider: None,
-                project: None,
+                project: project.clone(),
             });
         }
 
@@ -214,6 +215,7 @@ impl GeminiParser {
             .unwrap_or("")
             .to_string();
         let mut session_id: Option<String> = None;
+        let project = project_root_for(path);
         let mut entries = Vec::new();
 
         for line_result in reader.lines() {
@@ -293,12 +295,32 @@ impl GeminiParser {
                 request_id: Some(request_id),
                 source: Some(self.source.into()),
                 provider: None,
-                project: None,
+                project: project.clone(),
             });
         }
 
         Ok(entries)
     }
+}
+
+/// Resolve a session's working directory from the `.project_root` sidecar that
+/// gemini-cli / qwen-code write in each tmp project dir
+/// (`<root>/tmp/<dir>/.project_root`). The chat file may sit one level (main
+/// session) or two (subagent) below that dir, so walk up a few parents. Returns
+/// the raw path string, used as the project identifier.
+fn project_root_for(path: &Path) -> Option<String> {
+    let mut dir = path.parent();
+    for _ in 0..4 {
+        let d = dir?;
+        if let Ok(contents) = fs::read_to_string(d.join(".project_root")) {
+            let trimmed = contents.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+        dir = d.parent();
+    }
+    None
 }
 
 impl Default for GeminiParser {
@@ -512,6 +534,48 @@ mod tests {
         // e0: 80 + 50 + 20 + 30 = 180 ; e1: 200 + 150 + 50 + 100 = 500
         assert_eq!(entries[0].total_tokens(), 180);
         assert_eq!(entries[1].total_tokens(), 500);
+    }
+
+    #[test]
+    fn test_project_extracted_from_project_root_sidecar() {
+        // gemini-cli / qwen-code store the cwd in a `.project_root` file next to
+        // the session's `chats/` dir; it must be attached to that file's entries.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let proj = tmp.path().join("tmp").join("myproj");
+        let chats = proj.join("chats");
+        std::fs::create_dir_all(&chats).unwrap();
+        std::fs::write(proj.join(".project_root"), "/work/demo\n").unwrap();
+        let session = chats.join("session-2026-06-19T10-00-00-abcd1234.jsonl");
+        std::fs::write(
+            &session,
+            "{\"sessionId\":\"s1\",\"projectHash\":\"h\",\"kind\":\"main\"}\n\
+             {\"type\":\"gemini\",\"timestamp\":\"2026-06-19T10:00:01Z\",\"model\":\"gemini-3\",\"tokens\":{\"input\":100,\"output\":50}}\n",
+        )
+        .unwrap();
+
+        let parser = GeminiParser::with_data_dir(tmp.path().join("tmp"));
+        let entries = parser.parse_file(&session).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].project.as_deref(), Some("/work/demo"));
+    }
+
+    #[test]
+    fn test_project_none_when_no_project_root() {
+        // Without a `.project_root` sidecar, project stays None (→ no-project bucket).
+        let tmp = tempfile::TempDir::new().unwrap();
+        let chats = tmp.path().join("tmp").join("p").join("chats");
+        std::fs::create_dir_all(&chats).unwrap();
+        let session = chats.join("session-2026-06-19T10-00-00-abcd1234.jsonl");
+        std::fs::write(
+            &session,
+            "{\"type\":\"gemini\",\"timestamp\":\"2026-06-19T10:00:01Z\",\"model\":\"gemini-3\",\"tokens\":{\"input\":100,\"output\":50}}\n",
+        )
+        .unwrap();
+
+        let parser = GeminiParser::with_data_dir(tmp.path().join("tmp"));
+        let entries = parser.parse_file(&session).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].project, None);
     }
 
     fn fixture_no_session_model_path() -> PathBuf {
