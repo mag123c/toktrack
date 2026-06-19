@@ -636,6 +636,7 @@ mod tests {
             total_web_search_requests: 0,
             total_cost_usd: cost,
             models: HashMap::new(),
+            projects: HashMap::new(),
         }
     }
 

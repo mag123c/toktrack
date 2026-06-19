@@ -16,6 +16,7 @@ pub enum Tab {
     Overview,
     Stats,
     Models,
+    Projects,
     Audit,
 }
 
@@ -26,13 +27,20 @@ impl Tab {
             Self::Overview => "Overview",
             Self::Stats => "Stats",
             Self::Models => "Models",
+            Self::Projects => "Projects",
             Self::Audit => "Audit",
         }
     }
 
     /// Get all tabs in order
     pub fn all() -> &'static [Tab] {
-        &[Tab::Overview, Tab::Stats, Tab::Models, Tab::Audit]
+        &[
+            Tab::Overview,
+            Tab::Stats,
+            Tab::Models,
+            Tab::Projects,
+            Tab::Audit,
+        ]
     }
 
     /// Get the next tab (wrapping)
@@ -40,7 +48,8 @@ impl Tab {
         match self {
             Self::Overview => Self::Stats,
             Self::Stats => Self::Models,
-            Self::Models => Self::Audit,
+            Self::Models => Self::Projects,
+            Self::Projects => Self::Audit,
             Self::Audit => Self::Overview,
         }
     }
@@ -51,17 +60,19 @@ impl Tab {
             Self::Overview => Self::Audit,
             Self::Stats => Self::Overview,
             Self::Models => Self::Stats,
-            Self::Audit => Self::Models,
+            Self::Projects => Self::Models,
+            Self::Audit => Self::Projects,
         }
     }
 
-    /// Get tab from number key (1-4)
+    /// Get tab from number key (1-5)
     pub fn from_number(n: u8) -> Option<Self> {
         match n {
             1 => Some(Self::Overview),
             2 => Some(Self::Stats),
             3 => Some(Self::Models),
-            4 => Some(Self::Audit),
+            4 => Some(Self::Projects),
+            5 => Some(Self::Audit),
             _ => None,
         }
     }
@@ -144,24 +155,27 @@ mod tests {
         assert_eq!(Tab::Overview.label(), "Overview");
         assert_eq!(Tab::Stats.label(), "Stats");
         assert_eq!(Tab::Models.label(), "Models");
+        assert_eq!(Tab::Projects.label(), "Projects");
         assert_eq!(Tab::Audit.label(), "Audit");
     }
 
     #[test]
     fn test_tab_all() {
         let all = Tab::all();
-        assert_eq!(all.len(), 4);
+        assert_eq!(all.len(), 5);
         assert_eq!(all[0], Tab::Overview);
         assert_eq!(all[1], Tab::Stats);
         assert_eq!(all[2], Tab::Models);
-        assert_eq!(all[3], Tab::Audit);
+        assert_eq!(all[3], Tab::Projects);
+        assert_eq!(all[4], Tab::Audit);
     }
 
     #[test]
     fn test_tab_next() {
         assert_eq!(Tab::Overview.next(), Tab::Stats);
         assert_eq!(Tab::Stats.next(), Tab::Models);
-        assert_eq!(Tab::Models.next(), Tab::Audit);
+        assert_eq!(Tab::Models.next(), Tab::Projects);
+        assert_eq!(Tab::Projects.next(), Tab::Audit);
         assert_eq!(Tab::Audit.next(), Tab::Overview);
     }
 
@@ -170,7 +184,8 @@ mod tests {
         assert_eq!(Tab::Overview.prev(), Tab::Audit);
         assert_eq!(Tab::Stats.prev(), Tab::Overview);
         assert_eq!(Tab::Models.prev(), Tab::Stats);
-        assert_eq!(Tab::Audit.prev(), Tab::Models);
+        assert_eq!(Tab::Projects.prev(), Tab::Models);
+        assert_eq!(Tab::Audit.prev(), Tab::Projects);
     }
 
     #[test]
@@ -183,8 +198,9 @@ mod tests {
         assert_eq!(Tab::from_number(1), Some(Tab::Overview));
         assert_eq!(Tab::from_number(2), Some(Tab::Stats));
         assert_eq!(Tab::from_number(3), Some(Tab::Models));
-        assert_eq!(Tab::from_number(4), Some(Tab::Audit));
+        assert_eq!(Tab::from_number(4), Some(Tab::Projects));
+        assert_eq!(Tab::from_number(5), Some(Tab::Audit));
         assert_eq!(Tab::from_number(0), None);
-        assert_eq!(Tab::from_number(5), None);
+        assert_eq!(Tab::from_number(6), None);
     }
 }

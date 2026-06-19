@@ -27,6 +27,7 @@ use super::widgets::{
     model_breakdown::{ModelBreakdownPopup, ModelBreakdownState},
     models::ModelsData,
     overview::{Overview, OverviewData},
+    projects::{project_display_name, ProjectsData, ProjectsView},
     quit_confirm::{QuitConfirmPopup, QuitConfirmState},
     source_detail::SourceDetailView,
     spinner::{LoadingStage, Spinner},
@@ -38,8 +39,17 @@ use super::widgets::{
 /// Current view mode
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ViewMode {
-    Dashboard { tab: Tab },
-    SourceDetail { source: String },
+    Dashboard {
+        tab: Tab,
+    },
+    SourceDetail {
+        source: String,
+    },
+    /// Drill-down into a single project's per-day breakdown. `project` holds the
+    /// raw project identifier (working directory) used to look up its data.
+    ProjectDetail {
+        project: String,
+    },
 }
 
 impl Default for ViewMode {
@@ -85,6 +95,12 @@ pub struct AppData {
     pub source_models_data: HashMap<String, ModelsData>,
     /// Per-source stats data
     pub source_stats_data: HashMap<String, StatsData>,
+    /// High-level per-project usage list (Projects tab).
+    pub projects_data: ProjectsData,
+    /// Per-project daily data, keyed by raw project identifier (drill-down).
+    pub project_daily_data: HashMap<String, DailyData>,
+    /// Per-project stats data, keyed by raw project identifier (drill-down).
+    pub project_stats_data: HashMap<String, StatsData>,
     /// Cache warning indicator for display in TUI
     #[allow(dead_code)] // Reserved for warning indicator feature
     pub cache_warning: Option<CacheWarning>,
@@ -126,6 +142,8 @@ pub struct App {
     should_quit: bool,
     view_mode: ViewMode,
     source_selected: usize,
+    /// Selected row in the Projects tab list.
+    project_selected: usize,
     daily_scroll: usize,
     weekly_scroll: usize,
     monthly_scroll: usize,
@@ -164,6 +182,7 @@ impl App {
                 tab: config.initial_tab.unwrap_or_default(),
             },
             source_selected: 0,
+            project_selected: 0,
             daily_scroll: 0,
             weekly_scroll: 0,
             monthly_scroll: 0,
@@ -191,7 +210,7 @@ impl App {
     /// Dashboard fixed overhead: padding(1) + tabs(1) + sep(1) + mode(1) + header(1) + sep(1) + keybindings(1) = 7
     fn effective_visible_rows(&self) -> usize {
         let overhead: u16 = match &self.view_mode {
-            ViewMode::SourceDetail { .. } => 8,
+            ViewMode::SourceDetail { .. } | ViewMode::ProjectDetail { .. } => 8,
             ViewMode::Dashboard { .. } => 7,
         };
         self.terminal_height.saturating_sub(overhead) as usize
@@ -249,7 +268,9 @@ impl App {
 
                 match &self.view_mode {
                     ViewMode::Dashboard { .. } => self.handle_dashboard_event(key.code),
-                    ViewMode::SourceDetail { .. } => self.handle_source_detail_event(key.code),
+                    ViewMode::SourceDetail { .. } | ViewMode::ProjectDetail { .. } => {
+                        self.handle_detail_event(key.code)
+                    }
                 }
             }
         }
@@ -355,6 +376,12 @@ impl App {
                 }
                 return;
             }
+            KeyCode::Char('5') => {
+                if let Some(tab) = Tab::from_number(5) {
+                    self.set_tab(tab);
+                }
+                return;
+            }
             KeyCode::Char('?') => {
                 self.show_help = !self.show_help;
                 return;
@@ -413,20 +440,72 @@ impl App {
                 }
                 _ => {}
             },
+            Tab::Projects => match code {
+                KeyCode::Up | KeyCode::Char('k') if self.project_selected > 0 => {
+                    self.project_selected -= 1;
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if let AppState::Ready { data } = &self.state {
+                        let max = data.projects_data.projects.len().saturating_sub(1);
+                        if self.project_selected < max {
+                            self.project_selected += 1;
+                        }
+                    }
+                }
+                KeyCode::Enter => self.open_project_detail(),
+                _ => {}
+            },
             Tab::Stats | Tab::Models | Tab::Audit => {
                 // These tabs have no additional keys beyond the common ones.
             }
         }
     }
 
-    /// Handle keyboard events in SourceDetail mode
-    fn handle_source_detail_event(&mut self, code: KeyCode) {
+    /// Enter the per-project drill-down for the currently selected project.
+    fn open_project_detail(&mut self) {
+        let AppState::Ready { data } = &self.state else {
+            return;
+        };
+        let Some(project) = data.projects_data.projects.get(self.project_selected) else {
+            return;
+        };
+        let key = project.key.clone();
+
+        self.view_mode = ViewMode::ProjectDetail {
+            project: key.clone(),
+        };
+        // Reset scroll/selection, then jump to the latest day for this project.
+        self.daily_scroll = 0;
+        self.weekly_scroll = 0;
+        self.monthly_scroll = 0;
+        self.daily_selected = None;
+        self.weekly_selected = None;
+        self.monthly_selected = None;
+        if let Some(project_daily) = data.project_daily_data.get(&key) {
+            let vr = self.effective_visible_rows();
+            self.daily_scroll =
+                DailyView::max_scroll_offset(project_daily, DailyViewMode::Daily, vr);
+            self.weekly_scroll =
+                DailyView::max_scroll_offset(project_daily, DailyViewMode::Weekly, vr);
+            self.monthly_scroll =
+                DailyView::max_scroll_offset(project_daily, DailyViewMode::Monthly, vr);
+        }
+    }
+
+    /// Handle keyboard events in a drill-down detail view (SourceDetail or
+    /// ProjectDetail). Both share the same daily-table interaction.
+    fn handle_detail_event(&mut self, code: KeyCode) {
         match code {
             KeyCode::Esc => {
                 if self.show_help {
                     self.show_help = false;
                 } else {
-                    self.view_mode = ViewMode::Dashboard { tab: Tab::Overview };
+                    // Return to the tab the drill-down was entered from.
+                    let tab = match &self.view_mode {
+                        ViewMode::ProjectDetail { .. } => Tab::Projects,
+                        _ => Tab::Overview,
+                    };
+                    self.view_mode = ViewMode::Dashboard { tab };
                 }
             }
             KeyCode::Up | KeyCode::Char('k') => {
@@ -572,13 +651,25 @@ impl App {
                 .source_daily_data
                 .get(source)
                 .unwrap_or(&data.daily_data),
+            ViewMode::ProjectDetail { project } => data
+                .project_daily_data
+                .get(project)
+                .unwrap_or(&data.daily_data),
             ViewMode::Dashboard { .. } => &data.daily_data,
         }
     }
 
-    /// Select previous row (move up) in SourceDetail
+    /// Whether the current view is a drill-down detail (source or project).
+    fn is_detail_view(&self) -> bool {
+        matches!(
+            self.view_mode,
+            ViewMode::SourceDetail { .. } | ViewMode::ProjectDetail { .. }
+        )
+    }
+
+    /// Select previous row (move up) in a detail view
     fn select_prev(&mut self) {
-        if !matches!(self.view_mode, ViewMode::SourceDetail { .. }) {
+        if !self.is_detail_view() {
             return;
         }
 
@@ -606,9 +697,9 @@ impl App {
         self.adjust_scroll_for_selection();
     }
 
-    /// Select next row (move down) in SourceDetail
+    /// Select next row (move down) in a detail view
     fn select_next(&mut self) {
-        if !matches!(self.view_mode, ViewMode::SourceDetail { .. }) {
+        if !self.is_detail_view() {
             return;
         }
 
@@ -658,7 +749,7 @@ impl App {
 
     /// Open model breakdown popup for the currently selected row
     fn open_model_breakdown(&mut self) {
-        if !matches!(self.view_mode, ViewMode::SourceDetail { .. }) {
+        if !self.is_detail_view() {
             return;
         }
         let selected = match self.active_selected() {
@@ -757,6 +848,15 @@ impl Widget for &App {
                             .with_tab(*tab);
                             models_view.render(area, buf);
                         }
+                        Tab::Projects => {
+                            ProjectsView::new(
+                                &data.projects_data,
+                                Some(self.project_selected),
+                                self.theme,
+                            )
+                            .with_tab(*tab)
+                            .render(area, buf);
+                        }
                         Tab::Audit => {
                             super::widgets::audit::AuditView::new(
                                 self.audit.as_ref(),
@@ -785,6 +885,27 @@ impl Widget for &App {
                             self.theme,
                         );
                         source_detail.render(area, buf);
+                    }
+                    ViewMode::ProjectDetail { project } => {
+                        let daily_data = data
+                            .project_daily_data
+                            .get(project)
+                            .unwrap_or(&data.daily_data);
+                        let stats_data = data
+                            .project_stats_data
+                            .get(project)
+                            .unwrap_or(&data.stats_data);
+                        let label = project_display_name(project);
+                        let project_detail = SourceDetailView::new(
+                            &label,
+                            daily_data,
+                            stats_data,
+                            self.active_scroll(),
+                            self.daily_view_mode,
+                            self.active_selected(),
+                            self.theme,
+                        );
+                        project_detail.render(area, buf);
                     }
                 }
 
@@ -912,6 +1033,22 @@ fn build_app_data_from_summaries(
     let model_map = Aggregator::by_model_from_daily(&summaries);
     let models_data = ModelsData::from_model_usage(&model_map);
     let stats_data = StatsData::from_daily_summaries(&summaries);
+
+    // Build per-project data (high-level list + per-project drill-down) before
+    // `summaries` is moved into the daily view below.
+    let project_map = Aggregator::by_project_from_daily(&summaries);
+    let projects_data = ProjectsData::from_project_usage(&project_map);
+    let project_summaries = Aggregator::project_daily_summaries(&summaries);
+    let mut project_daily_data = HashMap::new();
+    let mut project_stats_data = HashMap::new();
+    for (project, summ) in &project_summaries {
+        project_daily_data.insert(
+            project.clone(),
+            DailyData::from_daily_summaries(summ.clone()),
+        );
+        project_stats_data.insert(project.clone(), StatsData::from_daily_summaries(summ));
+    }
+
     let daily_data = DailyData::from_daily_summaries(summaries);
 
     // Build per-source data
@@ -945,6 +1082,9 @@ fn build_app_data_from_summaries(
         source_daily_data,
         source_models_data,
         source_stats_data,
+        projects_data,
+        project_daily_data,
+        project_stats_data,
         cache_warning,
     }))
 }
@@ -1082,6 +1222,7 @@ mod tests {
                 total_web_search_requests: 0,
                 total_cost_usd: 0.01,
                 models: HashMap::new(),
+                projects: HashMap::new(),
             })
             .collect();
 
@@ -1114,6 +1255,9 @@ mod tests {
                 source_daily_data: HashMap::new(),
                 source_models_data: HashMap::new(),
                 source_stats_data: HashMap::new(),
+                projects_data: Default::default(),
+                project_daily_data: HashMap::new(),
+                project_stats_data: HashMap::new(),
                 cache_warning: None,
             }),
         };
@@ -1407,6 +1551,7 @@ mod tests {
             total_web_search_requests: 0,
             total_cost_usd: 0.01,
             models: HashMap::new(),
+            projects: HashMap::new(),
         }];
         let daily_tokens: Vec<(NaiveDate, u64)> = vec![(summaries[0].date, 150)];
         let daily_data = DailyData::from_daily_summaries(summaries.clone());
@@ -1423,6 +1568,9 @@ mod tests {
             source_daily_data: HashMap::new(),
             source_models_data: HashMap::new(),
             source_stats_data: HashMap::new(),
+            projects_data: Default::default(),
+            project_daily_data: HashMap::new(),
+            project_stats_data: HashMap::new(),
             cache_warning: None,
         })));
 
@@ -1792,6 +1940,12 @@ mod tests {
         app.handle_event(Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
         assert!(matches!(
             app.view_mode,
+            ViewMode::Dashboard { tab: Tab::Projects }
+        ));
+
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
+        assert!(matches!(
+            app.view_mode,
             ViewMode::Dashboard { tab: Tab::Audit }
         ));
 
@@ -1877,6 +2031,115 @@ mod tests {
         assert!(matches!(
             app.view_mode,
             ViewMode::Dashboard { tab: Tab::Stats }
+        ));
+    }
+
+    /// Build a Ready app holding a single project so the Projects drill-down can
+    /// be exercised end-to-end.
+    fn ready_app_with_one_project(key: &str) -> App {
+        let mut summary = DailySummary {
+            date: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            total_input_tokens: 100,
+            total_output_tokens: 50,
+            total_cache_read_tokens: 0,
+            total_cache_creation_tokens: 0,
+            total_reasoning_tokens: 0,
+            total_cache_creation_5m_tokens: 0,
+            total_cache_creation_1h_tokens: 0,
+            total_web_search_requests: 0,
+            total_cost_usd: 1.0,
+            models: HashMap::new(),
+            projects: HashMap::new(),
+        };
+        let mut pu = crate::types::ProjectUsage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cost_usd: 1.0,
+            count: 1,
+            ..Default::default()
+        };
+        pu.models
+            .insert("claude-opus".to_string(), Default::default());
+        summary.projects.insert(key.to_string(), pu.clone());
+
+        let summaries = vec![summary];
+        let projects_data =
+            ProjectsData::from_project_usage(&Aggregator::by_project_from_daily(&summaries));
+        let project_summaries = Aggregator::project_daily_summaries(&summaries);
+        let mut project_daily_data = HashMap::new();
+        let mut project_stats_data = HashMap::new();
+        for (p, s) in &project_summaries {
+            project_daily_data.insert(p.clone(), DailyData::from_daily_summaries(s.clone()));
+            project_stats_data.insert(p.clone(), StatsData::from_daily_summaries(s));
+        }
+
+        let data = AppData {
+            total: crate::types::TotalSummary::default(),
+            daily_tokens: vec![],
+            models_data: ModelsData::from_model_usage(&HashMap::new()),
+            daily_data: DailyData::from_daily_summaries(summaries.clone()),
+            stats_data: StatsData::from_daily_summaries(&summaries),
+            source_usage: vec![],
+            source_daily_data: HashMap::new(),
+            source_models_data: HashMap::new(),
+            source_stats_data: HashMap::new(),
+            projects_data,
+            project_daily_data,
+            project_stats_data,
+            cache_warning: None,
+        };
+
+        App {
+            state: AppState::Ready {
+                data: Box::new(data),
+            },
+            ..App::default()
+        }
+    }
+
+    #[test]
+    fn test_projects_tab_enter_drills_into_project_detail() {
+        let key = "/home/me/Scripts/toktrack";
+        let mut app = ready_app_with_one_project(key);
+
+        // Jump to the Projects tab (key '4').
+        app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Char('4'),
+            KeyModifiers::NONE,
+        )));
+        assert!(matches!(
+            app.view_mode,
+            ViewMode::Dashboard { tab: Tab::Projects }
+        ));
+
+        // Enter drills into the selected project.
+        app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        )));
+        match &app.view_mode {
+            ViewMode::ProjectDetail { project } => assert_eq!(project, key),
+            other => panic!("expected ProjectDetail, got {:?}", other),
+        }
+
+        // Esc returns to the Projects tab (not Overview).
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+        assert!(matches!(
+            app.view_mode,
+            ViewMode::Dashboard { tab: Tab::Projects }
+        ));
+    }
+
+    #[test]
+    fn test_key_5_switches_to_audit() {
+        let mut app = App::default();
+        app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Char('5'),
+            KeyModifiers::NONE,
+        )));
+        assert!(matches!(
+            app.view_mode,
+            ViewMode::Dashboard { tab: Tab::Audit }
         ));
     }
 }

@@ -287,6 +287,7 @@ mod tests {
             total_web_search_requests: 0,
             total_cost_usd: 0.0,
             models: HashMap::new(),
+            projects: HashMap::new(),
         };
         let cache_file = DailySummaryCache {
             cli: "auditsrc".to_string(),

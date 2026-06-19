@@ -657,6 +657,7 @@ mod tests {
             request_id: None,
             source: None,
             provider: None,
+            project: None,
         }
     }
 

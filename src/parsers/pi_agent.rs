@@ -221,6 +221,7 @@ impl CLIParser for PiAgentParser {
                         request_id: current_session.clone(),
                         source: Some("pi-agent".into()),
                         provider: event.provider,
+                        project: None,
                     });
                 }
             }

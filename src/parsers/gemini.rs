@@ -196,6 +196,7 @@ impl GeminiParser {
                 request_id: Some(session.session_id.clone()),
                 source: Some(self.source.into()),
                 provider: None,
+                project: None,
             });
         }
 
@@ -292,6 +293,7 @@ impl GeminiParser {
                 request_id: Some(request_id),
                 source: Some(self.source.into()),
                 provider: None,
+                project: None,
             });
         }
 

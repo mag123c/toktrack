@@ -1,7 +1,9 @@
 //! Aggregator service for computing usage statistics
 
 use super::normalize_model_name;
-use crate::types::{DailySummary, ModelUsage, SourceUsage, TotalSummary, UsageEntry};
+use crate::types::{
+    DailySummary, ModelUsage, ProjectUsage, SourceUsage, TotalSummary, UsageEntry, NO_PROJECT,
+};
 use chrono::Datelike;
 use std::collections::{HashMap, HashSet};
 
@@ -52,6 +54,14 @@ fn accumulate_summary(target: &mut DailySummary, source: &DailySummary) {
     for (model_name, model_usage) in &source.models {
         let t = target.models.entry(model_name.clone()).or_default();
         merge_model_usage(t, model_usage);
+    }
+
+    for (project_name, project_usage) in &source.projects {
+        target
+            .projects
+            .entry(project_name.clone())
+            .or_default()
+            .merge(project_usage);
     }
 }
 
@@ -110,6 +120,7 @@ impl Aggregator {
                 total_web_search_requests: 0,
                 total_cost_usd: 0.0,
                 models: HashMap::new(),
+                projects: HashMap::new(),
             });
 
             summary.total_input_tokens = summary
@@ -139,8 +150,17 @@ impl Aggregator {
             summary.total_cost_usd += cost;
 
             // Update model breakdown
-            let model_usage = summary.models.entry(model_name).or_default();
+            let model_usage = summary.models.entry(model_name.clone()).or_default();
             model_usage.add(entry, cost);
+
+            // Update per-project breakdown (nested per-model). Entries without a
+            // recorded project (Codex, Gemini, etc.) fall into the NO_PROJECT bucket.
+            let project_key = entry.project.as_deref().unwrap_or(NO_PROJECT);
+            summary
+                .projects
+                .entry(project_key.to_string())
+                .or_default()
+                .add(entry, cost, &model_name);
         }
 
         // Sort by date ascending
@@ -177,6 +197,7 @@ impl Aggregator {
                 total_web_search_requests: 0,
                 total_cost_usd: 0.0,
                 models: HashMap::new(),
+                projects: HashMap::new(),
             });
 
             accumulate_summary(week_summary, summary);
@@ -212,6 +233,7 @@ impl Aggregator {
                 total_web_search_requests: 0,
                 total_cost_usd: 0.0,
                 models: HashMap::new(),
+                projects: HashMap::new(),
             });
 
             accumulate_summary(month_summary, summary);
@@ -296,6 +318,64 @@ impl Aggregator {
         }
 
         model_map
+    }
+
+    /// Compute per-project breakdown (rolled up across all days) from a
+    /// DailySummary slice. Used to build the Projects tab's high-level list.
+    pub fn by_project_from_daily(summaries: &[DailySummary]) -> HashMap<String, ProjectUsage> {
+        let mut project_map: HashMap<String, ProjectUsage> = HashMap::new();
+
+        for s in summaries {
+            for (project_name, usage) in &s.projects {
+                project_map
+                    .entry(project_name.clone())
+                    .or_default()
+                    .merge(usage);
+            }
+        }
+
+        project_map
+    }
+
+    /// Explode a DailySummary slice into per-project daily summaries.
+    ///
+    /// Returns a map from project identifier to that project's own daily
+    /// summaries (each carrying only that project's tokens and per-model
+    /// breakdown). This lets the Projects drill-down reuse the same daily/
+    /// weekly/monthly rendering and model-breakdown popup as the source view.
+    pub fn project_daily_summaries(
+        summaries: &[DailySummary],
+    ) -> HashMap<String, Vec<DailySummary>> {
+        let mut per_project: HashMap<String, Vec<DailySummary>> = HashMap::new();
+
+        for s in summaries {
+            for (project_name, usage) in &s.projects {
+                let day = DailySummary {
+                    date: s.date,
+                    total_input_tokens: usage.input_tokens,
+                    total_output_tokens: usage.output_tokens,
+                    total_cache_read_tokens: usage.cache_read_tokens,
+                    total_cache_creation_tokens: usage.cache_creation_tokens,
+                    total_reasoning_tokens: usage.reasoning_tokens,
+                    total_cache_creation_5m_tokens: usage.cache_creation_5m_tokens,
+                    total_cache_creation_1h_tokens: usage.cache_creation_1h_tokens,
+                    total_web_search_requests: usage.web_search_requests,
+                    total_cost_usd: usage.cost_usd,
+                    models: usage.models.clone(),
+                    projects: HashMap::new(),
+                };
+                per_project
+                    .entry(project_name.clone())
+                    .or_default()
+                    .push(day);
+            }
+        }
+
+        for days in per_project.values_mut() {
+            days.sort_by_key(|s| s.date);
+        }
+
+        per_project
     }
 
     #[allow(dead_code)]
@@ -401,6 +481,7 @@ impl Aggregator {
                     total_web_search_requests: 0,
                     total_cost_usd: 0.0,
                     models: HashMap::new(),
+                    projects: HashMap::new(),
                 });
             accumulate_summary(target, &summary);
         }
@@ -443,7 +524,198 @@ mod tests {
             request_id: None,
             source: None,
             provider: None,
+            project: None,
         }
+    }
+
+    fn make_entry_with_project(
+        year: i32,
+        month: u32,
+        day: u32,
+        model: Option<&str>,
+        input: u64,
+        cost: Option<f64>,
+        project: Option<&str>,
+    ) -> UsageEntry {
+        let mut e = make_entry(year, month, day, model, input, 0, cost);
+        e.project = project.map(String::from);
+        e
+    }
+
+    #[test]
+    fn test_daily_populates_project_breakdown() {
+        let entries = vec![
+            make_entry_with_project(
+                2026,
+                1,
+                1,
+                Some("claude-opus"),
+                100,
+                Some(1.0),
+                Some("/proj/a"),
+            ),
+            make_entry_with_project(
+                2026,
+                1,
+                1,
+                Some("claude-haiku"),
+                50,
+                Some(0.5),
+                Some("/proj/a"),
+            ),
+            make_entry_with_project(
+                2026,
+                1,
+                1,
+                Some("claude-opus"),
+                30,
+                Some(0.3),
+                Some("/proj/b"),
+            ),
+            // No project -> bucketed under NO_PROJECT
+            make_entry_with_project(2026, 1, 1, Some("gpt-4o"), 10, Some(0.1), None),
+        ];
+
+        let daily = Aggregator::daily(&entries);
+        assert_eq!(daily.len(), 1);
+        let day = &daily[0];
+
+        // Three project buckets: /proj/a, /proj/b, NO_PROJECT
+        assert_eq!(day.projects.len(), 3);
+
+        let a = day.projects.get("/proj/a").expect("project a present");
+        assert_eq!(a.input_tokens, 150);
+        assert_eq!(a.count, 2);
+        // Nested per-model breakdown within the project.
+        assert_eq!(a.models.len(), 2);
+
+        let b = day.projects.get("/proj/b").expect("project b present");
+        assert_eq!(b.input_tokens, 30);
+
+        let none = day.projects.get(NO_PROJECT).expect("no-project bucket");
+        assert_eq!(none.input_tokens, 10);
+
+        // Project totals reconcile with the day total.
+        let proj_sum: u64 = day.projects.values().map(|p| p.input_tokens).sum();
+        assert_eq!(proj_sum, day.total_input_tokens);
+    }
+
+    #[test]
+    fn test_by_project_from_daily_rolls_up_across_days() {
+        let entries = vec![
+            make_entry_with_project(
+                2026,
+                1,
+                1,
+                Some("claude-opus"),
+                100,
+                Some(1.0),
+                Some("/proj/a"),
+            ),
+            make_entry_with_project(
+                2026,
+                1,
+                2,
+                Some("claude-opus"),
+                200,
+                Some(2.0),
+                Some("/proj/a"),
+            ),
+            make_entry_with_project(
+                2026,
+                1,
+                2,
+                Some("claude-opus"),
+                40,
+                Some(0.4),
+                Some("/proj/b"),
+            ),
+        ];
+        let daily = Aggregator::daily(&entries);
+        let by_project = Aggregator::by_project_from_daily(&daily);
+
+        assert_eq!(by_project.len(), 2);
+        assert_eq!(by_project.get("/proj/a").unwrap().input_tokens, 300);
+        assert_eq!(by_project.get("/proj/a").unwrap().count, 2);
+        assert_eq!(by_project.get("/proj/b").unwrap().input_tokens, 40);
+    }
+
+    #[test]
+    fn test_project_daily_summaries_explodes_per_project() {
+        let entries = vec![
+            make_entry_with_project(
+                2026,
+                1,
+                1,
+                Some("claude-opus"),
+                100,
+                Some(1.0),
+                Some("/proj/a"),
+            ),
+            make_entry_with_project(
+                2026,
+                1,
+                2,
+                Some("claude-opus"),
+                200,
+                Some(2.0),
+                Some("/proj/a"),
+            ),
+            make_entry_with_project(
+                2026,
+                1,
+                2,
+                Some("claude-opus"),
+                40,
+                Some(0.4),
+                Some("/proj/b"),
+            ),
+        ];
+        let daily = Aggregator::daily(&entries);
+        let per_project = Aggregator::project_daily_summaries(&daily);
+
+        // Project a spans two days; project b only one.
+        let a_days = per_project.get("/proj/a").unwrap();
+        assert_eq!(a_days.len(), 2);
+        assert_eq!(a_days[0].total_input_tokens, 100); // sorted ascending by date
+        assert_eq!(a_days[1].total_input_tokens, 200);
+        // Each exploded day carries the project's per-model breakdown.
+        assert!(!a_days[0].models.is_empty());
+
+        let b_days = per_project.get("/proj/b").unwrap();
+        assert_eq!(b_days.len(), 1);
+        assert_eq!(b_days[0].total_input_tokens, 40);
+    }
+
+    #[test]
+    fn test_weekly_merges_project_breakdown() {
+        let entries = vec![
+            make_entry_with_project(
+                2026,
+                1,
+                5,
+                Some("claude-opus"),
+                100,
+                Some(1.0),
+                Some("/proj/a"),
+            ),
+            make_entry_with_project(
+                2026,
+                1,
+                6,
+                Some("claude-opus"),
+                200,
+                Some(2.0),
+                Some("/proj/a"),
+            ),
+        ];
+        let daily = Aggregator::daily(&entries);
+        let weekly = Aggregator::weekly(&daily);
+
+        // Both days fall in the same week; the project breakdown must be merged.
+        assert_eq!(weekly.len(), 1);
+        let week = &weekly[0];
+        assert_eq!(week.projects.get("/proj/a").unwrap().input_tokens, 300);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -476,6 +748,7 @@ mod tests {
             request_id: None,
             source: None,
             provider: None,
+            project: None,
         }
     }
 
@@ -749,6 +1022,7 @@ mod tests {
             total_web_search_requests: 0,
             total_cost_usd: cost,
             models: HashMap::new(),
+            projects: HashMap::new(),
         }
     }
 
@@ -773,6 +1047,7 @@ mod tests {
             total_web_search_requests: 0,
             total_cost_usd: cost,
             models,
+            projects: HashMap::new(),
         }
     }
 
@@ -1144,6 +1419,7 @@ mod tests {
             total_web_search_requests: 0,
             total_cost_usd: 0.01,
             models: HashMap::new(),
+            projects: HashMap::new(),
         };
         let source = DailySummary {
             date: chrono::NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
@@ -1157,6 +1433,7 @@ mod tests {
             total_web_search_requests: 0,
             total_cost_usd: 0.02,
             models: HashMap::new(),
+            projects: HashMap::new(),
         };
 
         accumulate_summary(&mut target, &source);
@@ -1264,6 +1541,7 @@ mod tests {
             total_web_search_requests: 0,
             total_cost_usd: 0.01,
             models: models_target,
+            projects: HashMap::new(),
         };
 
         let mut models_source = HashMap::new();
@@ -1299,6 +1577,7 @@ mod tests {
             total_web_search_requests: 0,
             total_cost_usd: 0.025,
             models: models_source,
+            projects: HashMap::new(),
         };
 
         accumulate_summary(&mut target, &source);
@@ -1344,6 +1623,7 @@ mod tests {
             request_id: None,
             source: source.map(String::from),
             provider: None,
+            project: None,
         }
     }
 
@@ -1375,6 +1655,7 @@ mod tests {
             request_id: None,
             source: None,
             provider: None,
+            project: None,
         };
         let entry_early = UsageEntry {
             timestamp: early_utc,
@@ -1394,6 +1675,7 @@ mod tests {
             request_id: None,
             source: None,
             provider: None,
+            project: None,
         };
 
         let result = Aggregator::daily(&[entry_late.clone(), entry_early.clone()]);
@@ -1449,6 +1731,7 @@ mod tests {
                 request_id: None,
                 source: None,
                 provider: None,
+                project: None,
             },
             UsageEntry {
                 timestamp: ts2,
@@ -1468,6 +1751,7 @@ mod tests {
                 request_id: None,
                 source: None,
                 provider: None,
+                project: None,
             },
         ];
 
@@ -1703,6 +1987,7 @@ mod tests {
             request_id: None,
             source: None,
             provider: provider.map(String::from),
+            project: None,
         }
     }
 

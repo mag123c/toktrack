@@ -538,6 +538,7 @@ mod tests {
             request_id: None,
             source: None,
             provider: provider.map(String::from),
+            project: None,
         };
         // upstream cost present → not estimated
         assert!(!DataLoaderService::batch_estimated(&[mk(Some(0.1), None)]));
@@ -705,6 +706,7 @@ mod tests {
             request_id: None,
             source: None,
             provider: provider.map(|s| s.to_string()),
+            project: None,
         }
     }
 
@@ -772,6 +774,7 @@ mod tests {
             request_id: None,
             source: None,
             provider: None,
+            project: None,
         };
         let yesterday_entry = UsageEntry {
             timestamp: yesterday.and_hms_opt(12, 0, 0).unwrap().and_utc(),
@@ -791,6 +794,7 @@ mod tests {
             request_id: None,
             source: None,
             provider: None,
+            project: None,
         };
         let today_entry = UsageEntry {
             timestamp: today.and_hms_opt(10, 0, 0).unwrap().and_utc(),
@@ -810,6 +814,7 @@ mod tests {
             request_id: None,
             source: None,
             provider: None,
+            project: None,
         };
 
         let all_entries = vec![old_entry, yesterday_entry, today_entry];

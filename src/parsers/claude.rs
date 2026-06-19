@@ -18,6 +18,8 @@ struct ClaudeJsonLine<'a> {
     message: Option<ClaudeMessage<'a>>,
     #[serde(rename = "costUSD")]
     cost_usd: Option<f64>,
+    /// Working directory of the session — used as the project identifier.
+    cwd: Option<&'a str>,
 }
 
 #[derive(Deserialize)]
@@ -132,6 +134,7 @@ impl ClaudeCodeParser {
             request_id: data.request_id.map(String::from),
             source: Some("claude".into()),
             provider: None,
+            project: data.cwd.map(String::from),
         })
     }
 }
@@ -408,5 +411,23 @@ mod tests {
         assert_eq!(first.cache_creation_5m_tokens, 0);
         assert_eq!(first.cache_creation_1h_tokens, 0);
         assert_eq!(first.web_search_requests, 0);
+    }
+
+    #[test]
+    fn test_parse_line_extracts_cwd_as_project() {
+        let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
+        let line = r#"{"type":"assistant","timestamp":"2026-01-15T10:00:01.500Z","cwd":"/home/me/Scripts/toktrack","message":{"model":"claude-sonnet-4","id":"msg-x","usage":{"input_tokens":100,"output_tokens":50}}}"#;
+        let mut bytes = line.as_bytes().to_vec();
+        let entry = parser.parse_line(&mut bytes).expect("entry parsed");
+        assert_eq!(entry.project.as_deref(), Some("/home/me/Scripts/toktrack"));
+    }
+
+    #[test]
+    fn test_parse_line_without_cwd_has_no_project() {
+        let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
+        let line = r#"{"type":"assistant","timestamp":"2026-01-15T10:00:01.500Z","message":{"model":"claude-sonnet-4","id":"msg-y","usage":{"input_tokens":100,"output_tokens":50}}}"#;
+        let mut bytes = line.as_bytes().to_vec();
+        let entry = parser.parse_line(&mut bytes).expect("entry parsed");
+        assert_eq!(entry.project, None);
     }
 }

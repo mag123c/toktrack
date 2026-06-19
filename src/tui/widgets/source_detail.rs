@@ -245,6 +245,7 @@ mod tests {
             total_web_search_requests: 0,
             total_cost_usd: 12.50,
             models: HashMap::new(),
+            projects: HashMap::new(),
         }];
         DailyData::from_daily_summaries(summaries)
     }

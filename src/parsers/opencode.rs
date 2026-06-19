@@ -202,6 +202,7 @@ fn to_usage_entry(id: String, session_id: String, msg: OpenCodeMessageData) -> O
         request_id: Some(session_id),
         source: Some("opencode".into()),
         provider: msg.provider_id,
+        project: None,
     })
 }
 

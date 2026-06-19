@@ -116,6 +116,10 @@ pub struct UsageEntry {
     /// Provider ID (e.g., "anthropic", "github-copilot")
     #[serde(default)]
     pub provider: Option<String>,
+    /// Project this usage belongs to (e.g. the working directory for Claude Code).
+    /// `None` for sources that do not record a project (Codex, Gemini, etc.).
+    #[serde(default)]
+    pub project: Option<String>,
 }
 
 impl UsageEntry {
@@ -166,6 +170,106 @@ pub struct DailySummary {
     pub total_web_search_requests: u64,
     pub total_cost_usd: f64,
     pub models: HashMap<String, ModelUsage>,
+    /// Per-project breakdown for this day. Keyed by project identifier (the raw
+    /// working directory for Claude Code, or "(no project)" for sources that do
+    /// not record one). Empty for caches written before this field existed.
+    #[serde(default)]
+    pub projects: HashMap<String, ProjectUsage>,
+}
+
+/// The sentinel project key used for usage from sources that do not record a
+/// project (Codex, Gemini, Qwen, OpenCode, PI Agent).
+pub const NO_PROJECT: &str = "(no project)";
+
+/// Usage aggregated for a single project within a day (or rolled up across days).
+/// Mirrors [`ModelUsage`] but also keeps a nested per-model breakdown so a project
+/// can be drilled into by model.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct ProjectUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_creation_tokens: u64,
+    #[serde(default)]
+    pub reasoning_tokens: u64,
+    #[serde(default)]
+    pub cache_creation_5m_tokens: u64,
+    #[serde(default)]
+    pub cache_creation_1h_tokens: u64,
+    #[serde(default)]
+    pub web_search_requests: u64,
+    pub cost_usd: f64,
+    pub count: u64,
+    /// Per-model breakdown within this project.
+    #[serde(default)]
+    pub models: HashMap<String, ModelUsage>,
+}
+
+impl ProjectUsage {
+    pub fn total_tokens(&self) -> u64 {
+        self.input_tokens
+            + self.output_tokens
+            + self.cache_read_tokens
+            + self.cache_creation_tokens
+            + self.reasoning_tokens
+    }
+
+    /// Accumulate a single entry, also updating the nested per-model breakdown
+    /// under `model_key`.
+    pub fn add(&mut self, entry: &UsageEntry, cost: f64, model_key: &str) {
+        self.input_tokens = self.input_tokens.saturating_add(entry.input_tokens);
+        self.output_tokens = self.output_tokens.saturating_add(entry.output_tokens);
+        self.cache_read_tokens = self
+            .cache_read_tokens
+            .saturating_add(entry.cache_read_tokens);
+        self.cache_creation_tokens = self
+            .cache_creation_tokens
+            .saturating_add(entry.cache_creation_tokens);
+        self.reasoning_tokens = self.reasoning_tokens.saturating_add(entry.reasoning_tokens);
+        self.cache_creation_5m_tokens = self
+            .cache_creation_5m_tokens
+            .saturating_add(entry.cache_creation_5m_tokens);
+        self.cache_creation_1h_tokens = self
+            .cache_creation_1h_tokens
+            .saturating_add(entry.cache_creation_1h_tokens);
+        self.web_search_requests = self
+            .web_search_requests
+            .saturating_add(entry.web_search_requests);
+        self.cost_usd += cost;
+        self.count = self.count.saturating_add(1);
+        self.models
+            .entry(model_key.to_string())
+            .or_default()
+            .add(entry, cost);
+    }
+
+    /// Merge another project's usage into this one (used when rolling daily
+    /// summaries up into weekly/monthly views or across sources).
+    pub fn merge(&mut self, other: &ProjectUsage) {
+        self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);
+        self.output_tokens = self.output_tokens.saturating_add(other.output_tokens);
+        self.cache_read_tokens = self
+            .cache_read_tokens
+            .saturating_add(other.cache_read_tokens);
+        self.cache_creation_tokens = self
+            .cache_creation_tokens
+            .saturating_add(other.cache_creation_tokens);
+        self.reasoning_tokens = self.reasoning_tokens.saturating_add(other.reasoning_tokens);
+        self.cache_creation_5m_tokens = self
+            .cache_creation_5m_tokens
+            .saturating_add(other.cache_creation_5m_tokens);
+        self.cache_creation_1h_tokens = self
+            .cache_creation_1h_tokens
+            .saturating_add(other.cache_creation_1h_tokens);
+        self.web_search_requests = self
+            .web_search_requests
+            .saturating_add(other.web_search_requests);
+        self.cost_usd += other.cost_usd;
+        self.count = self.count.saturating_add(other.count);
+        for (model, usage) in &other.models {
+            self.models.entry(model.clone()).or_default().merge(usage);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -208,6 +312,30 @@ impl ModelUsage {
             .saturating_add(entry.web_search_requests);
         self.cost_usd += cost;
         self.count = self.count.saturating_add(1);
+    }
+
+    /// Merge another model's usage into this one.
+    pub fn merge(&mut self, other: &ModelUsage) {
+        self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);
+        self.output_tokens = self.output_tokens.saturating_add(other.output_tokens);
+        self.cache_read_tokens = self
+            .cache_read_tokens
+            .saturating_add(other.cache_read_tokens);
+        self.cache_creation_tokens = self
+            .cache_creation_tokens
+            .saturating_add(other.cache_creation_tokens);
+        self.reasoning_tokens = self.reasoning_tokens.saturating_add(other.reasoning_tokens);
+        self.cache_creation_5m_tokens = self
+            .cache_creation_5m_tokens
+            .saturating_add(other.cache_creation_5m_tokens);
+        self.cache_creation_1h_tokens = self
+            .cache_creation_1h_tokens
+            .saturating_add(other.cache_creation_1h_tokens);
+        self.web_search_requests = self
+            .web_search_requests
+            .saturating_add(other.web_search_requests);
+        self.cost_usd += other.cost_usd;
+        self.count = self.count.saturating_add(other.count);
     }
 }
 
@@ -289,6 +417,7 @@ mod tests {
             total_web_search_requests: 0,
             total_cost_usd: cost,
             models: HashMap::new(),
+            projects: HashMap::new(),
         }
     }
 
@@ -377,6 +506,7 @@ mod tests {
             request_id: None,
             source: None,
             provider: None,
+            project: None,
         };
         assert_eq!(entry.total_tokens(), 180);
     }
@@ -401,6 +531,7 @@ mod tests {
             request_id: None,
             source: Some("gemini".into()),
             provider: None,
+            project: None,
         };
         assert_eq!(entry.total_tokens(), 210);
     }
@@ -425,6 +556,7 @@ mod tests {
             request_id: Some("req456".into()),
             source: None,
             provider: None,
+            project: None,
         };
         assert_eq!(entry.dedup_hash(), Some("msg123:req456".into()));
     }
@@ -449,6 +581,7 @@ mod tests {
             request_id: Some("req456".into()),
             source: None,
             provider: None,
+            project: None,
         };
         assert_eq!(entry.dedup_hash(), None);
     }
@@ -473,6 +606,7 @@ mod tests {
             request_id: None,
             source: None,
             provider: None,
+            project: None,
         };
         assert_eq!(entry.dedup_hash(), Some("msg789:gpt-4:100:50".into()));
     }
@@ -502,6 +636,7 @@ mod tests {
             request_id: None,
             source: None,
             provider: None,
+            project: None,
         };
 
         let local_date = entry.local_date();
@@ -531,6 +666,7 @@ mod tests {
             request_id: None,
             source: None,
             provider: None,
+            project: None,
         };
         let local = late_entry.local_date();
         let utc_naive = late_utc.date_naive();
@@ -562,6 +698,7 @@ mod tests {
             request_id: None,
             source: None,
             provider: None,
+            project: None,
         };
         usage.add(&entry, 0.01);
 

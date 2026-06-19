@@ -62,8 +62,11 @@ fn normalize_model_keys(models: HashMap<String, ModelUsage>) -> HashMap<String, 
 }
 
 /// Bump when aggregation logic changes (e.g., timezone fix).
-/// Mismatched version → full cache invalidation.
-const CACHE_VERSION: u32 = 13;
+/// Mismatched version → past summaries are kept (history is preserved) but a
+/// warning is surfaced, and every date whose raw files still exist is recomputed
+/// so the new shape is populated. v14 added per-project breakdown
+/// (`DailySummary.projects`).
+const CACHE_VERSION: u32 = 14;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DailySummaryCache {
@@ -357,6 +360,7 @@ mod tests {
             request_id: None,
             source: None,
             provider: None,
+            project: None,
         }
     }
 
@@ -405,6 +409,7 @@ mod tests {
             total_web_search_requests: 0,
             total_cost_usd: 9.99,
             models: HashMap::new(),
+            projects: HashMap::new(),
         };
         let cache = DailySummaryCache {
             cli: "claude-code".to_string(),
@@ -436,6 +441,7 @@ mod tests {
                 request_id: None,
                 source: None,
                 provider: None,
+                project: None,
             },
             UsageEntry {
                 timestamp: today.and_hms_opt(12, 0, 0).unwrap().and_utc(),
@@ -455,6 +461,7 @@ mod tests {
                 request_id: None,
                 source: None,
                 provider: None,
+                project: None,
             },
         ];
 
@@ -521,6 +528,7 @@ mod tests {
             total_web_search_requests: 0,
             total_cost_usd: 9.99,
             models: HashMap::new(),
+            projects: HashMap::new(),
         };
         let cache = DailySummaryCache {
             cli: "claude-code".to_string(),
@@ -551,6 +559,7 @@ mod tests {
             request_id: None,
             source: None,
             provider: None,
+            project: None,
         }];
 
         let (result, _warning) = service.load_or_compute("claude-code", &entries).unwrap();
@@ -598,6 +607,7 @@ mod tests {
             total_web_search_requests: 0,
             total_cost_usd: 0.005,
             models: HashMap::new(),
+            projects: HashMap::new(),
         };
         let cache = DailySummaryCache {
             cli: "claude-code".to_string(),
@@ -628,6 +638,7 @@ mod tests {
             request_id: None,
             source: None,
             provider: None,
+            project: None,
         }];
 
         let (result, _warning) = service.load_or_compute("claude-code", &entries).unwrap();
@@ -748,6 +759,7 @@ mod tests {
             total_web_search_requests: 0,
             total_cost_usd: 0.30,
             models,
+            projects: HashMap::new(),
         };
         let cache = DailySummaryCache {
             cli: "claude-code".to_string(),
@@ -840,6 +852,7 @@ mod tests {
             total_web_search_requests: 0,
             total_cost_usd: 0.50,
             models: HashMap::new(),
+            projects: HashMap::new(),
         };
         let cache = DailySummaryCache {
             cli: "claude-code".to_string(),
@@ -957,6 +970,7 @@ mod tests {
                     total_web_search_requests: 0,
                     total_cost_usd: 0.01,
                     models: HashMap::new(),
+                    projects: HashMap::new(),
                 },
                 DailySummary {
                     date: NaiveDate::from_ymd_opt(2026, 2, 27).unwrap(),
@@ -970,6 +984,7 @@ mod tests {
                     total_web_search_requests: 0,
                     total_cost_usd: 0.02,
                     models: HashMap::new(),
+                    projects: HashMap::new(),
                 },
                 DailySummary {
                     date: NaiveDate::from_ymd_opt(2026, 2, 26).unwrap(),
@@ -983,6 +998,7 @@ mod tests {
                     total_web_search_requests: 0,
                     total_cost_usd: 0.015,
                     models: HashMap::new(),
+                    projects: HashMap::new(),
                 },
             ],
         };
@@ -1019,6 +1035,7 @@ mod tests {
             total_web_search_requests: 0,
             total_cost_usd: 0.0,
             models: HashMap::new(),
+            projects: HashMap::new(),
         };
         let cache = DailySummaryCache {
             cli: "claude-code".to_string(),
@@ -1142,6 +1159,7 @@ mod tests {
             total_web_search_requests: 0,
             total_cost_usd: 0.05,
             models,
+            projects: HashMap::new(),
         };
         let cache = DailySummaryCache {
             cli: "codex".to_string(),
@@ -1194,6 +1212,7 @@ mod tests {
             total_web_search_requests: 0,
             total_cost_usd: 0.0,
             models,
+            projects: HashMap::new(),
         };
         // version=0 triggers the mismatch path which runs normalize_model_keys.
         let cache = serde_json::json!({

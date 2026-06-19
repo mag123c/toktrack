@@ -277,6 +277,7 @@ impl CLIParser for CodexParser {
                         request_id: None,
                         source: Some("codex".into()),
                         provider: current_provider.clone(),
+                        project: None,
                     });
                 }
             }

@@ -205,6 +205,7 @@ mod tests {
             total_web_search_requests: 0,
             total_cost_usd: cost,
             models,
+            projects: HashMap::new(),
         }
     }
 
@@ -319,6 +320,7 @@ mod tests {
             total_web_search_requests: 0,
             total_cost_usd: 2.50,
             models,
+            projects: HashMap::new(),
         }];
         let data = ReportData::from_summaries(
             &summaries,
