@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.11.0](https://github.com/mag123c/toktrack/compare/v2.10.0...v2.11.0) (2026-06-20)
+
+
+### Features
+
+* **tui:** add Projects tab with per-project token breakdown ([#185](https://github.com/mag123c/toktrack/issues/185)) ([f8316b7](https://github.com/mag123c/toktrack/commit/f8316b76b09cd258490411f783f748dd1cb10b67))
+
 ## [2.10.0](https://github.com/mag123c/toktrack/compare/v2.9.0...v2.10.0) (2026-06-08)
 
 
