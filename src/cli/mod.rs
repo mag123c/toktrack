@@ -376,10 +376,24 @@ fn run_audit(json: bool, remote_options: &RemoteOptions) -> Result<()> {
     Ok(())
 }
 
+/// Remove the per-project breakdown before emitting `--json`.
+///
+/// `DailySummary.projects` is keyed by raw working-directory paths, which often
+/// include the OS username — exposing them in the shareable/pipeable JSON output
+/// would be a privacy surprise and an output-schema change. The breakdown stays
+/// in the (local, private) cache and the TUI; it is intentionally kept out of
+/// the public `--json` surface, consistent with the `report` receipt.
+fn redact_project_paths(summaries: &mut [DailySummary]) {
+    for summary in summaries {
+        summary.projects.clear();
+    }
+}
+
 /// Output daily summaries as JSON
 fn run_daily_json(remote_options: &RemoteOptions) -> Result<()> {
     let mut summaries = load_data(remote_options)?;
     summaries.sort_by_key(|b| std::cmp::Reverse(b.date));
+    redact_project_paths(&mut summaries);
     println!(
         "{}",
         serde_json::to_string_pretty(&summaries)
@@ -393,6 +407,7 @@ fn run_weekly_json(remote_options: &RemoteOptions) -> Result<()> {
     let summaries = load_data(remote_options)?;
     let mut weekly = Aggregator::weekly(&summaries);
     weekly.sort_by_key(|b| std::cmp::Reverse(b.date));
+    redact_project_paths(&mut weekly);
     println!(
         "{}",
         serde_json::to_string_pretty(&weekly).map_err(|e| ToktrackError::Parse(e.to_string()))?
@@ -405,6 +420,7 @@ fn run_monthly_json(remote_options: &RemoteOptions) -> Result<()> {
     let summaries = load_data(remote_options)?;
     let mut monthly = Aggregator::monthly(&summaries);
     monthly.sort_by_key(|b| std::cmp::Reverse(b.date));
+    redact_project_paths(&mut monthly);
     println!(
         "{}",
         serde_json::to_string_pretty(&monthly).map_err(|e| ToktrackError::Parse(e.to_string()))?
@@ -426,6 +442,44 @@ fn run_stats_json(remote_options: &RemoteOptions) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_redact_project_paths_removes_paths_from_json() {
+        use crate::types::ProjectUsage;
+        use std::collections::HashMap;
+
+        let mut projects = HashMap::new();
+        projects.insert(
+            "/work/secret-dir".to_string(),
+            ProjectUsage {
+                input_tokens: 100,
+                ..Default::default()
+            },
+        );
+        let mut summaries = vec![DailySummary {
+            date: chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            total_input_tokens: 100,
+            total_output_tokens: 50,
+            total_cache_read_tokens: 0,
+            total_cache_creation_tokens: 0,
+            total_reasoning_tokens: 0,
+            total_cache_creation_5m_tokens: 0,
+            total_cache_creation_1h_tokens: 0,
+            total_web_search_requests: 0,
+            total_cost_usd: 1.0,
+            models: HashMap::new(),
+            projects,
+        }];
+
+        redact_project_paths(&mut summaries);
+        assert!(summaries[0].projects.is_empty());
+
+        // With projects cleared + skip_serializing_if, the JSON must not contain
+        // the `projects` key nor any raw path.
+        let json = serde_json::to_string(&summaries).unwrap();
+        assert!(!json.contains("projects"), "projects key leaked: {json}");
+        assert!(!json.contains("secret-dir"), "raw path leaked: {json}");
+    }
 
     #[test]
     fn test_cli_parse_no_args() {

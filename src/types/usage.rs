@@ -173,7 +173,13 @@ pub struct DailySummary {
     /// Per-project breakdown for this day. Keyed by project identifier (the raw
     /// working directory for Claude Code, or "(no project)" for sources that do
     /// not record one). Empty for caches written before this field existed.
-    #[serde(default)]
+    ///
+    /// `skip_serializing_if` keeps the key out of JSON when empty so the public
+    /// `--json` schema is unchanged for days with no project data; the CLI also
+    /// strips populated maps from `--json` output (raw paths can include the OS
+    /// username) — see `cli::redact_project_paths`. The persistent cache still
+    /// retains the data because it serializes non-empty maps.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub projects: HashMap<String, ProjectUsage>,
 }
 
@@ -419,6 +425,34 @@ mod tests {
             models: HashMap::new(),
             projects: HashMap::new(),
         }
+    }
+
+    #[test]
+    fn test_daily_summary_omits_empty_projects_from_json() {
+        let s = make_summary(2026, 1, 1, 100, 50, 0, 0, 1.0);
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(
+            !json.contains("projects"),
+            "empty projects map must be omitted from JSON: {json}"
+        );
+    }
+
+    #[test]
+    fn test_daily_summary_serializes_nonempty_projects_and_round_trips() {
+        let mut s = make_summary(2026, 1, 1, 100, 50, 0, 0, 1.0);
+        s.projects.insert(
+            "/work/demo".to_string(),
+            ProjectUsage {
+                input_tokens: 100,
+                ..Default::default()
+            },
+        );
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains("projects"));
+        // The cache relies on this round-trip to preserve per-project history.
+        let back: DailySummary = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.projects.len(), 1);
+        assert!(back.projects.contains_key("/work/demo"));
     }
 
     #[test]
