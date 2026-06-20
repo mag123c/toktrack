@@ -26,7 +26,8 @@
 
 - **데이터 보존** — 영구 캐시로 CLI가 세션 파일을 삭제한 뒤에도 비용 기록 유지
 - **멀티 CLI 지원** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent 한 곳에서
-- **TUI 대시보드** — 3개 탭 (Overview, Stats, Models), 일별/주별/월별 뷰
+- **TUI 대시보드** — 5개 탭 (Overview, Stats, Models, Projects, Audit), 일별/주별/월별 뷰
+- **프로젝트별 분석** — Projects 탭에서 프로젝트(세션 작업 디렉토리)별 토큰/비용 표시 (기록하는 CLI: Claude Code, Codex, OpenCode, PI Agent, Gemini CLI). 프로젝트를 열면 일별·모델별 분석으로 드릴다운. 프로젝트를 기록하지 않는 CLI는 `(no project)`로 묶임. 프로젝트 상세는 캐시되므로 CLI의 30일 삭제 후에도 유지
 - **CLI 명령어** — `daily`, `weekly`, `monthly`, `stats` (JSON 출력 지원)
 - **사용량 리포트** — 공유 가능한 텍스트 & SVG 영수증 (`toktrack report`)
 - **대용량에서도 빠름** — simd-json + rayon 병렬 파싱 (~3 GiB/s), 캐시 시 ~0.04초
@@ -128,7 +129,7 @@ zsh/bash/fish 몇 줄이면 됩니다 — **[셸 통합 가이드](docs/shell-in
 
 | 키 | 동작 |
 |-----|--------|
-| `1-4` | 탭 직접 전환 (Audit 포함) |
+| `1-5` | 탭 직접 전환 (Projects, Audit 포함) |
 | `Tab` / `Shift+Tab` | 다음 / 이전 탭 |
 | `j` / `k` 또는 `↑` / `↓` | 위 / 아래 스크롤 |
 | `Enter` | 모델 상세 팝업 열기 (Daily 탭) |

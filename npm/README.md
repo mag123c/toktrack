@@ -38,8 +38,9 @@ brew install toktrack
 ## Features
 
 - **Ultra-Fast Parsing** — simd-json + rayon parallel processing (~3 GiB/s throughput)
-- **TUI Dashboard** — 3 tabs (Overview, Stats, Models) with daily/weekly/monthly views
-- **Multi-CLI Support** — Claude Code, Codex CLI, Gemini CLI, OpenCode, PI Agent
+- **TUI Dashboard** — 5 tabs (Overview, Stats, Models, Projects, Audit) with daily/weekly/monthly views
+- **Per-Project Breakdown** — the Projects tab shows token & cost usage per project (the session working directory), for CLIs that record one — currently Claude Code, Codex, OpenCode, PI Agent, and Gemini CLI. Drill into any project for its day-by-day, per-model breakdown. Usage from CLIs that don't record a project is grouped under `(no project)`. Project details are cached, so they survive past the CLI's 30-day deletion
+- **Multi-CLI Support** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent
 - **CLI Commands** — `daily`, `weekly`, `monthly`, `stats` with JSON output
 - **Data Preservation** — Cached daily summaries survive CLI data deletion
 
