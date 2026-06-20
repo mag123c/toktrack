@@ -111,24 +111,6 @@ impl GeminiParser {
         }
     }
 
-    /// Create a parser for Qwen Code (Gemini CLI fork, identical format).
-    ///
-    /// Honors `QWEN_HOME` (overrides `~/.qwen`); sessions live under `<root>/tmp`.
-    pub fn new_qwen() -> Self {
-        let root = super::discovery::first_env_dir(&["QWEN_HOME"]).unwrap_or_else(|| {
-            directories::BaseDirs::new()
-                .map(|d| d.home_dir().join(".qwen"))
-                .unwrap_or_else(|| {
-                    eprintln!("[toktrack] Warning: Could not determine home directory");
-                    PathBuf::from(".")
-                })
-        });
-        Self {
-            data_dir: root.join("tmp"),
-            source: "qwen",
-        }
-    }
-
     /// Create a parser with a custom data directory (for testing), source "gemini".
     #[allow(dead_code)]
     pub fn with_data_dir(data_dir: PathBuf) -> Self {
@@ -484,32 +466,6 @@ mod tests {
     fn test_parser_name() {
         let parser = GeminiParser::new();
         assert_eq!(parser.name(), "gemini");
-    }
-
-    #[test]
-    fn test_qwen_parser_name_and_default_dir() {
-        let parser = GeminiParser::new_qwen();
-        assert_eq!(parser.name(), "qwen");
-        assert!(parser.data_dir().ends_with(".qwen/tmp"));
-    }
-
-    #[test]
-    fn test_qwen_parses_with_gemini_semantics() {
-        // Qwen Code reuses the Gemini format: input includes cached, total reconciles.
-        let parser =
-            GeminiParser::with_data_dir_source(PathBuf::from("tests/fixtures/qwen"), "qwen");
-        let entries = parser.parse_all().unwrap();
-        assert_eq!(entries.len(), 1);
-        let e = &entries[0];
-        assert_eq!(e.source, Some("qwen".into()));
-        assert_eq!(e.model, Some("qwen3-coder".to_string()));
-        // input 200 includes cached 40 → billable non-cached = 160
-        assert_eq!(e.input_tokens, 160);
-        assert_eq!(e.cache_read_tokens, 40);
-        assert_eq!(e.output_tokens, 80);
-        assert_eq!(e.reasoning_tokens, 20);
-        assert_eq!(e.reported_total_tokens, Some(300));
-        assert_eq!(e.total_tokens(), 300); // reconciles with upstream total
     }
 
     #[test]

@@ -6,12 +6,14 @@ pub mod discovery;
 mod gemini;
 mod opencode;
 mod pi_agent;
+mod qwen;
 
 pub use claude::ClaudeCodeParser;
 pub use codex::CodexParser;
 pub use gemini::GeminiParser;
 pub use opencode::OpenCodeParser;
 pub use pi_agent::PiAgentParser;
+pub use qwen::QwenParser;
 
 use crate::types::{Result, UsageEntry};
 use rayon::prelude::*;
@@ -151,7 +153,7 @@ impl ParserRegistry {
                 SourceInstance::local(Box::new(ClaudeCodeParser::new())),
                 SourceInstance::local(Box::new(CodexParser::new())),
                 SourceInstance::local(Box::new(GeminiParser::new())),
-                SourceInstance::local(Box::new(GeminiParser::new_qwen())),
+                SourceInstance::local(Box::new(QwenParser::new())),
                 SourceInstance::local(Box::new(OpenCodeParser::new())),
                 SourceInstance::local(Box::new(PiAgentParser::new())),
             ],
@@ -351,7 +353,9 @@ mod tests {
         // gemini/tmp_jsonl_no_meta/chats/session-*.jsonl
         // claude/real-shape-session.jsonl
         // qwen/proj/chats/session-*.jsonl
+        // qwen_v2/projects/g--scripts-test-qwen/chats/sess-new.jsonl
+        // qwen_v2/tmp/hash1/chats/session-*.jsonl
         // (claude parser uses `**/*.jsonl`; gemini/qwen-format files parse to 0 entries.)
-        assert_eq!(files.len(), 16);
+        assert_eq!(files.len(), 18);
     }
 }
