@@ -188,7 +188,7 @@ impl ProjectsView<'_> {
         if height == 0 || self.data.projects.is_empty() {
             if self.data.projects.is_empty() {
                 let msg = Paragraph::new(Line::from(Span::styled(
-                    "No project data yet — usage from Claude Code populates this view.",
+                    "No project data yet — usage from supported CLIs populates this view.",
                     Style::default().fg(self.theme.muted()),
                 )))
                 .alignment(Alignment::Center);
