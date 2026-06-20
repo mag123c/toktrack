@@ -125,22 +125,21 @@ impl Widget for ProjectsView<'_> {
         };
 
         let chunks = Layout::vertical([
-            Constraint::Length(1), // 0: Top padding
-            Constraint::Length(1), // 1: Tabs
-            Constraint::Length(1), // 2: Separator
-            Constraint::Length(1), // 3: Header
-            Constraint::Fill(1),   // 4: Project rows
-            Constraint::Length(1), // 5: Separator
-            Constraint::Length(1), // 6: Keybindings
+            Constraint::Length(1), // 0: Tabs
+            Constraint::Length(1), // 1: Separator
+            Constraint::Length(1), // 2: Header
+            Constraint::Fill(1),   // 3: Project rows
+            Constraint::Length(1), // 4: Separator
+            Constraint::Length(1), // 5: Keybindings
         ])
         .split(centered_area);
 
-        TabBar::new(self.tab, self.theme).render(chunks[1], buf);
-        self.render_separator(chunks[2], buf);
-        self.render_header(chunks[3], buf);
-        self.render_projects(chunks[4], buf);
-        self.render_separator(chunks[5], buf);
-        self.render_keybindings(chunks[6], buf);
+        TabBar::new(self.tab, self.theme).render(chunks[0], buf);
+        self.render_separator(chunks[1], buf);
+        self.render_header(chunks[2], buf);
+        self.render_projects(chunks[3], buf);
+        self.render_separator(chunks[4], buf);
+        self.render_keybindings(chunks[5], buf);
     }
 }
 

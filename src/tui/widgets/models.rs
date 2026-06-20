@@ -116,7 +116,6 @@ impl Widget for ModelsView<'_> {
         // Calculate layout with models list
         let max_model_rows = self.data.models.len().min(10) as u16; // Show up to 10 models
         let chunks = Layout::vertical([
-            Constraint::Length(1),              // Top padding
             Constraint::Length(1),              // Tabs
             Constraint::Length(1),              // Separator
             Constraint::Length(1),              // Header
@@ -128,22 +127,22 @@ impl Widget for ModelsView<'_> {
         .split(centered_area);
 
         // Render tab bar
-        TabBar::new(self.tab, self.theme).render(chunks[1], buf);
+        TabBar::new(self.tab, self.theme).render(chunks[0], buf);
 
         // Render separator
-        self.render_separator(chunks[2], buf);
+        self.render_separator(chunks[1], buf);
 
         // Render header
-        self.render_header(chunks[3], buf);
+        self.render_header(chunks[2], buf);
 
         // Render model rows
-        self.render_models(chunks[4], buf);
+        self.render_models(chunks[3], buf);
 
         // Render separator
-        self.render_separator(chunks[5], buf);
+        self.render_separator(chunks[4], buf);
 
         // Render keybindings
-        self.render_keybindings(chunks[6], buf);
+        self.render_keybindings(chunks[5], buf);
     }
 }
 

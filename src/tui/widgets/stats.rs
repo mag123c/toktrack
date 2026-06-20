@@ -70,7 +70,6 @@ impl Widget for StatsView<'_> {
         let grid_height = (rows as u16) * (CARD_HEIGHT + 1); // +1 for spacing
 
         let chunks = Layout::vertical([
-            Constraint::Length(1),           // Top padding
             Constraint::Length(1),           // Tabs
             Constraint::Length(1),           // Separator
             Constraint::Length(1),           // Title
@@ -83,22 +82,22 @@ impl Widget for StatsView<'_> {
         .split(centered_area);
 
         // Render tabs
-        self.render_tabs(chunks[1], buf);
+        self.render_tabs(chunks[0], buf);
 
         // Render separator
-        self.render_separator(chunks[2], buf);
+        self.render_separator(chunks[1], buf);
 
         // Render title
-        self.render_title(chunks[3], buf);
+        self.render_title(chunks[2], buf);
 
         // Render card grid
-        self.render_card_grid(chunks[5], buf, cols);
+        self.render_card_grid(chunks[4], buf, cols);
 
         // Render separator
-        self.render_separator(chunks[6], buf);
+        self.render_separator(chunks[5], buf);
 
         // Render keybindings
-        self.render_keybindings(chunks[7], buf);
+        self.render_keybindings(chunks[6], buf);
     }
 }
 

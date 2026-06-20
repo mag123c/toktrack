@@ -206,12 +206,12 @@ impl App {
     }
 
     /// Calculate the effective number of visible rows based on the current view and terminal height.
-    /// SourceDetail fixed overhead: padding(1) + header(1) + stats(1) + sep(1) + mode(1) + header(1) + sep(1) + keybindings(1) = 8
-    /// Dashboard fixed overhead: padding(1) + tabs(1) + sep(1) + mode(1) + header(1) + sep(1) + keybindings(1) = 7
+    /// SourceDetail fixed overhead: header(1) + stats(1) + sep(1) + mode(1) + header(1) + sep(1) + keybindings(1) = 7
+    /// Dashboard fixed overhead: tabs(1) + sep(1) + mode(1) + header(1) + sep(1) + keybindings(1) = 6
     fn effective_visible_rows(&self) -> usize {
         let overhead: u16 = match &self.view_mode {
-            ViewMode::SourceDetail { .. } | ViewMode::ProjectDetail { .. } => 8,
-            ViewMode::Dashboard { .. } => 7,
+            ViewMode::SourceDetail { .. } | ViewMode::ProjectDetail { .. } => 7,
+            ViewMode::Dashboard { .. } => 6,
         };
         self.terminal_height.saturating_sub(overhead) as usize
     }

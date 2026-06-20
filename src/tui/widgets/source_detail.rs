@@ -61,22 +61,21 @@ impl Widget for SourceDetailView<'_> {
         };
 
         let chunks = Layout::vertical([
-            Constraint::Length(1), // 0: Top padding
-            Constraint::Length(1), // 1: Source header
-            Constraint::Length(1), // 2: Stats inline
-            Constraint::Length(1), // 3: Separator
-            Constraint::Length(1), // 4: Mode indicator
-            Constraint::Length(1), // 5: Daily table header
-            Constraint::Fill(1),   // 6: Daily rows (fill remaining)
-            Constraint::Length(1), // 7: Separator
-            Constraint::Length(1), // 8: Keybindings
+            Constraint::Length(1), // 0: Source header
+            Constraint::Length(1), // 1: Stats inline
+            Constraint::Length(1), // 2: Separator
+            Constraint::Length(1), // 3: Mode indicator
+            Constraint::Length(1), // 4: Daily table header
+            Constraint::Fill(1),   // 5: Daily rows (fill remaining)
+            Constraint::Length(1), // 6: Separator
+            Constraint::Length(1), // 7: Keybindings
         ])
         .split(centered_area);
 
-        self.render_source_header(chunks[1], buf);
-        self.render_stats_inline(chunks[2], buf);
-        self.render_separator(chunks[3], buf);
-        self.render_mode_indicator(chunks[4], buf);
+        self.render_source_header(chunks[0], buf);
+        self.render_stats_inline(chunks[1], buf);
+        self.render_separator(chunks[2], buf);
+        self.render_mode_indicator(chunks[3], buf);
 
         // Render daily table (header + rows)
         let daily_view = DailyView::new(
@@ -88,11 +87,11 @@ impl Widget for SourceDetailView<'_> {
         )
         .with_selected_index(self.selected_index);
 
-        daily_view.render_header(chunks[5], buf, &daily_view_visible_columns(chunks[5].width));
-        daily_view.render_daily_rows(chunks[6], buf, &daily_view_visible_columns(chunks[6].width));
+        daily_view.render_header(chunks[4], buf, &daily_view_visible_columns(chunks[4].width));
+        daily_view.render_daily_rows(chunks[5], buf, &daily_view_visible_columns(chunks[5].width));
 
-        self.render_separator(chunks[7], buf);
-        self.render_keybindings(chunks[8], buf);
+        self.render_separator(chunks[6], buf);
+        self.render_keybindings(chunks[7], buf);
     }
 }
 

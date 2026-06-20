@@ -89,7 +89,6 @@ impl Widget for AuditView<'_> {
         };
 
         let chunks = Layout::vertical([
-            Constraint::Length(1), // top padding
             Constraint::Length(1), // tabs
             Constraint::Length(1), // separator
             Constraint::Length(1), // title
@@ -100,12 +99,12 @@ impl Widget for AuditView<'_> {
         ])
         .split(centered);
 
-        TabBar::new(self.selected_tab, self.theme).render(chunks[1], buf);
-        self.render_separator(chunks[2], buf);
-        self.render_title(chunks[3], buf);
-        self.render_content(chunks[5], buf);
-        self.render_separator(chunks[6], buf);
-        self.render_keybindings(chunks[7], buf);
+        TabBar::new(self.selected_tab, self.theme).render(chunks[0], buf);
+        self.render_separator(chunks[1], buf);
+        self.render_title(chunks[2], buf);
+        self.render_content(chunks[4], buf);
+        self.render_separator(chunks[5], buf);
+        self.render_keybindings(chunks[6], buf);
     }
 }
 
