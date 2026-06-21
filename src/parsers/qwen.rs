@@ -158,7 +158,14 @@ impl QwenParser {
                 input_tokens: usage
                     .prompt_token_count
                     .saturating_sub(usage.cached_content_token_count),
-                output_tokens: usage.candidates_token_count,
+                // `candidatesTokenCount` (Gemini usageMetadata semantics) INCLUDES
+                // `thoughtsTokenCount`; subtract so reasoning isn't double-counted
+                // and total_tokens() reconciles with `totalTokenCount`. (This is the
+                // opposite of the legacy Gemini JSONL format, where `tokens.thoughts`
+                // is a separate, additive field.)
+                output_tokens: usage
+                    .candidates_token_count
+                    .saturating_sub(usage.thoughts_token_count),
                 cache_read_tokens: usage.cached_content_token_count,
                 cache_creation_tokens: 0,
                 reasoning_tokens: usage.thoughts_token_count,
@@ -259,11 +266,32 @@ mod tests {
             .join("sess-new.jsonl")
     }
 
+    // `QWEN_HOME` is process-global; splitting the default-dir and env-override
+    // assertions into two `#[test]`s races because cargo runs tests in parallel
+    // and each test's restore step can observe the other's `set_var`. Keep both
+    // scenarios in one test so they execute serially within a single thread.
     #[test]
-    fn test_parser_name_and_default_dir() {
+    fn test_parser_name_and_data_dir_with_env() {
+        let saved = std::env::var("QWEN_HOME").ok();
+
+        // Default — without QWEN_HOME, data dir resolves under `~/.qwen`.
+        std::env::remove_var("QWEN_HOME");
         let parser = QwenParser::new();
         assert_eq!(parser.name(), "qwen");
         assert!(parser.data_dir().ends_with(".qwen"));
+
+        // Override — QWEN_HOME points the data dir elsewhere.
+        std::env::set_var("QWEN_HOME", "/tmp/toktrack-qwen-env-test");
+        assert_eq!(
+            QwenParser::new().data_dir(),
+            Path::new("/tmp/toktrack-qwen-env-test")
+        );
+
+        // Restore prior env state.
+        match saved {
+            Some(v) => std::env::set_var("QWEN_HOME", v),
+            None => std::env::remove_var("QWEN_HOME"),
+        }
     }
 
     #[test]
@@ -288,11 +316,14 @@ mod tests {
         assert_eq!(a1.model, Some("glm-5.2".to_string()));
         // prompt(1000) includes cached(200) → billable non-cached input = 800
         assert_eq!(a1.input_tokens, 800);
-        assert_eq!(a1.output_tokens, 500);
+        // candidates(500) includes thoughts(100) → output = 400, reasoning = 100
+        assert_eq!(a1.output_tokens, 400);
         assert_eq!(a1.cache_read_tokens, 200);
         assert_eq!(a1.cache_creation_tokens, 0);
         assert_eq!(a1.reasoning_tokens, 100);
         assert_eq!(a1.reported_total_tokens, Some(1500));
+        // total_tokens() must reconcile with the upstream-reported total.
+        assert_eq!(a1.total_tokens(), 1500);
         assert_eq!(a1.source, Some("qwen".into()));
         assert_eq!(a1.request_id, Some("S".to_string()));
         // cwd on the line is the project identifier (no sidecar needed)
@@ -300,8 +331,10 @@ mod tests {
 
         let a2 = &entries[1];
         assert_eq!(a2.input_tokens, 300);
+        assert_eq!(a2.output_tokens, 50);
         assert_eq!(a2.cache_read_tokens, 0);
         assert_eq!(a2.reasoning_tokens, 0);
+        assert_eq!(a2.total_tokens(), 350);
     }
 
     #[test]
@@ -353,21 +386,5 @@ mod tests {
         assert_eq!(e.reported_total_tokens, Some(300));
         // project comes from the `.project_root` sidecar in legacy layout
         assert_eq!(e.project.as_deref(), Some("/work/legacy-demo"));
-    }
-
-    #[test]
-    fn test_qwen_home_env_var() {
-        let saved = std::env::var("QWEN_HOME").ok();
-
-        std::env::set_var("QWEN_HOME", "/tmp/toktrack-qwen-env-test");
-        assert_eq!(
-            QwenParser::new().data_dir(),
-            Path::new("/tmp/toktrack-qwen-env-test")
-        );
-
-        match saved {
-            Some(v) => std::env::set_var("QWEN_HOME", v),
-            None => std::env::remove_var("QWEN_HOME"),
-        }
     }
 }
