@@ -190,7 +190,7 @@ existing snapshot/cache for that remote.
 
 | Key | Action |
 |-----|--------|
-| `1-4` | Switch tabs directly (incl. Audit) |
+| `1-5` | Switch tabs directly (incl. Projects, Audit) |
 | `Tab` / `Shift+Tab` | Next / Previous tab |
 | `j` / `k` or `↑` / `↓` | Scroll up / down |
 | `Enter` | Open model breakdown popup (Daily tab) |
