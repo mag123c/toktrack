@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.12.0](https://github.com/mag123c/toktrack/compare/v2.11.0...v2.12.0) (2026-06-21)
+
+
+### Features
+
+* **parser:** support Qwen Code &gt;=0.18 projects log format ([#187](https://github.com/mag123c/toktrack/issues/187)) ([19221fd](https://github.com/mag123c/toktrack/commit/19221fd8411f89cc4549c8746c538de4fd84b4fd))
+
+
+### Bug Fixes
+
+* **tui:** render nav bar on the top row across all views ([#188](https://github.com/mag123c/toktrack/issues/188)) ([1cc9823](https://github.com/mag123c/toktrack/commit/1cc982397dddb58ad588c4fd671ad8e9b2ac8523))
+
 ## [2.11.0](https://github.com/mag123c/toktrack/compare/v2.10.0...v2.11.0) (2026-06-20)
 
 
