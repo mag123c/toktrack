@@ -16,7 +16,7 @@ jobs:
       release_created: ${{ steps.release-post-merge.outputs.release_created || steps.release.outputs.release_created }}
       tag_name: ${{ steps.release-post-merge.outputs.tag_name || steps.release.outputs.tag_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: googleapis/release-please-action@v5
         id: release
