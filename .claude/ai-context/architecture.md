@@ -53,7 +53,7 @@ trait CLIParser: Send + Sync {
 | GeminiParser (qwen) | JSON + JSONL | ~/.qwen/tmp/*/chats/ | ✅ Qwen Code (Gemini fork, source="qwen") |
 | OpenCodeParser | SQLite (v1.2.0+) + JSON fallback | ~/.local/share/opencode/{opencode.db, storage/message/} | ✅ |
 | PiAgentParser | JSONL | ~/.pi/agent/sessions/ | ✅ |
-| (Antigravity) | — | ~/.gemini/antigravity-cli/ | ⚠️ detected, unsupported (no file-readable usage) |
+| AntigravityParser | SQLite + protobuf blobs | ~/.gemini/antigravity-{ide,cli}/conversations/*.db | ✅ (gen_metadata → ChatModelMetadata/ModelUsageStats) |
 
 ## Data Flow
 ```

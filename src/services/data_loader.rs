@@ -208,8 +208,7 @@ impl DataLoaderService {
         }
 
         let all_summaries = Aggregator::merge_by_date(all_summaries);
-        let mut source_usage = Self::build_source_usage(source_stats, &source_estimated);
-        source_usage.extend(Self::antigravity_notice());
+        let source_usage = Self::build_source_usage(source_stats, &source_estimated);
 
         Ok(LoadResult {
             summaries: all_summaries,
@@ -303,8 +302,7 @@ impl DataLoaderService {
         }
 
         let all_summaries = Aggregator::merge_by_date(all_summaries);
-        let mut source_usage = Self::build_source_usage(source_stats, &source_estimated);
-        source_usage.extend(Self::antigravity_notice());
+        let source_usage = Self::build_source_usage(source_stats, &source_estimated);
 
         Ok(LoadResult {
             summaries: all_summaries,
@@ -398,31 +396,6 @@ impl DataLoaderService {
         result.sort_by_key(|b| std::cmp::Reverse(b.total_tokens));
         result
     }
-
-    /// Detect an Antigravity CLI install (`<gemini home>/.gemini/antigravity-cli`).
-    /// It is unsupported — Antigravity does not write file-readable token usage —
-    /// so surface a disabled source row (shown in the Sources list) rather than
-    /// silence. No stderr notice: it would bleed over the TUI while it renders.
-    fn antigravity_notice() -> Option<SourceUsage> {
-        let base = crate::parsers::discovery::first_env_dir(&["GEMINI_CLI_HOME"])
-            .or_else(|| directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf()))?;
-        Self::antigravity_notice_at(&base)
-    }
-
-    /// Detection split out for testing without touching the global `GEMINI_CLI_HOME`.
-    fn antigravity_notice_at(home_base: &std::path::Path) -> Option<SourceUsage> {
-        if home_base.join(".gemini").join("antigravity-cli").exists() {
-            Some(SourceUsage {
-                source: "antigravity".into(),
-                total_tokens: 0,
-                total_cost_usd: 0.0,
-                supported: false,
-                estimated: false,
-            })
-        } else {
-            None
-        }
-    }
 }
 
 impl Default for DataLoaderService {
@@ -476,26 +449,6 @@ mod tests {
     #[test]
     fn test_is_copilot_provider_empty_string() {
         assert!(!is_copilot_provider(Some("")));
-    }
-
-    // ========== Antigravity detection ==========
-
-    #[test]
-    fn test_antigravity_notice_detected_as_unsupported() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        std::fs::create_dir_all(tmp.path().join(".gemini").join("antigravity-cli")).unwrap();
-        let notice =
-            DataLoaderService::antigravity_notice_at(tmp.path()).expect("dir present → notice");
-        assert_eq!(notice.source, "antigravity");
-        assert!(!notice.supported);
-        assert_eq!(notice.total_tokens, 0);
-        assert_eq!(notice.total_cost_usd, 0.0);
-    }
-
-    #[test]
-    fn test_antigravity_notice_absent_when_no_dir() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        assert!(DataLoaderService::antigravity_notice_at(tmp.path()).is_none());
     }
 
     // ========== build_source_usage tests ==========

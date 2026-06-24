@@ -1,5 +1,6 @@
 //! Parser traits and implementations for AI CLI tools
 
+mod antigravity;
 mod claude;
 mod codex;
 pub mod discovery;
@@ -8,6 +9,7 @@ mod opencode;
 mod pi_agent;
 mod qwen;
 
+pub use antigravity::AntigravityParser;
 pub use claude::ClaudeCodeParser;
 pub use codex::CodexParser;
 pub use gemini::GeminiParser;
@@ -156,6 +158,7 @@ impl ParserRegistry {
                 SourceInstance::local(Box::new(QwenParser::new())),
                 SourceInstance::local(Box::new(OpenCodeParser::new())),
                 SourceInstance::local(Box::new(PiAgentParser::new())),
+                SourceInstance::local(Box::new(AntigravityParser::new())),
             ],
         }
     }
@@ -204,13 +207,14 @@ mod tests {
     #[test]
     fn test_registry_default_parsers() {
         let registry = ParserRegistry::new();
-        assert_eq!(registry.sources().len(), 6);
+        assert_eq!(registry.sources().len(), 7);
         assert!(registry.get("claude-code").is_some());
         assert!(registry.get("codex").is_some());
         assert!(registry.get("gemini").is_some());
         assert!(registry.get("qwen").is_some());
         assert!(registry.get("opencode").is_some());
         assert!(registry.get("pi-agent").is_some());
+        assert!(registry.get("antigravity").is_some());
     }
 
     #[test]
@@ -266,8 +270,8 @@ mod tests {
             ))),
         )]);
 
-        assert_eq!(registry.sources().len(), 7);
-        assert_eq!(registry.sources()[6].id, "codex@testbox");
+        assert_eq!(registry.sources().len(), 8);
+        assert_eq!(registry.sources()[7].id, "codex@testbox");
     }
 
     #[test]

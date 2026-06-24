@@ -27,7 +27,7 @@
 - **데이터 보존** — 영구 캐시로 CLI가 세션 파일을 삭제한 뒤에도 비용 기록 유지
 - **멀티 CLI 지원** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent 한 곳에서
 - **TUI 대시보드** — 5개 탭 (Overview, Stats, Models, Projects, Audit), 일별/주별/월별 뷰
-- **프로젝트별 분석** — Projects 탭에서 프로젝트(세션 작업 디렉토리)별 토큰/비용 표시 (기록하는 CLI: Claude Code, Codex, OpenCode, PI Agent, Gemini CLI, Qwen Code). 프로젝트를 열면 일별·모델별 분석으로 드릴다운. 프로젝트를 기록하지 않는 CLI는 `(no project)`로 묶임. 프로젝트 상세는 캐시되므로 CLI의 30일 삭제 후에도 유지
+- **프로젝트별 분석** — Projects 탭에서 프로젝트(세션 작업 디렉토리)별 토큰/비용 표시 (기록하는 CLI 한정). 프로젝트를 열면 일별·모델별 분석으로 드릴다운. 프로젝트를 기록하지 않는 CLI는 `(no project)`로 묶임. 프로젝트 상세는 캐시되므로 CLI의 30일 삭제 후에도 유지
 - **CLI 명령어** — `daily`, `weekly`, `monthly`, `stats` (JSON 출력 지원)
 - **사용량 리포트** — 공유 가능한 텍스트 & SVG 영수증 (`toktrack report`)
 - **대용량에서도 빠름** — simd-json + rayon 병렬 파싱 (~3 GiB/s), 캐시 시 ~0.04초
@@ -147,7 +147,7 @@ zsh/bash/fish 몇 줄이면 됩니다 — **[셸 통합 가이드](docs/shell-in
 | Qwen Code | ✅ | `~/.qwen/tmp/*/chats/` |
 | OpenCode | ✅ | `~/.local/share/opencode/storage/message/` |
 | PI Agent | ✅ | `~/.pi/agent/sessions/` |
-| Antigravity | ⚠️ 감지됨, 미지원 | `~/.gemini/antigravity-cli/` (로컬 파일에 토큰 사용량 없음) |
+| Antigravity | ✅ | `~/.gemini/antigravity-{ide,cli}/conversations/*.db` |
 
 > 자체 비용을 기록하지 않는 소스(Gemini, Qwen, Codex, 최신 Claude 로그)의 비용은
 > [LiteLLM](https://github.com/BerriAI/litellm) 가격으로 계산되며 `~` 마커(추정치)로 표시됩니다.
@@ -273,7 +273,7 @@ cargo bench   # 벤치마크 실행
 
 ## 로드맵
 
-현재 6개 CLI 지원 (Claude Code, Codex, Gemini, Qwen Code, OpenCode, PI Agent) — [지원하는 AI CLI](#지원하는-ai-cli) 참조. 예정: 실시간/번레이트 모니터링, MCP 서버 / statusline, 추가 CLI(Goose, Amp, Kimi, Copilot).
+현재 7개 CLI 지원 (Claude Code, Codex, Gemini, Qwen Code, OpenCode, PI Agent, Antigravity) — [지원하는 AI CLI](#지원하는-ai-cli) 참조. 예정: 실시간/번레이트 모니터링, MCP 서버 / statusline, 추가 CLI(Goose, Amp, Kimi, Copilot).
 
 ## 기여하기
 
