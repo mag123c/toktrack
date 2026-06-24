@@ -374,8 +374,9 @@ pub struct SourceUsage {
     pub source: String,
     pub total_tokens: u64,
     pub total_cost_usd: f64,
-    /// False for detected-but-unsupported sources (e.g. Antigravity, which does
-    /// not write file-readable token usage). Rendered as a disabled row.
+    /// False for sources detected on disk whose token usage can't be read
+    /// (no file-readable usage). Rendered as a disabled notice row. Reserved for
+    /// future detect-but-can't-parse sources; all current parsers set this true.
     #[serde(default = "default_true")]
     pub supported: bool,
     /// True when this source's cost was LiteLLM-calculated (the source did not

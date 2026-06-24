@@ -222,10 +222,20 @@ fn decode_entry(
     let reasoning_tokens = proto::varint(usage, 9).unwrap_or(0);
     let output_tokens = proto::varint(usage, 10).unwrap_or(0);
 
-    // Skip rows with no usage (e.g. interrupted/empty generations).
-    if input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens + reasoning_tokens
-        == 0
-    {
+    // Skip rows with no usage (e.g. interrupted/empty generations). Sum with
+    // `saturating_add`: the counts are raw varints from an untrusted blob, so a
+    // corrupt DB could carry oversized values that would overflow a plain `+`
+    // (panic in debug, wrap in release) — the module contract is skip, never panic.
+    let total = [
+        input_tokens,
+        output_tokens,
+        cache_read_tokens,
+        cache_creation_tokens,
+        reasoning_tokens,
+    ]
+    .into_iter()
+    .fold(0u64, u64::saturating_add);
+    if total == 0 {
         return None;
     }
 
@@ -476,6 +486,17 @@ mod tests {
     }
 
     fn seed_db(root: &Path, variant: &str, db_name: &str, uri: &str, traj_id: &str, rows: &[Row]) {
+        seed_db_with_traj(root, variant, db_name, &traj_meta_blob(uri), traj_id, rows);
+    }
+
+    fn seed_db_with_traj(
+        root: &Path,
+        variant: &str,
+        db_name: &str,
+        traj_blob: &[u8],
+        traj_id: &str,
+        rows: &[Row],
+    ) {
         let dir = root.join(variant).join("conversations");
         std::fs::create_dir_all(&dir).unwrap();
         let conn = Connection::open(dir.join(db_name)).unwrap();
@@ -488,7 +509,7 @@ mod tests {
         .unwrap();
         conn.execute(
             "INSERT INTO trajectory_metadata_blob (id, data) VALUES ('main', ?)",
-            params![traj_meta_blob(uri)],
+            params![traj_blob],
         )
         .unwrap();
         conn.execute(
@@ -515,6 +536,30 @@ mod tests {
             idx,
             data: gen_blob(&cmm, &format!("uuid-{idx}")),
         }
+    }
+
+    /// ChatModelMetadata with optionally-omitted usage (f4) / start (f9) — used to
+    /// exercise the missing-usage skip and the timestamp→mtime fallback branches.
+    fn cmm_parts(usage: Option<&[u8]>, start: Option<&[u8]>, model: &str) -> Vec<u8> {
+        let mut m = Vec::new();
+        if let Some(u) = usage {
+            field_bytes(&mut m, 4, u);
+        }
+        if let Some(s) = start {
+            field_bytes(&mut m, 9, s);
+        }
+        field_bytes(&mut m, 19, model.as_bytes());
+        m
+    }
+
+    /// trajectory_metadata_blob carrying ONLY the nested field 1→1 URI (older
+    /// layout, no field 7) — exercises the fallback path in `read_project`.
+    fn traj_meta_blob_field1_only(uri: &str) -> Vec<u8> {
+        let mut inner = Vec::new();
+        field_bytes(&mut inner, 1, uri.as_bytes());
+        let mut t = Vec::new();
+        field_bytes(&mut t, 1, &inner);
+        t
     }
 
     // ===== tests =====
@@ -700,5 +745,163 @@ mod tests {
         assert!(entries
             .iter()
             .all(|e| e.source.as_deref() == Some("antigravity")));
+    }
+
+    #[test]
+    fn test_dedup_same_response_id_within_db_collapses() {
+        // Two rows in ONE DB sharing a response_id have the same dedup key
+        // (response_id:trajectory_id, since trajectory_id is constant per DB),
+        // so they collapse to a single entry.
+        let tmp = TempDir::new().unwrap();
+        seed_db(
+            tmp.path(),
+            "antigravity-ide",
+            "t.db",
+            "file:///work/x",
+            "traj-1",
+            &[
+                usage_row(1, 10, 5, 0, 0, 0, "dup"),
+                usage_row(2, 20, 7, 0, 0, 0, "dup"),
+            ],
+        );
+        let parser = AntigravityParser::with_data_dir(tmp.path().to_path_buf());
+        assert_eq!(parser.parse_all().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_same_response_id_across_ide_and_cli_both_survive() {
+        // The same response_id in two DBs with DIFFERENT trajectory_ids yields
+        // distinct dedup keys, so both are kept. Pins the intended cross-source
+        // behavior so a future trajectory_id change can't silently collapse them.
+        let tmp = TempDir::new().unwrap();
+        seed_db(
+            tmp.path(),
+            "antigravity-ide",
+            "ide.db",
+            "file:///work/x",
+            "traj-ide",
+            &[usage_row(1, 10, 5, 0, 0, 0, "same")],
+        );
+        seed_db(
+            tmp.path(),
+            "antigravity-cli",
+            "cli.db",
+            "file:///work/y",
+            "traj-cli",
+            &[usage_row(1, 10, 5, 0, 0, 0, "same")],
+        );
+        let parser = AntigravityParser::with_data_dir(tmp.path().to_path_buf());
+        assert_eq!(parser.parse_all().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_missing_usage_submessage_skipped() {
+        // A valid ChatModelMetadata with model + timestamp but NO usage (f4) is
+        // skipped — distinct from the malformed-blob and zero-token paths.
+        let tmp = TempDir::new().unwrap();
+        let start = chat_start(1_782_298_900, 0);
+        let no_usage = cmm_parts(None, Some(&start), "gemini-3-flash-a");
+        seed_db(
+            tmp.path(),
+            "antigravity-ide",
+            "t.db",
+            "file:///work/x",
+            "traj-1",
+            &[
+                Row {
+                    idx: 1,
+                    data: gen_blob(&no_usage, "uuid-1"),
+                },
+                usage_row(2, 10, 5, 0, 0, 0, "good"),
+            ],
+        );
+        let parser = AntigravityParser::with_data_dir(tmp.path().to_path_buf());
+        let entries = parser.parse_all().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].message_id.as_deref(), Some("good"));
+    }
+
+    #[test]
+    fn test_missing_timestamp_falls_back_to_file_mtime() {
+        // No chat_start (f9) → decode_timestamp returns None → timestamp falls back
+        // to the DB file's mtime.
+        let tmp = TempDir::new().unwrap();
+        let usage = model_usage_stats(10, 5, 0, 0, 0, "r");
+        let no_start = cmm_parts(Some(&usage), None, "gemini-3-flash-a");
+        seed_db(
+            tmp.path(),
+            "antigravity-ide",
+            "t.db",
+            "file:///work/x",
+            "traj-1",
+            &[Row {
+                idx: 1,
+                data: gen_blob(&no_start, "uuid-1"),
+            }],
+        );
+        let db = tmp
+            .path()
+            .join("antigravity-ide")
+            .join("conversations")
+            .join("t.db");
+        let mtime_secs = std::fs::metadata(&db)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let parser = AntigravityParser::with_data_dir(tmp.path().to_path_buf());
+        let entries = parser.parse_all().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].timestamp.timestamp(), mtime_secs);
+    }
+
+    #[test]
+    fn test_project_resolves_via_field1_fallback() {
+        // Older layout: trajectory_metadata_blob has ONLY the nested field 1→1 URI
+        // (no field 7). The project must still resolve.
+        let tmp = TempDir::new().unwrap();
+        seed_db_with_traj(
+            tmp.path(),
+            "antigravity-ide",
+            "t.db",
+            &traj_meta_blob_field1_only("file:///g:/Scripts/proj"),
+            "traj-1",
+            &[usage_row(1, 10, 5, 0, 0, 0, "r")],
+        );
+        let parser = AntigravityParser::with_data_dir(tmp.path().to_path_buf());
+        let entries = parser.parse_all().unwrap();
+        assert_eq!(entries[0].project.as_deref(), Some("g:/Scripts/proj"));
+    }
+
+    #[test]
+    fn test_oversized_token_varints_do_not_panic() {
+        // Corrupt/adversarial usage counts near u64::MAX must not overflow-panic
+        // the zero-check sum; the row is still produced.
+        let tmp = TempDir::new().unwrap();
+        // Build the usage blob directly (model_usage_stats would overflow its own
+        // f3 = thinking + response computation with MAX inputs).
+        let mut usage = Vec::new();
+        field_varint(&mut usage, 2, u64::MAX); // input
+        field_varint(&mut usage, 10, u64::MAX); // response output
+        field_varint(&mut usage, 5, u64::MAX); // cache read
+        field_bytes(&mut usage, 11, b"big");
+        let cmm = chat_model_metadata(&usage, &chat_start(1_782_298_900, 0), "gemini-3-flash-a");
+        seed_db(
+            tmp.path(),
+            "antigravity-ide",
+            "t.db",
+            "file:///work/x",
+            "traj-1",
+            &[Row {
+                idx: 1,
+                data: gen_blob(&cmm, "uuid-1"),
+            }],
+        );
+        let parser = AntigravityParser::with_data_dir(tmp.path().to_path_buf());
+        let entries = parser.parse_all().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].input_tokens, u64::MAX);
     }
 }

@@ -14,7 +14,7 @@
 
 **The token & cost tracker that never loses your history.** Most tools re-read your CLI's session files on every run — so when Claude Code deletes them after 30 days, your cost history goes with them. toktrack keeps a **persistent cache**, so your history survives.
 
-Track usage across **all your AI coding CLIs** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, and PI Agent — in one dashboard. Built in Rust, so it stays fast even on huge histories (simd-json + rayon).
+Track usage across **all your AI coding CLIs** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, and Antigravity — in one dashboard. Built in Rust, so it stays fast even on huge histories (simd-json + rayon).
 
 ![toktrack overview](assets/demo.gif)
 
@@ -29,7 +29,7 @@ Track usage across **all your AI coding CLIs** — Claude Code, Codex CLI, Gemin
 ## Features
 
 - **Data Preservation** — Persistent cache keeps your cost history even after a CLI deletes its own session files
-- **Multi-CLI Support** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent in one place
+- **Multi-CLI Support** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, Antigravity in one place
 - **TUI Dashboard** — 5 tabs (Overview, Stats, Models, Projects, Audit) with daily/weekly/monthly views
 - **Per-Project Breakdown** — the Projects tab shows token & cost usage per project (the session working directory), for CLIs that record one. Drill into any project for its day-by-day, per-model breakdown. Usage from CLIs that don't record a project is grouped under `(no project)`. Project details are cached, so they survive past the CLI's 30-day deletion
 - **CLI Commands** — `daily`, `weekly`, `monthly`, `stats` with JSON output support

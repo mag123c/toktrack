@@ -272,8 +272,8 @@ impl Overview<'_> {
             // Token count
             let count_str = format_number(source.total_tokens);
 
-            // Unsupported sources (e.g. Antigravity) render as a dimmed, bar-less
-            // notice row instead of a usage bar.
+            // Unsupported sources render as a dimmed, bar-less notice row
+            // instead of a usage bar.
             if !source.supported {
                 let dim = Style::default()
                     .fg(self.theme.muted())

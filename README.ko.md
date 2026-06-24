@@ -10,7 +10,7 @@
 
 **비용 기록을 절대 잃지 않는 토큰 & 비용 트래커.** 대부분의 도구는 매 실행마다 CLI 세션 파일을 다시 읽습니다 — 그래서 Claude Code가 30일 후 파일을 삭제하면 비용 기록도 함께 사라집니다. toktrack은 **영구 캐시**를 유지해 기록이 살아남습니다.
 
-**모든 AI 코딩 CLI**의 사용량을 한 곳에서 — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent 통합 대시보드. Rust 기반이라 대용량 기록에서도 빠릅니다 (simd-json + rayon).
+**모든 AI 코딩 CLI**의 사용량을 한 곳에서 — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, Antigravity 통합 대시보드. Rust 기반이라 대용량 기록에서도 빠릅니다 (simd-json + rayon).
 
 ![toktrack overview](assets/demo.gif)
 
@@ -25,7 +25,7 @@
 ## 주요 기능
 
 - **데이터 보존** — 영구 캐시로 CLI가 세션 파일을 삭제한 뒤에도 비용 기록 유지
-- **멀티 CLI 지원** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent 한 곳에서
+- **멀티 CLI 지원** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, Antigravity 한 곳에서
 - **TUI 대시보드** — 5개 탭 (Overview, Stats, Models, Projects, Audit), 일별/주별/월별 뷰
 - **프로젝트별 분석** — Projects 탭에서 프로젝트(세션 작업 디렉토리)별 토큰/비용 표시 (기록하는 CLI 한정). 프로젝트를 열면 일별·모델별 분석으로 드릴다운. 프로젝트를 기록하지 않는 CLI는 `(no project)`로 묶임. 프로젝트 상세는 캐시되므로 CLI의 30일 삭제 후에도 유지
 - **CLI 명령어** — `daily`, `weekly`, `monthly`, `stats` (JSON 출력 지원)
