@@ -97,8 +97,10 @@ impl QwenParser {
     /// True when `path` is a legacy Gemini-fork log (`tmp/*/chats/...`) rather
     /// than a new-format `projects/*/chats/...` log.
     fn is_legacy_path(&self, path: &Path) -> bool {
-        !path
-            .components()
+        // Scan only the portion below `data_dir` so a home dir that itself
+        // contains a "projects" component can't misroute a legacy `tmp/` file.
+        let rel = path.strip_prefix(&self.data_dir).unwrap_or(path);
+        !rel.components()
             .any(|c| c.as_os_str().eq_ignore_ascii_case("projects"))
     }
 
@@ -357,6 +359,27 @@ mod tests {
             .iter()
             .any(|f| f.to_string_lossy().contains("projects")));
         assert!(files.iter().any(|f| f.to_string_lossy().contains("tmp")));
+    }
+
+    #[test]
+    fn test_is_legacy_path_ignores_projects_in_data_dir() {
+        // Regression: a home/data dir that itself contains a `projects` component
+        // must not cause a legacy `tmp/` log to be misclassified as new-format.
+        // Only the segment below `data_dir` should be scanned for `projects`.
+        let data_dir = PathBuf::from("/home/projects-user/.qwen");
+        let parser = QwenParser::with_data_dir(data_dir.clone());
+
+        let legacy = data_dir.join("tmp/hash1/chats/session-1.jsonl");
+        assert!(
+            parser.is_legacy_path(&legacy),
+            "tmp/ log under a `projects`-containing data dir must stay legacy"
+        );
+
+        let new = data_dir.join("projects/slug/chats/sess.jsonl");
+        assert!(
+            !parser.is_legacy_path(&new),
+            "projects/ log must be classified as new-format"
+        );
     }
 
     #[test]

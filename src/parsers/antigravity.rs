@@ -324,7 +324,17 @@ fn read_gen_metadata(conn: &Connection) -> Vec<Vec<u8>> {
         Ok(rows) => rows,
         Err(_) => return Vec::new(),
     };
-    rows.filter_map(std::result::Result::ok).collect()
+    rows.filter_map(|row| match row {
+        Ok(data) => Some(data),
+        Err(e) => {
+            eprintln!(
+                "[toktrack] Warning: failed to read Antigravity gen_metadata row: {}",
+                e
+            );
+            None
+        }
+    })
+    .collect()
 }
 
 /// Strip the `file://` scheme and a leading slash before a Windows drive letter,
@@ -346,7 +356,8 @@ fn file_mtime(path: &Path) -> DateTime<Utc> {
         .and_then(|m| m.modified())
         .ok()
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .and_then(|d| DateTime::from_timestamp(d.as_secs() as i64, 0))
+        .and_then(|d| i64::try_from(d.as_secs()).ok())
+        .and_then(|secs| DateTime::from_timestamp(secs, 0))
         .unwrap_or_else(Utc::now)
 }
 
