@@ -149,7 +149,7 @@ zsh/bash/fish 몇 줄이면 됩니다 — **[셸 통합 가이드](docs/shell-in
 | PI Agent | ✅ | `~/.pi/agent/sessions/` |
 | Antigravity | ✅ | `~/.gemini/antigravity-{ide,cli}/conversations/*.db` |
 
-> 자체 비용을 기록하지 않는 소스(Gemini, Qwen, Codex, 최신 Claude 로그)의 비용은
+> 자체 비용을 기록하지 않는 소스(Gemini, Qwen, Codex, Antigravity, 최신 Claude 로그)의 비용은
 > [LiteLLM](https://github.com/BerriAI/litellm) 가격으로 계산되며 `~` 마커(추정치)로 표시됩니다.
 > 네트워크가 없을 때도 번들된 스냅샷으로 가격 계산이 동작합니다.
 

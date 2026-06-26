@@ -7,7 +7,11 @@
 //! - CLI: `~/.gemini/antigravity-cli/conversations/<trajectory_id>.db`
 //!
 //! Token usage lives in the `gen_metadata` table (one row per model
-//! generation). Each `data` blob is a `ChatModelMetadata` message:
+//! generation). Each `data` blob is a wrapper message:
+//! - field 1  `metadata` → `ChatModelMetadata`
+//! - field 4  `generation_id` (uuid string; not used)
+//!
+//! The `ChatModelMetadata` (field 1) carries:
 //! - field 4  `usage` → `ModelUsageStats`
 //!     - 2 `input_tokens`            (non-cached input)
 //!     - 3 `output_tokens`          (= thinking + response; not used directly)
@@ -22,11 +26,13 @@
 //! The session's working directory (used as the project key) is stored once per
 //! DB in `trajectory_metadata_blob` (field 7, or field 1→1) as a `file://` URI.
 //!
-//! The field numbers were reverse-engineered from the language-server binary's
-//! embedded proto descriptors and validated against real sessions
-//! (`output_tokens == thinking + response`). They may drift across Antigravity
-//! versions, so decoding is defensive: any malformed/under-specified blob is
-//! skipped rather than panicking.
+//! The field numbers were reverse-engineered (2026-06-24) from the Antigravity
+//! IDE language-server binary's embedded proto descriptors
+//! (`resources/app/extensions/antigravity/bin/language_server_*`) and validated
+//! against real sessions (`output_tokens == thinking + response`). The binary
+//! exposes no semantic Antigravity version, so this layout is pinned to that
+//! extraction; field numbers may drift across versions, so decoding is defensive:
+//! any malformed/under-specified blob is skipped rather than panicking.
 
 use crate::types::{Result, UsageEntry};
 use chrono::{DateTime, Utc};
@@ -107,7 +113,7 @@ mod proto {
                     self.pos = end;
                     Wire::Fixed
                 }
-                _ => return None, // unsupported wire type (3/4 groups): stop
+                _ => return None, // unknown wire type (groups 3/4 or reserved 6/7): no schema to skip it, so stop
             };
             Some((field, value))
         }
@@ -118,7 +124,9 @@ mod proto {
     }
 
     /// First varint value for `field` (0 if absent — callers treat missing
-    /// token counts as zero).
+    /// token counts as zero). First-match is safe here: each field appears at
+    /// most once per blob, so protobuf's last-wins rule for singular scalars
+    /// never matters.
     pub fn varint(buf: &[u8], field: u64) -> Option<u64> {
         fields(buf).find_map(|(f, v)| match v {
             Wire::Varint(n) if f == field => Some(n),
@@ -127,6 +135,7 @@ mod proto {
     }
 
     /// First length-delimited value (sub-message or string bytes) for `field`.
+    /// Like `varint`, first-match is safe: each field occurs at most once per blob.
     pub fn bytes(buf: &[u8], field: u64) -> Option<&[u8]> {
         fields(buf).find_map(|(f, v)| match v {
             Wire::Bytes(b) if f == field => Some(b),
@@ -527,6 +536,33 @@ mod tests {
         }
     }
 
+    /// Like [`seed_db`] but omits the `trajectory_meta` table entirely, mirroring
+    /// older/partial DBs where `read_trajectory_id` returns `None` so `request_id`
+    /// is `None` and dedup falls back to the content arm.
+    fn seed_db_no_traj_meta(root: &Path, variant: &str, db_name: &str, uri: &str, rows: &[Row]) {
+        let dir = root.join(variant).join("conversations");
+        std::fs::create_dir_all(&dir).unwrap();
+        let conn = Connection::open(dir.join(db_name)).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB, size INTEGER);
+             CREATE TABLE trajectory_metadata_blob (id TEXT PRIMARY KEY, data BLOB);",
+        )
+        .unwrap();
+        let blob = traj_meta_blob(uri);
+        conn.execute(
+            "INSERT INTO trajectory_metadata_blob (id, data) VALUES ('main', ?)",
+            params![blob],
+        )
+        .unwrap();
+        for r in rows {
+            conn.execute(
+                "INSERT INTO gen_metadata (idx, data, size) VALUES (?, ?, ?)",
+                params![r.idx, r.data, r.data.len() as i64],
+            )
+            .unwrap();
+        }
+    }
+
     /// One realistic assistant generation, mirroring real-session field layout.
     fn usage_row(idx: i64, input: u64, resp: u64, think: u64, cr: u64, cw: u64, id: &str) -> Row {
         let usage = model_usage_stats(input, resp, think, cr, cw, id);
@@ -565,24 +601,19 @@ mod tests {
     // ===== tests =====
 
     #[test]
-    fn test_name_and_data_dir_with_env() {
-        let saved = std::env::var("GEMINI_CLI_HOME").ok();
-
-        std::env::remove_var("GEMINI_CLI_HOME");
-        let parser = AntigravityParser::new();
+    fn test_name_and_data_dir() {
+        // Do NOT mutate the process-global `GEMINI_CLI_HOME` here: it races with
+        // gemini.rs::test_gemini_cli_home_env_var (cargo runs both in one test
+        // binary in parallel). The override path is covered by gemini.rs and
+        // discovery.rs, since `new()` resolves it through the shared
+        // `discovery::first_env_dir(&["GEMINI_CLI_HOME"])`.
+        let parser = AntigravityParser::with_data_dir(PathBuf::from("/tmp/toktrack-ag/.gemini"));
         assert_eq!(parser.name(), "antigravity");
-        assert!(parser.data_dir().ends_with(".gemini"));
+        assert_eq!(parser.data_dir(), Path::new("/tmp/toktrack-ag/.gemini"));
 
-        std::env::set_var("GEMINI_CLI_HOME", "/tmp/toktrack-ag-env");
-        assert_eq!(
-            AntigravityParser::new().data_dir(),
-            Path::new("/tmp/toktrack-ag-env/.gemini")
-        );
-
-        match saved {
-            Some(v) => std::env::set_var("GEMINI_CLI_HOME", v),
-            None => std::env::remove_var("GEMINI_CLI_HOME"),
-        }
+        // `new()` only reads env (never writes), and the joined `.gemini` suffix
+        // holds regardless of `GEMINI_CLI_HOME`'s value, so this is race-safe.
+        assert!(AntigravityParser::new().data_dir().ends_with(".gemini"));
     }
 
     #[test]
@@ -616,6 +647,19 @@ mod tests {
         assert_eq!(e.project.as_deref(), Some("g:/Scripts/proj"));
         // timestamp decoded from chat_start_metadata (1_782_298_884 + idx)
         assert_eq!(e.timestamp.timestamp(), 1_782_298_885);
+
+        // Invariant the test name claims: ModelUsageStats.output_tokens (f3) ==
+        // thinking_output_tokens (f9) + response_output_tokens (f10). We expose
+        // those two as reasoning_tokens and output_tokens, so their sum must
+        // reconcile with the upstream aggregate — guards a future split that
+        // could double-count or drop reasoning. (Asserted here, not via a
+        // debug_assert in decode_entry, to preserve the skip-never-panic
+        // contract on untrusted blobs.)
+        let usage = model_usage_stats(4626, 1474, 577, 12208, 0, "resp-a");
+        assert_eq!(
+            proto::varint(&usage, 3),
+            Some(e.output_tokens + e.reasoning_tokens)
+        );
     }
 
     #[test]
@@ -789,6 +833,32 @@ mod tests {
             "file:///work/y",
             "traj-cli",
             &[usage_row(1, 10, 5, 0, 0, 0, "same")],
+        );
+        let parser = AntigravityParser::with_data_dir(tmp.path().to_path_buf());
+        assert_eq!(parser.parse_all().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_missing_trajectory_meta_falls_back_to_content_dedup() {
+        // No `trajectory_meta` table => `request_id` is `None` for every row, so
+        // dedup uses the content arm (`response_id:model:input:output`). Two such
+        // DBs with distinct response_ids both survive. (Two trajectory_meta-less
+        // DBs sharing a response_id AND identical counts would collapse cross-DB,
+        // but that is a non-issue in practice: response_ids are server-issued UUIDs.)
+        let tmp = TempDir::new().unwrap();
+        seed_db_no_traj_meta(
+            tmp.path(),
+            "antigravity-ide",
+            "ide.db",
+            "file:///work/x",
+            &[usage_row(1, 10, 5, 0, 0, 0, "r1")],
+        );
+        seed_db_no_traj_meta(
+            tmp.path(),
+            "antigravity-cli",
+            "cli.db",
+            "file:///work/y",
+            &[usage_row(1, 10, 5, 0, 0, 0, "r2")],
         );
         let parser = AntigravityParser::with_data_dir(tmp.path().to_path_buf());
         assert_eq!(parser.parse_all().unwrap().len(), 2);

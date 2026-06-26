@@ -210,7 +210,7 @@ existing snapshot/cache for that remote.
 | PI Agent | ✅ | `~/.pi/agent/sessions/` |
 | Antigravity | ✅ | `~/.gemini/antigravity-{ide,cli}/conversations/*.db` |
 
-> Costs from sources that don't record their own price (Gemini, Qwen, Codex, and modern Claude logs)
+> Costs from sources that don't record their own price (Gemini, Qwen, Codex, Antigravity, and modern Claude logs)
 > are computed from [LiteLLM](https://github.com/BerriAI/litellm) pricing and shown with a `~` marker
 > (estimated). Pricing works offline via a bundled snapshot when the network is unavailable.
 
