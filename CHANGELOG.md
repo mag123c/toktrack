@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.13.0](https://github.com/mag123c/toktrack/compare/v2.12.0...v2.13.0) (2026-06-26)
+
+
+### Features
+
+* **parser:** add Antigravity IDE/CLI token tracking ([#192](https://github.com/mag123c/toktrack/issues/192)) ([f5ac9bf](https://github.com/mag123c/toktrack/commit/f5ac9bfef042b085e92bcb4ea67d4a694dbc3bdf))
+
 ## [2.12.0](https://github.com/mag123c/toktrack/compare/v2.11.0...v2.12.0) (2026-06-21)
 
 
