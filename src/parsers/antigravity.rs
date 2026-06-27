@@ -662,6 +662,38 @@ mod tests {
     }
 
     #[test]
+    fn test_read_gen_metadata_caps_warnings_past_threshold() {
+        // More unreadable rows than `MAX_ROW_WARNINGS` (5) exercises the summary
+        // branch: every bad row is still skipped (none fatal), and only the one
+        // readable blob comes back. Guards the warn-cap path so a partially-written
+        // DB can't flood stderr.
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB, size INTEGER);",
+        )
+        .unwrap();
+        for idx in 0..7 {
+            // NULL `data` → `get::<Vec<u8>>` errors → warned-and-skipped.
+            conn.execute(
+                "INSERT INTO gen_metadata (idx, data, size) VALUES (?, NULL, 0)",
+                params![idx],
+            )
+            .unwrap();
+        }
+        conn.execute(
+            "INSERT INTO gen_metadata (idx, data, size) VALUES (7, ?, 2)",
+            params![vec![9u8, 9]],
+        )
+        .unwrap();
+
+        assert_eq!(
+            read_gen_metadata(&conn),
+            vec![vec![9u8, 9]],
+            "all 7 unreadable rows skipped (>MAX_ROW_WARNINGS); readable row returned"
+        );
+    }
+
+    #[test]
     fn test_name_and_data_dir() {
         // Do NOT mutate the process-global `GEMINI_CLI_HOME` here: it races with
         // gemini.rs::test_gemini_cli_home_env_var (cargo runs both in one test
