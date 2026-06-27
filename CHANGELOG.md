@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.13.1](https://github.com/mag123c/toktrack/compare/v2.13.0...v2.13.1) (2026-06-27)
+
+
+### Bug Fixes
+
+* **parser:** close unresolved review nits from recently merged PRs ([#194](https://github.com/mag123c/toktrack/issues/194)) ([d9e65c0](https://github.com/mag123c/toktrack/commit/d9e65c0eabf024c9b4f5b891fe319b1f77e325af))
+
 ## [2.13.0](https://github.com/mag123c/toktrack/compare/v2.12.0...v2.13.0) (2026-06-26)
 
 
