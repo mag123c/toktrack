@@ -366,7 +366,7 @@ mod tests {
         // Regression: a home/data dir that itself contains a `projects` component
         // must not cause a legacy `tmp/` log to be misclassified as new-format.
         // Only the segment below `data_dir` should be scanned for `projects`.
-        let data_dir = PathBuf::from("/home/projects-user/.qwen");
+        let data_dir = PathBuf::from("/home/user/projects/.qwen");
         let parser = QwenParser::with_data_dir(data_dir.clone());
 
         let legacy = data_dir.join("tmp/hash1/chats/session-1.jsonl");

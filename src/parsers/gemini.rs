@@ -89,9 +89,8 @@ struct GeminiTokensJsonl {
 pub struct GeminiParser {
     data_dir: PathBuf,
     /// Source label: `"gemini"` for direct use, or `"qwen"` when the dedicated
-    /// `QwenParser` reuses this reader for legacy Gemini-fork logs
-    /// (see `QwenParser::parse_file`). Qwen Code is a Gemini CLI fork with an
-    /// identical on-disk token format.
+    /// `QwenParser` reuses this reader for its legacy Gemini-fork logs. Qwen Code
+    /// is a Gemini CLI fork with an identical on-disk token format.
     source: &'static str,
 }
 

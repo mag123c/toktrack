@@ -324,17 +324,33 @@ fn read_gen_metadata(conn: &Connection) -> Vec<Vec<u8>> {
         Ok(rows) => rows,
         Err(_) => return Vec::new(),
     };
-    rows.filter_map(|row| match row {
-        Ok(data) => Some(data),
-        Err(e) => {
-            eprintln!(
-                "[toktrack] Warning: failed to read Antigravity gen_metadata row: {}",
-                e
-            );
-            None
+    // Warn on the first few unreadable rows, then summarize the rest, so a
+    // partially-written DB can't flood stderr with one warning per corrupt row.
+    // Skipped rows are never fatal — the contract is "warned, never fatal".
+    const MAX_ROW_WARNINGS: usize = 5;
+    let mut blobs = Vec::new();
+    let mut failed = 0usize;
+    for row in rows {
+        match row {
+            Ok(data) => blobs.push(data),
+            Err(e) => {
+                if failed < MAX_ROW_WARNINGS {
+                    eprintln!(
+                        "[toktrack] Warning: failed to read Antigravity gen_metadata row: {}",
+                        e
+                    );
+                }
+                failed += 1;
+            }
         }
-    })
-    .collect()
+    }
+    if failed > MAX_ROW_WARNINGS {
+        eprintln!(
+            "[toktrack] Warning: skipped {} more unreadable Antigravity gen_metadata row(s)",
+            failed - MAX_ROW_WARNINGS
+        );
+    }
+    blobs
 }
 
 /// Strip the `file://` scheme and a leading slash before a Windows drive letter,
@@ -610,6 +626,40 @@ mod tests {
     }
 
     // ===== tests =====
+
+    #[test]
+    fn test_read_gen_metadata_skips_unreadable_rows() {
+        // The "warned, never fatal" contract: a row whose `data` can't be read as
+        // a blob (e.g. a NULL cell in a partially-written DB) is skipped, while the
+        // readable rows are still returned in `idx` order.
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB, size INTEGER);",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO gen_metadata (idx, data, size) VALUES (0, ?, 3)",
+            params![vec![1u8, 2, 3]],
+        )
+        .unwrap();
+        // NULL `data` → `get::<Vec<u8>>` errors → this row is warned-and-skipped.
+        conn.execute(
+            "INSERT INTO gen_metadata (idx, data, size) VALUES (1, NULL, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO gen_metadata (idx, data, size) VALUES (2, ?, 2)",
+            params![vec![4u8, 5]],
+        )
+        .unwrap();
+
+        assert_eq!(
+            read_gen_metadata(&conn),
+            vec![vec![1u8, 2, 3], vec![4u8, 5]],
+            "unreadable rows are skipped; readable rows preserved in idx order"
+        );
+    }
 
     #[test]
     fn test_name_and_data_dir() {
