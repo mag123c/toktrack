@@ -29,7 +29,7 @@ jobs:
     steps:
       # Trusted base checkout — gives the bot the guide + ai-context from OUR branch,
       # not from the PR. Never check out the PR head into the workspace here.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 1
