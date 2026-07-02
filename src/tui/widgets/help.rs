@@ -15,7 +15,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Width and height of the help popup
 const POPUP_WIDTH: u16 = 42;
-const POPUP_HEIGHT: u16 = 20;
+const POPUP_HEIGHT: u16 = 21;
 
 /// Help popup widget showing keyboard shortcuts
 pub struct HelpPopup {
@@ -77,10 +77,11 @@ impl Widget for HelpPopup {
             Constraint::Length(1), // [10] Padding
             Constraint::Length(1), // [11] General header
             Constraint::Length(1), // [12] Separator
-            Constraint::Length(1), // [13] Ctrl+C
-            Constraint::Length(1), // [14] ?
-            Constraint::Length(1), // [15] Padding
-            Constraint::Length(1), // [16] Close hint
+            Constraint::Length(1), // [13] r
+            Constraint::Length(1), // [14] Ctrl+C
+            Constraint::Length(1), // [15] ?
+            Constraint::Length(1), // [16] Padding
+            Constraint::Length(1), // [17] Close hint
             Constraint::Min(0),    // Remaining
         ])
         .split(inner);
@@ -151,8 +152,9 @@ impl Widget for HelpPopup {
             Style::default().fg(self.theme.muted()),
         );
 
-        render_keybinding(chunks[13], buf, "Ctrl+C", "Quit", self.theme);
-        render_keybinding(chunks[14], buf, "?", "Toggle help", self.theme);
+        render_keybinding(chunks[13], buf, "r", "Refresh data", self.theme);
+        render_keybinding(chunks[14], buf, "Ctrl+C", "Quit", self.theme);
+        render_keybinding(chunks[15], buf, "?", "Toggle help", self.theme);
 
         // Close hint
         let hint = Line::from(vec![Span::styled(
@@ -161,7 +163,7 @@ impl Widget for HelpPopup {
         )]);
         Paragraph::new(hint)
             .alignment(Alignment::Center)
-            .render(chunks[16], buf);
+            .render(chunks[17], buf);
     }
 }
 
@@ -193,6 +195,16 @@ mod tests {
         assert_eq!(popup_area.height, POPUP_HEIGHT);
         assert_eq!(popup_area.x, (100 - POPUP_WIDTH) / 2);
         assert_eq!(popup_area.y, (50 - POPUP_HEIGHT) / 2);
+    }
+
+    #[test]
+    fn test_help_popup_lists_refresh_keybinding() {
+        let area = Rect::new(0, 0, POPUP_WIDTH, POPUP_HEIGHT);
+        let mut buf = Buffer::empty(area);
+        HelpPopup::default().render(area, &mut buf);
+
+        let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(content.contains("Refresh data"));
     }
 
     #[test]

@@ -136,6 +136,9 @@ impl UpdateStatus {
     }
 }
 
+/// Data loading function — injectable so tests never touch the real filesystem.
+type DataLoader = fn(RemoteOptions) -> Result<Box<AppData>, String>;
+
 /// Main application
 pub struct App {
     state: AppState,
@@ -167,6 +170,12 @@ pub struct App {
     audit_rx: Option<mpsc::Receiver<std::result::Result<AuditReport, String>>>,
     /// Error from the audit computation, if it failed.
     audit_error: Option<String>,
+    /// Receiver for the in-flight background data load (startup or manual refresh).
+    data_rx: Option<mpsc::Receiver<std::result::Result<Box<AppData>, String>>>,
+    /// True while a manual refresh runs with the previous data still on screen.
+    refreshing: bool,
+    /// Loader executed on background data loads.
+    data_loader: DataLoader,
 }
 
 impl App {
@@ -202,6 +211,68 @@ impl App {
             audit: None,
             audit_rx: None,
             audit_error: None,
+            data_rx: None,
+            refreshing: false,
+            data_loader: load_data_sync,
+        }
+    }
+
+    /// Kick off a background data load (startup load or manual refresh via 'r').
+    /// No-op while a load is already in flight.
+    pub fn start_data_load(&mut self) {
+        if self.data_rx.is_some() {
+            return;
+        }
+        match self.state {
+            // Keep the current data on screen during a manual refresh.
+            AppState::Ready { .. } => self.refreshing = true,
+            // Retry from the error screen goes back to the loading spinner.
+            AppState::Error { .. } => {
+                self.state = AppState::Loading {
+                    spinner_frame: 0,
+                    stage: LoadingStage::Scanning,
+                }
+            }
+            AppState::Loading { .. } => {}
+        }
+        let loader = self.data_loader;
+        let remote_options = self.remote_options.clone();
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = tx.send(loader(remote_options));
+        });
+        self.data_rx = Some(rx);
+    }
+
+    /// Poll the background data load without blocking the event loop.
+    pub fn poll_data(&mut self) {
+        let Some(rx) = &self.data_rx else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(result) => {
+                self.data_rx = None;
+                self.refreshing = false;
+                if self.update_status.shows_overlay() {
+                    // Overlay is active, store data for later
+                    self.pending_data = Some(result);
+                } else {
+                    self.apply_data_result(result);
+                }
+            }
+            // Sender dropped without sending (worker thread panicked). A failed
+            // refresh keeps the current data; only a load with nothing on
+            // screen surfaces the error.
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.data_rx = None;
+                self.refreshing = false;
+                if !matches!(self.state, AppState::Ready { .. }) {
+                    self.state = AppState::Error {
+                        message: "Data loading failed unexpectedly".to_string(),
+                    };
+                }
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
         }
     }
 
@@ -388,6 +459,10 @@ impl App {
                 self.show_help = !self.show_help;
                 return;
             }
+            KeyCode::Char('r') => {
+                self.start_data_load();
+                return;
+            }
             _ => {}
         }
 
@@ -531,6 +606,9 @@ impl App {
             KeyCode::Char('?') => {
                 self.show_help = !self.show_help;
             }
+            KeyCode::Char('r') => {
+                self.start_data_load();
+            }
             _ => {}
         }
     }
@@ -641,8 +719,21 @@ impl App {
                 self.monthly_scroll =
                     DailyView::max_scroll_offset(&data.daily_data, DailyViewMode::Monthly, vr);
                 self.state = AppState::Ready { data };
+                // Fresh data invalidates any previously computed audit.
+                self.audit = None;
+                self.audit_error = None;
+                self.audit_rx = None;
+                if self.current_tab() == Tab::Audit {
+                    self.ensure_audit_loading();
+                }
             }
-            Err(message) => self.state = AppState::Error { message },
+            Err(message) => {
+                // Graceful degrade: a failed refresh keeps the previous data on
+                // screen; only a load with nothing to show surfaces the error.
+                if !matches!(self.state, AppState::Ready { .. }) {
+                    self.state = AppState::Error { message };
+                }
+            }
         }
     }
 
@@ -911,6 +1002,16 @@ impl Widget for &App {
                     }
                 }
 
+                // Manual-refresh indicator (top-right corner, above the tab bar)
+                if self.refreshing {
+                    let text = "⟳ Refreshing…";
+                    let w = text.chars().count() as u16;
+                    if area.width > w + 1 {
+                        let x = area.x + area.width - w - 1;
+                        buf.set_string(x, area.y, text, Style::default().fg(self.theme.muted()));
+                    }
+                }
+
                 // Render help popup overlay if active
                 if self.show_help {
                     let popup_area = HelpPopup::centered_area(area);
@@ -1092,16 +1193,11 @@ fn build_app_data_from_summaries(
 }
 
 fn run_app(terminal: &mut DefaultTerminal, config: TuiConfig, theme: Theme) -> anyhow::Result<()> {
-    let remote_options = config.remote_options.clone();
     let mut app = App::new(config, theme);
     app.terminal_height = terminal.size()?.height;
 
-    // Spawn background thread for data loading
-    let (data_tx, data_rx) = mpsc::channel();
-    thread::spawn(move || {
-        let result = load_data_sync(remote_options);
-        let _ = data_tx.send(result);
-    });
+    // Kick off the startup data load on a background thread
+    app.start_data_load();
 
     // Spawn background thread for update check
     let (update_tx, update_rx) = mpsc::channel();
@@ -1121,16 +1217,7 @@ fn run_app(terminal: &mut DefaultTerminal, config: TuiConfig, theme: Theme) -> a
         }
 
         // Check for data loading completion (non-blocking)
-        if matches!(app.state, AppState::Loading { .. }) {
-            if let Ok(result) = data_rx.try_recv() {
-                if app.update_status.shows_overlay() {
-                    // Overlay is active, store data for later
-                    app.pending_data = Some(result);
-                } else {
-                    app.apply_data_result(result);
-                }
-            }
-        }
+        app.poll_data();
 
         // Check for on-demand audit completion (non-blocking)
         app.poll_audit();
@@ -2143,5 +2230,225 @@ mod tests {
             app.view_mode,
             ViewMode::Dashboard { tab: Tab::Audit }
         ));
+    }
+
+    // ========== Manual refresh tests (issue #198) ==========
+
+    /// Stub loader for refresh tests — never touches the real filesystem.
+    fn stub_loader(_: RemoteOptions) -> Result<Box<AppData>, String> {
+        Err("stub loader".to_string())
+    }
+
+    /// Minimal AppData whose daily_tokens value distinguishes it from make_ready_app data.
+    fn marker_app_data(marker: u64) -> Box<AppData> {
+        use chrono::NaiveDate;
+        let empty: Vec<DailySummary> = vec![];
+        Box::new(AppData {
+            total: crate::types::TotalSummary::default(),
+            daily_tokens: vec![(NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(), marker)],
+            models_data: ModelsData::from_model_usage(&HashMap::new()),
+            daily_data: DailyData::from_daily_summaries(empty.clone()),
+            stats_data: StatsData::from_daily_summaries(&empty),
+            source_usage: vec![],
+            source_daily_data: HashMap::new(),
+            source_models_data: HashMap::new(),
+            source_stats_data: HashMap::new(),
+            projects_data: Default::default(),
+            project_daily_data: HashMap::new(),
+            project_stats_data: HashMap::new(),
+            cache_warning: None,
+        })
+    }
+
+    fn press_r(app: &mut App) {
+        app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Char('r'),
+            KeyModifiers::NONE,
+        )));
+    }
+
+    #[test]
+    fn test_r_key_in_ready_dashboard_starts_refresh() {
+        let mut app = make_ready_app();
+        app.data_loader = stub_loader;
+
+        press_r(&mut app);
+
+        assert!(app.refreshing);
+        assert!(app.data_rx.is_some());
+        // Current data stays on screen — no flicker back to the loading spinner.
+        assert!(matches!(app.state, AppState::Ready { .. }));
+    }
+
+    #[test]
+    fn test_r_key_is_noop_while_load_in_flight() {
+        let mut app = make_ready_app();
+        app.data_loader = stub_loader;
+        let (tx, rx) = mpsc::channel();
+        app.data_rx = Some(rx);
+        app.refreshing = true;
+
+        // 'r' must not replace the in-flight channel.
+        press_r(&mut app);
+
+        // The original channel must still be the one polled.
+        tx.send(Ok(marker_app_data(999))).unwrap();
+        app.poll_data();
+
+        match &app.state {
+            AppState::Ready { data } => assert_eq!(
+                data.daily_tokens,
+                vec![(chrono::NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(), 999)]
+            ),
+            _ => panic!("expected Ready state"),
+        }
+        assert!(!app.refreshing);
+        assert!(app.data_rx.is_none());
+    }
+
+    #[test]
+    fn test_poll_data_applies_refreshed_data_and_invalidates_audit() {
+        use chrono::NaiveDate;
+        let mut app = make_ready_app();
+        app.audit = Some(AuditReport {
+            generated_for: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            total_cache_only_days: 3,
+            sources: vec![],
+        });
+        app.audit_error = Some("stale".to_string());
+        // In-flight audit computation started before the refresh — its result is
+        // stale and must be dropped, not resolved later by poll_audit.
+        let (stale_audit_tx, stale_audit_rx) = mpsc::channel();
+        app.audit_rx = Some(stale_audit_rx);
+        let (tx, rx) = mpsc::channel();
+        app.data_rx = Some(rx);
+        app.refreshing = true;
+
+        tx.send(Ok(marker_app_data(777))).unwrap();
+        app.poll_data();
+
+        match &app.state {
+            AppState::Ready { data } => assert_eq!(data.daily_tokens[0].1, 777),
+            _ => panic!("expected Ready state"),
+        }
+        assert!(!app.refreshing);
+        assert!(app.data_rx.is_none());
+        // Refreshed data invalidates the previously computed audit.
+        assert!(app.audit.is_none());
+        assert!(app.audit_error.is_none());
+        // The in-flight audit receiver must be dropped so poll_audit can never
+        // resolve a stale pre-refresh result.
+        assert!(app.audit_rx.is_none());
+        assert!(stale_audit_tx
+            .send(Ok(AuditReport {
+                generated_for: NaiveDate::from_ymd_opt(2025, 1, 2).unwrap(),
+                total_cache_only_days: 9,
+                sources: vec![],
+            }))
+            .is_err());
+    }
+
+    #[test]
+    fn test_refresh_failure_keeps_existing_data() {
+        let mut app = make_ready_app();
+        let (tx, rx) = mpsc::channel();
+        app.data_rx = Some(rx);
+        app.refreshing = true;
+
+        tx.send(Err("boom".to_string())).unwrap();
+        app.poll_data();
+
+        // Graceful degrade: old data survives a failed refresh.
+        assert!(matches!(app.state, AppState::Ready { .. }));
+        assert!(!app.refreshing);
+        assert!(app.data_rx.is_none());
+    }
+
+    #[test]
+    fn test_refresh_worker_panic_keeps_existing_data() {
+        let mut app = make_ready_app();
+        let (tx, rx) = mpsc::channel::<Result<Box<AppData>, String>>();
+        app.data_rx = Some(rx);
+        app.refreshing = true;
+
+        // Sender dropped without sending — as if the worker thread panicked.
+        drop(tx);
+        app.poll_data();
+
+        assert!(matches!(app.state, AppState::Ready { .. }));
+        assert!(!app.refreshing);
+        assert!(app.data_rx.is_none());
+    }
+
+    #[test]
+    fn test_startup_load_worker_panic_sets_error_state() {
+        let mut app = App::default();
+        let (tx, rx) = mpsc::channel::<Result<Box<AppData>, String>>();
+        app.data_rx = Some(rx);
+
+        drop(tx);
+        app.poll_data();
+
+        assert!(matches!(app.state, AppState::Error { .. }));
+        assert!(app.data_rx.is_none());
+    }
+
+    #[test]
+    fn test_r_key_in_error_state_retries() {
+        let mut app = App {
+            data_loader: stub_loader,
+            state: AppState::Error {
+                message: "load failed".to_string(),
+            },
+            ..App::default()
+        };
+
+        press_r(&mut app);
+
+        // Retry from the error screen goes back to the loading spinner.
+        assert!(matches!(app.state, AppState::Loading { .. }));
+        assert!(app.data_rx.is_some());
+        assert!(!app.refreshing);
+    }
+
+    #[test]
+    fn test_r_key_in_detail_view_starts_refresh_and_preserves_view() {
+        let mut app = make_ready_app();
+        app.data_loader = stub_loader;
+        app.view_mode = ViewMode::SourceDetail {
+            source: "claude".to_string(),
+        };
+
+        press_r(&mut app);
+        assert!(app.refreshing);
+
+        // Swap in a deterministic channel and apply the result.
+        let (tx, rx) = mpsc::channel();
+        app.data_rx = Some(rx);
+        tx.send(Ok(marker_app_data(555))).unwrap();
+        app.poll_data();
+
+        // The drill-down view survives the refresh.
+        assert!(matches!(app.view_mode, ViewMode::SourceDetail { .. }));
+        assert!(matches!(app.state, AppState::Ready { .. }));
+    }
+
+    #[test]
+    fn test_refresh_result_deferred_while_update_overlay_shown() {
+        let mut app = make_ready_app();
+        app.update_status = UpdateStatus::Available {
+            current: "1.0.0".to_string(),
+            latest: "2.0.0".to_string(),
+        };
+        let (tx, rx) = mpsc::channel();
+        app.data_rx = Some(rx);
+        app.refreshing = true;
+
+        tx.send(Ok(marker_app_data(333))).unwrap();
+        app.poll_data();
+
+        assert!(app.pending_data.is_some());
+        assert!(app.data_rx.is_none());
+        assert!(!app.refreshing);
     }
 }
