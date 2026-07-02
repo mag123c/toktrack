@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.14.0](https://github.com/mag123c/toktrack/compare/v2.13.1...v2.14.0) (2026-07-02)
+
+
+### Features
+
+* **tui:** add manual refresh with 'r' key ([#198](https://github.com/mag123c/toktrack/issues/198)) ([#199](https://github.com/mag123c/toktrack/issues/199)) ([3d806f6](https://github.com/mag123c/toktrack/commit/3d806f6d8a4a5fd78918c00614371456c84b0e08))
+
 ## [2.13.1](https://github.com/mag123c/toktrack/compare/v2.13.0...v2.13.1) (2026-06-27)
 
 
