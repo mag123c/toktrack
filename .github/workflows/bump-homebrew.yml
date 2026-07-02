@@ -60,6 +60,7 @@ jobs:
           class Toktrack < Formula
             desc "Ultra-fast token & cost tracker for AI CLIs (Claude, Codex, Gemini, Qwen, OpenCode, PI Agent)"
             homepage "https://github.com/mag123c/toktrack"
+            version "${VERSION}"
             license "MIT"
 
             on_macos do
