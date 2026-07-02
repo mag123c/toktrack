@@ -16,6 +16,8 @@ concurrency:
 permissions:
   contents: read
   pull-requests: write
+  # Required by claude-code-action to exchange an OIDC token for its GitHub token.
+  id-token: write
 
 jobs:
   review:
