@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.14.1](https://github.com/mag123c/toktrack/compare/v2.14.0...v2.14.1) (2026-07-03)
+
+
+### Bug Fixes
+
+* **cli:** Add explicit version to homebrew formula ([#203](https://github.com/mag123c/toktrack/issues/203)) ([7acdd1f](https://github.com/mag123c/toktrack/commit/7acdd1f81ade01013945816409be36f8cee04266))
+
 ## [2.14.0](https://github.com/mag123c/toktrack/compare/v2.13.1...v2.14.0) (2026-07-02)
 
 
