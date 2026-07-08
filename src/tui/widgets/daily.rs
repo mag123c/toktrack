@@ -67,6 +67,15 @@ impl SortKey {
             Self::Cost | Self::Tokens => SortDirection::Desc,
         }
     }
+
+    /// Label for the `[sort: cost ↓]` indicator
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Date => "date",
+            Self::Cost => "cost",
+            Self::Tokens => "tokens",
+        }
+    }
 }
 
 /// Sort direction for the daily tables, reversed with `S`
@@ -82,6 +91,14 @@ impl SortDirection {
         match self {
             Self::Asc => Self::Desc,
             Self::Desc => Self::Asc,
+        }
+    }
+
+    /// Arrow for the `[sort: cost ↓]` indicator
+    pub fn arrow(self) -> &'static str {
+        match self {
+            Self::Asc => "↑",
+            Self::Desc => "↓",
         }
     }
 }
@@ -844,6 +861,19 @@ mod tests {
     fn test_sort_direction_reversed() {
         assert_eq!(SortDirection::Asc.reversed(), SortDirection::Desc);
         assert_eq!(SortDirection::Desc.reversed(), SortDirection::Asc);
+    }
+
+    #[test]
+    fn test_sort_key_labels() {
+        assert_eq!(SortKey::Date.label(), "date");
+        assert_eq!(SortKey::Cost.label(), "cost");
+        assert_eq!(SortKey::Tokens.label(), "tokens");
+    }
+
+    #[test]
+    fn test_sort_direction_arrows() {
+        assert_eq!(SortDirection::Asc.arrow(), "↑");
+        assert_eq!(SortDirection::Desc.arrow(), "↓");
     }
 
     #[test]

@@ -8,7 +8,7 @@ use ratatui::{
     widgets::{Paragraph, Widget},
 };
 
-use super::daily::{DailyData, DailyView, DailyViewMode};
+use super::daily::{DailyData, DailyView, DailyViewMode, SortDirection, SortKey};
 use super::overview::format_number;
 use crate::tui::theme::Theme;
 use crate::types::StatsData;
@@ -24,6 +24,8 @@ pub struct SourceDetailView<'a> {
     scroll_offset: usize,
     view_mode: DailyViewMode,
     selected_index: Option<usize>,
+    sort_key: SortKey,
+    sort_direction: SortDirection,
     theme: Theme,
 }
 
@@ -44,8 +46,17 @@ impl<'a> SourceDetailView<'a> {
             scroll_offset,
             view_mode,
             selected_index,
+            sort_key: SortKey::default(),
+            sort_direction: SortDirection::default(),
             theme,
         }
+    }
+
+    /// Set the sort state shown in the `[sort: cost ↓]` indicator
+    pub fn with_sort(mut self, key: SortKey, direction: SortDirection) -> Self {
+        self.sort_key = key;
+        self.sort_direction = direction;
+        self
     }
 }
 
@@ -186,6 +197,18 @@ impl SourceDetailView<'_> {
             spans.push(Span::styled(format!("{}:{}", key, mode.label()), style));
         }
 
+        spans.push(Span::styled(
+            "  [sort: ",
+            Style::default().fg(self.theme.muted()),
+        ));
+        spans.push(Span::styled(
+            format!("{} {}", self.sort_key.label(), self.sort_direction.arrow()),
+            Style::default()
+                .fg(self.theme.accent())
+                .add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::styled("]", Style::default().fg(self.theme.muted())));
+
         let indicator = Paragraph::new(Line::from(spans)).alignment(Alignment::Center);
         indicator.render(area, buf);
     }
@@ -200,6 +223,9 @@ impl SourceDetailView<'_> {
             Span::raw("  "),
             Span::styled("d/w/m", Style::default().fg(self.theme.accent())),
             Span::styled(": View mode", Style::default().fg(self.theme.muted())),
+            Span::raw("  "),
+            Span::styled("s/S", Style::default().fg(self.theme.accent())),
+            Span::styled(": Sort", Style::default().fg(self.theme.muted())),
             Span::raw("  "),
             Span::styled("r", Style::default().fg(self.theme.accent())),
             Span::styled(": Refresh", Style::default().fg(self.theme.muted())),
@@ -293,6 +319,71 @@ mod tests {
         let content = buffer_to_string(&buf);
         assert!(content.contains("Active: 3d"));
         assert!(content.contains("$12.50"));
+    }
+
+    #[test]
+    fn test_source_detail_shows_default_sort_indicator() {
+        let stats = make_stats_data();
+        let daily = make_daily_data();
+        let view = SourceDetailView::new(
+            "src",
+            &daily,
+            &stats,
+            0,
+            DailyViewMode::Daily,
+            None,
+            Theme::Dark,
+        );
+        let area = Rect::new(0, 0, 120, 20);
+        let mut buf = Buffer::empty(area);
+        view.render(area, &mut buf);
+
+        let content = buffer_to_string(&buf);
+        assert!(content.contains("[sort: date ↑]"));
+    }
+
+    #[test]
+    fn test_source_detail_shows_sort_indicator_for_cost_desc() {
+        let stats = make_stats_data();
+        let daily = make_daily_data();
+        let view = SourceDetailView::new(
+            "src",
+            &daily,
+            &stats,
+            0,
+            DailyViewMode::Daily,
+            None,
+            Theme::Dark,
+        )
+        .with_sort(SortKey::Cost, SortDirection::Desc);
+        let area = Rect::new(0, 0, 120, 20);
+        let mut buf = Buffer::empty(area);
+        view.render(area, &mut buf);
+
+        let content = buffer_to_string(&buf);
+        assert!(content.contains("[sort: cost ↓]"));
+    }
+
+    #[test]
+    fn test_source_detail_footer_lists_sort_key() {
+        let stats = make_stats_data();
+        let daily = make_daily_data();
+        let view = SourceDetailView::new(
+            "src",
+            &daily,
+            &stats,
+            0,
+            DailyViewMode::Daily,
+            None,
+            Theme::Dark,
+        );
+        let area = Rect::new(0, 0, 140, 20);
+        let mut buf = Buffer::empty(area);
+        view.render(area, &mut buf);
+
+        let content = buffer_to_string(&buf);
+        assert!(content.contains("s/S"));
+        assert!(content.contains(": Sort"));
     }
 
     #[test]

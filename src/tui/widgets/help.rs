@@ -15,7 +15,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Width and height of the help popup
 const POPUP_WIDTH: u16 = 42;
-const POPUP_HEIGHT: u16 = 21;
+const POPUP_HEIGHT: u16 = 22;
 
 /// Help popup widget showing keyboard shortcuts
 pub struct HelpPopup {
@@ -73,15 +73,16 @@ impl Widget for HelpPopup {
             Constraint::Length(1), // [6] Enter
             Constraint::Length(1), // [7] Esc
             Constraint::Length(1), // [8] d/w/m
-            Constraint::Length(1), // [9] Enter (detail)
-            Constraint::Length(1), // [10] Padding
-            Constraint::Length(1), // [11] General header
-            Constraint::Length(1), // [12] Separator
-            Constraint::Length(1), // [13] r
-            Constraint::Length(1), // [14] Ctrl+C
-            Constraint::Length(1), // [15] ?
-            Constraint::Length(1), // [16] Padding
-            Constraint::Length(1), // [17] Close hint
+            Constraint::Length(1), // [9] s / S
+            Constraint::Length(1), // [10] Enter (detail)
+            Constraint::Length(1), // [11] Padding
+            Constraint::Length(1), // [12] General header
+            Constraint::Length(1), // [13] Separator
+            Constraint::Length(1), // [14] r
+            Constraint::Length(1), // [15] Ctrl+C
+            Constraint::Length(1), // [16] ?
+            Constraint::Length(1), // [17] Padding
+            Constraint::Length(1), // [18] Close hint
             Constraint::Min(0),    // Remaining
         ])
         .split(inner);
@@ -125,8 +126,9 @@ impl Widget for HelpPopup {
             "Daily/Weekly/Monthly",
             self.theme,
         );
+        render_keybinding(chunks[9], buf, "s / S", "Sort by / direction", self.theme);
         render_keybinding(
-            chunks[9],
+            chunks[10],
             buf,
             "Enter (detail)",
             "Model breakdown",
@@ -142,19 +144,19 @@ impl Widget for HelpPopup {
         )]);
         Paragraph::new(gen_header)
             .alignment(Alignment::Left)
-            .render(chunks[11], buf);
+            .render(chunks[12], buf);
 
         // Separator
         buf.set_string(
-            chunks[12].x,
-            chunks[12].y,
+            chunks[13].x,
+            chunks[13].y,
             &sep,
             Style::default().fg(self.theme.muted()),
         );
 
-        render_keybinding(chunks[13], buf, "r", "Refresh data", self.theme);
-        render_keybinding(chunks[14], buf, "Ctrl+C", "Quit", self.theme);
-        render_keybinding(chunks[15], buf, "?", "Toggle help", self.theme);
+        render_keybinding(chunks[14], buf, "r", "Refresh data", self.theme);
+        render_keybinding(chunks[15], buf, "Ctrl+C", "Quit", self.theme);
+        render_keybinding(chunks[16], buf, "?", "Toggle help", self.theme);
 
         // Close hint
         let hint = Line::from(vec![Span::styled(
@@ -163,7 +165,7 @@ impl Widget for HelpPopup {
         )]);
         Paragraph::new(hint)
             .alignment(Alignment::Center)
-            .render(chunks[17], buf);
+            .render(chunks[18], buf);
     }
 }
 
@@ -205,6 +207,17 @@ mod tests {
 
         let content: String = buf.content().iter().map(|c| c.symbol()).collect();
         assert!(content.contains("Refresh data"));
+    }
+
+    #[test]
+    fn test_help_popup_lists_sort_keybinding() {
+        let area = Rect::new(0, 0, POPUP_WIDTH, POPUP_HEIGHT);
+        let mut buf = Buffer::empty(area);
+        HelpPopup::default().render(area, &mut buf);
+
+        let content: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(content.contains("s / S"));
+        assert!(content.contains("Sort by / direction"));
     }
 
     #[test]

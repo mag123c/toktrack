@@ -1012,7 +1012,8 @@ impl Widget for &App {
                             self.daily_view_mode,
                             self.active_selected(),
                             self.theme,
-                        );
+                        )
+                        .with_sort(self.sort_key, self.sort_direction);
                         source_detail.render(area, buf);
                     }
                     ViewMode::ProjectDetail { project } => {
@@ -1033,7 +1034,8 @@ impl Widget for &App {
                             self.daily_view_mode,
                             self.active_selected(),
                             self.theme,
-                        );
+                        )
+                        .with_sort(self.sort_key, self.sort_direction);
                         project_detail.render(area, buf);
                     }
                 }
