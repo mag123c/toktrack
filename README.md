@@ -195,6 +195,7 @@ existing snapshot/cache for that remote.
 | `j` / `k` or `↑` / `↓` | Scroll up / down |
 | `Enter` | Open model breakdown popup (Daily tab) |
 | `d` / `w` / `m` | Daily / Weekly / Monthly view (Daily tab) |
+| `s` / `S` | Sort by date → cost → tokens / Reverse direction (detail views) |
 | `r` | Refresh data |
 | `?` | Toggle help |
 | `Ctrl+C` | Quit |
