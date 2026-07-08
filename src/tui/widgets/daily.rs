@@ -40,6 +40,56 @@ impl DailyViewMode {
     }
 }
 
+/// Sort key for the daily tables, cycled with `s`
+#[allow(dead_code)] // wired into the TUI in a follow-up commit of this PR
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortKey {
+    #[default]
+    Date,
+    Cost,
+    Tokens,
+}
+
+#[allow(dead_code)] // wired into the TUI in a follow-up commit of this PR
+impl SortKey {
+    /// Next key in the `s` cycle: date → cost → tokens → date
+    pub fn next(self) -> Self {
+        match self {
+            Self::Date => Self::Cost,
+            Self::Cost => Self::Tokens,
+            Self::Tokens => Self::Date,
+        }
+    }
+
+    /// Per-key default direction: date keeps the historical ascending order,
+    /// cost/tokens start descending ("most expensive/used first").
+    pub fn default_direction(self) -> SortDirection {
+        match self {
+            Self::Date => SortDirection::Asc,
+            Self::Cost | Self::Tokens => SortDirection::Desc,
+        }
+    }
+}
+
+/// Sort direction for the daily tables, reversed with `S`
+#[allow(dead_code)] // wired into the TUI in a follow-up commit of this PR
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortDirection {
+    #[default]
+    Asc,
+    Desc,
+}
+
+#[allow(dead_code)] // wired into the TUI in a follow-up commit of this PR
+impl SortDirection {
+    pub fn reversed(self) -> Self {
+        match self {
+            Self::Asc => Self::Desc,
+            Self::Desc => Self::Asc,
+        }
+    }
+}
+
 /// Format a sparkline bar based on token ratio
 /// Example: tokens=500, max=1000, width=8 → "████░░░░"
 pub fn format_sparkline(tokens: u64, max: u64, width: usize) -> String {
@@ -56,7 +106,8 @@ pub fn format_sparkline(tokens: u64, max: u64, width: usize) -> String {
 /// Data for the daily view (holds daily, weekly, and monthly aggregations)
 #[derive(Debug)]
 pub struct DailyData {
-    /// Daily summaries sorted by date ascending (oldest first)
+    /// Daily summaries, initially sorted by date ascending (oldest first).
+    /// Re-ordered in place when a sort is applied via [`Self::apply_sort`].
     pub daily_summaries: Vec<DailySummary>,
     pub daily_max_tokens: u64,
     pub weekly_summaries: Vec<DailySummary>,
@@ -112,6 +163,33 @@ impl DailyData {
     pub fn max_scroll_offset_for(count: usize, visible_rows: usize) -> usize {
         count.saturating_sub(visible_rows)
     }
+
+    /// Sort all three aggregation vectors by the given key and direction.
+    #[allow(dead_code)] // wired into the TUI in a follow-up commit of this PR
+    pub fn apply_sort(&mut self, key: SortKey, direction: SortDirection) {
+        sort_summaries(&mut self.daily_summaries, key, direction);
+        sort_summaries(&mut self.weekly_summaries, key, direction);
+        sort_summaries(&mut self.monthly_summaries, key, direction);
+    }
+}
+
+/// Sort summaries by the given key and direction. The direction applies to the
+/// primary key only; ties always break by date ascending so repeated re-sorts
+/// stay deterministic.
+#[allow(dead_code)] // wired into the TUI in a follow-up commit of this PR
+fn sort_summaries(summaries: &mut [DailySummary], key: SortKey, direction: SortDirection) {
+    summaries.sort_by(|a, b| {
+        let primary = match key {
+            SortKey::Date => a.date.cmp(&b.date),
+            SortKey::Cost => a.total_cost_usd.total_cmp(&b.total_cost_usd),
+            SortKey::Tokens => a.total_tokens().cmp(&b.total_tokens()),
+        };
+        let ordered = match direction {
+            SortDirection::Asc => primary,
+            SortDirection::Desc => primary.reverse(),
+        };
+        ordered.then_with(|| a.date.cmp(&b.date))
+    });
 }
 
 /// Maximum content width for Daily view (consistent with Overview/Models)
@@ -750,6 +828,127 @@ mod tests {
 
         let (monthly, _) = data.for_mode(DailyViewMode::Monthly);
         assert_eq!(monthly.len(), 2); // Jan and Feb
+    }
+
+    // ========== Sort tests ==========
+
+    #[test]
+    fn test_sort_key_cycle() {
+        assert_eq!(SortKey::Date.next(), SortKey::Cost);
+        assert_eq!(SortKey::Cost.next(), SortKey::Tokens);
+        assert_eq!(SortKey::Tokens.next(), SortKey::Date);
+    }
+
+    #[test]
+    fn test_sort_key_default_direction() {
+        assert_eq!(SortKey::Date.default_direction(), SortDirection::Asc);
+        assert_eq!(SortKey::Cost.default_direction(), SortDirection::Desc);
+        assert_eq!(SortKey::Tokens.default_direction(), SortDirection::Desc);
+    }
+
+    #[test]
+    fn test_sort_direction_reversed() {
+        assert_eq!(SortDirection::Asc.reversed(), SortDirection::Desc);
+        assert_eq!(SortDirection::Desc.reversed(), SortDirection::Asc);
+    }
+
+    #[test]
+    fn test_apply_sort_cost_desc() {
+        let mut data = DailyData::from_daily_summaries(vec![
+            make_daily_summary(2025, 1, 13, 100, 50, 0, 0, 1.20),
+            make_daily_summary(2025, 1, 14, 100, 50, 0, 0, 4.50),
+            make_daily_summary(2025, 1, 15, 100, 50, 0, 0, 0.30),
+        ]);
+
+        data.apply_sort(SortKey::Cost, SortDirection::Desc);
+
+        let costs: Vec<f64> = data
+            .daily_summaries
+            .iter()
+            .map(|s| s.total_cost_usd)
+            .collect();
+        assert_eq!(costs, vec![4.50, 1.20, 0.30]);
+    }
+
+    #[test]
+    fn test_apply_sort_tokens_differs_from_cost() {
+        // Jan 14 is cache-heavy: the most tokens but the lowest cost.
+        let mut data = DailyData::from_daily_summaries(vec![
+            make_daily_summary(2025, 1, 13, 500, 200, 0, 0, 2.00),
+            make_daily_summary(2025, 1, 14, 100, 50, 10_000, 0, 0.50),
+        ]);
+
+        data.apply_sort(SortKey::Tokens, SortDirection::Desc);
+        assert_eq!(
+            data.daily_summaries[0].date,
+            NaiveDate::from_ymd_opt(2025, 1, 14).unwrap()
+        );
+
+        data.apply_sort(SortKey::Cost, SortDirection::Desc);
+        assert_eq!(
+            data.daily_summaries[0].date,
+            NaiveDate::from_ymd_opt(2025, 1, 13).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_apply_sort_all_period_modes() {
+        // Two days in different weeks and months so each mode has 2 entries.
+        let mut data = DailyData::from_daily_summaries(vec![
+            make_daily_summary(2025, 1, 13, 100, 0, 0, 0, 1.00),
+            make_daily_summary(2025, 2, 10, 100, 0, 0, 0, 3.00),
+        ]);
+
+        data.apply_sort(SortKey::Cost, SortDirection::Desc);
+
+        assert!(data.daily_summaries[0].total_cost_usd > data.daily_summaries[1].total_cost_usd);
+        assert!(data.weekly_summaries[0].total_cost_usd > data.weekly_summaries[1].total_cost_usd);
+        assert!(
+            data.monthly_summaries[0].total_cost_usd > data.monthly_summaries[1].total_cost_usd
+        );
+    }
+
+    #[test]
+    fn test_apply_sort_date_asc_restores_order() {
+        let mut data = DailyData::from_daily_summaries(vec![
+            make_daily_summary(2025, 1, 13, 100, 0, 0, 0, 1.20),
+            make_daily_summary(2025, 1, 14, 100, 0, 0, 0, 4.50),
+            make_daily_summary(2025, 1, 15, 100, 0, 0, 0, 0.30),
+        ]);
+
+        data.apply_sort(SortKey::Cost, SortDirection::Desc);
+        data.apply_sort(SortKey::Date, SortDirection::Asc);
+
+        let dates: Vec<NaiveDate> = data.daily_summaries.iter().map(|s| s.date).collect();
+        assert_eq!(
+            dates,
+            vec![
+                NaiveDate::from_ymd_opt(2025, 1, 13).unwrap(),
+                NaiveDate::from_ymd_opt(2025, 1, 14).unwrap(),
+                NaiveDate::from_ymd_opt(2025, 1, 15).unwrap(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_apply_sort_tie_breaks_by_date() {
+        let mut data = DailyData::from_daily_summaries(vec![
+            make_daily_summary(2025, 1, 13, 100, 0, 0, 0, 1.00),
+            make_daily_summary(2025, 1, 14, 100, 0, 0, 0, 1.00),
+            make_daily_summary(2025, 1, 15, 100, 0, 0, 0, 1.00),
+        ]);
+
+        data.apply_sort(SortKey::Cost, SortDirection::Desc);
+
+        let dates: Vec<NaiveDate> = data.daily_summaries.iter().map(|s| s.date).collect();
+        assert_eq!(
+            dates,
+            vec![
+                NaiveDate::from_ymd_opt(2025, 1, 13).unwrap(),
+                NaiveDate::from_ymd_opt(2025, 1, 14).unwrap(),
+                NaiveDate::from_ymd_opt(2025, 1, 15).unwrap(),
+            ]
+        );
     }
 
     #[test]

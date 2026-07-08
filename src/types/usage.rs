@@ -183,6 +183,18 @@ pub struct DailySummary {
     pub projects: HashMap<String, ProjectUsage>,
 }
 
+impl DailySummary {
+    /// Total across all token categories — matches the daily table's Total column.
+    #[allow(dead_code)] // wired into the TUI sort in a follow-up commit of this PR
+    pub fn total_tokens(&self) -> u64 {
+        self.total_input_tokens
+            + self.total_output_tokens
+            + self.total_cache_read_tokens
+            + self.total_cache_creation_tokens
+            + self.total_reasoning_tokens
+    }
+}
+
 /// The sentinel project key used for usage from sources that do not record a
 /// project (Codex, Gemini, Qwen, OpenCode, PI Agent).
 pub const NO_PROJECT: &str = "(no project)";
@@ -454,6 +466,14 @@ mod tests {
         let back: DailySummary = serde_json::from_str(&json).unwrap();
         assert_eq!(back.projects.len(), 1);
         assert!(back.projects.contains_key("/work/demo"));
+    }
+
+    #[test]
+    fn test_daily_summary_total_tokens() {
+        let mut s = make_summary(2026, 1, 1, 100, 50, 1000, 200, 1.0);
+        s.total_reasoning_tokens = 30;
+
+        assert_eq!(s.total_tokens(), 100 + 50 + 1000 + 200 + 30);
     }
 
     #[test]
