@@ -41,7 +41,6 @@ impl DailyViewMode {
 }
 
 /// Sort key for the daily tables, cycled with `s`
-#[allow(dead_code)] // wired into the TUI in a follow-up commit of this PR
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SortKey {
     #[default]
@@ -50,7 +49,6 @@ pub enum SortKey {
     Tokens,
 }
 
-#[allow(dead_code)] // wired into the TUI in a follow-up commit of this PR
 impl SortKey {
     /// Next key in the `s` cycle: date → cost → tokens → date
     pub fn next(self) -> Self {
@@ -72,7 +70,6 @@ impl SortKey {
 }
 
 /// Sort direction for the daily tables, reversed with `S`
-#[allow(dead_code)] // wired into the TUI in a follow-up commit of this PR
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SortDirection {
     #[default]
@@ -80,7 +77,6 @@ pub enum SortDirection {
     Desc,
 }
 
-#[allow(dead_code)] // wired into the TUI in a follow-up commit of this PR
 impl SortDirection {
     pub fn reversed(self) -> Self {
         match self {
@@ -165,7 +161,6 @@ impl DailyData {
     }
 
     /// Sort all three aggregation vectors by the given key and direction.
-    #[allow(dead_code)] // wired into the TUI in a follow-up commit of this PR
     pub fn apply_sort(&mut self, key: SortKey, direction: SortDirection) {
         sort_summaries(&mut self.daily_summaries, key, direction);
         sort_summaries(&mut self.weekly_summaries, key, direction);
@@ -176,7 +171,6 @@ impl DailyData {
 /// Sort summaries by the given key and direction. The direction applies to the
 /// primary key only; ties always break by date ascending so repeated re-sorts
 /// stay deterministic.
-#[allow(dead_code)] // wired into the TUI in a follow-up commit of this PR
 fn sort_summaries(summaries: &mut [DailySummary], key: SortKey, direction: SortDirection) {
     summaries.sort_by(|a, b| {
         let primary = match key {

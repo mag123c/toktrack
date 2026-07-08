@@ -185,7 +185,6 @@ pub struct DailySummary {
 
 impl DailySummary {
     /// Total across all token categories — matches the daily table's Total column.
-    #[allow(dead_code)] // wired into the TUI sort in a follow-up commit of this PR
     pub fn total_tokens(&self) -> u64 {
         self.total_input_tokens
             + self.total_output_tokens

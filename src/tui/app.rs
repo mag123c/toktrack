@@ -22,7 +22,7 @@ use crate::services::{
 use crate::types::{CacheWarning, DailySummary, SourceUsage, StatsData, TotalSummary};
 
 use super::widgets::{
-    daily::{DailyData, DailyView, DailyViewMode},
+    daily::{DailyData, DailyView, DailyViewMode, SortDirection, SortKey},
     help::HelpPopup,
     model_breakdown::{ModelBreakdownPopup, ModelBreakdownState},
     models::ModelsData,
@@ -106,6 +106,21 @@ pub struct AppData {
     pub cache_warning: Option<CacheWarning>,
 }
 
+impl AppData {
+    /// Apply the sort to every daily table: the aggregate one plus the
+    /// per-source and per-project drill-down tables, so the shared sort state
+    /// holds no matter which drill-down is opened next.
+    fn apply_sort(&mut self, key: SortKey, direction: SortDirection) {
+        self.daily_data.apply_sort(key, direction);
+        for daily in self.source_daily_data.values_mut() {
+            daily.apply_sort(key, direction);
+        }
+        for daily in self.project_daily_data.values_mut() {
+            daily.apply_sort(key, direction);
+        }
+    }
+}
+
 /// Update overlay status
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UpdateStatus {
@@ -154,6 +169,9 @@ pub struct App {
     weekly_selected: Option<usize>,
     monthly_selected: Option<usize>,
     daily_view_mode: DailyViewMode,
+    /// Sort state shared by all daily tables (same pattern as daily_view_mode).
+    sort_key: SortKey,
+    sort_direction: SortDirection,
     show_help: bool,
     update_status: UpdateStatus,
     update_selection: u8, // 0 = Update now, 1 = Skip
@@ -199,6 +217,8 @@ impl App {
             weekly_selected: None,
             monthly_selected: None,
             daily_view_mode: config.initial_view_mode,
+            sort_key: SortKey::default(),
+            sort_direction: SortDirection::default(),
             show_help: false,
             update_status: UpdateStatus::Checking,
             update_selection: 0,
@@ -486,32 +506,7 @@ impl App {
                             self.view_mode = ViewMode::SourceDetail {
                                 source: source.source.clone(),
                             };
-                            // Reset scroll/selection for source detail
-                            self.daily_scroll = 0;
-                            self.weekly_scroll = 0;
-                            self.monthly_scroll = 0;
-                            self.daily_selected = None;
-                            self.weekly_selected = None;
-                            self.monthly_selected = None;
-                            // Set scroll to bottom for the source's daily data
-                            if let Some(source_daily) = data.source_daily_data.get(&source.source) {
-                                let vr = self.effective_visible_rows();
-                                self.daily_scroll = DailyView::max_scroll_offset(
-                                    source_daily,
-                                    DailyViewMode::Daily,
-                                    vr,
-                                );
-                                self.weekly_scroll = DailyView::max_scroll_offset(
-                                    source_daily,
-                                    DailyViewMode::Weekly,
-                                    vr,
-                                );
-                                self.monthly_scroll = DailyView::max_scroll_offset(
-                                    source_daily,
-                                    DailyViewMode::Monthly,
-                                    vr,
-                                );
-                            }
+                            self.reset_detail_selection_and_scroll();
                         }
                     }
                 }
@@ -548,25 +543,8 @@ impl App {
         };
         let key = project.key.clone();
 
-        self.view_mode = ViewMode::ProjectDetail {
-            project: key.clone(),
-        };
-        // Reset scroll/selection, then jump to the latest day for this project.
-        self.daily_scroll = 0;
-        self.weekly_scroll = 0;
-        self.monthly_scroll = 0;
-        self.daily_selected = None;
-        self.weekly_selected = None;
-        self.monthly_selected = None;
-        if let Some(project_daily) = data.project_daily_data.get(&key) {
-            let vr = self.effective_visible_rows();
-            self.daily_scroll =
-                DailyView::max_scroll_offset(project_daily, DailyViewMode::Daily, vr);
-            self.weekly_scroll =
-                DailyView::max_scroll_offset(project_daily, DailyViewMode::Weekly, vr);
-            self.monthly_scroll =
-                DailyView::max_scroll_offset(project_daily, DailyViewMode::Monthly, vr);
-        }
+        self.view_mode = ViewMode::ProjectDetail { project: key };
+        self.reset_detail_selection_and_scroll();
     }
 
     /// Handle keyboard events in a drill-down detail view (SourceDetail or
@@ -603,6 +581,15 @@ impl App {
             KeyCode::Char('m') => {
                 self.daily_view_mode = DailyViewMode::Monthly;
             }
+            KeyCode::Char('s') => {
+                self.sort_key = self.sort_key.next();
+                self.sort_direction = self.sort_key.default_direction();
+                self.apply_sort_and_reset();
+            }
+            KeyCode::Char('S') => {
+                self.sort_direction = self.sort_direction.reversed();
+                self.apply_sort_and_reset();
+            }
             KeyCode::Char('?') => {
                 self.show_help = !self.show_help;
             }
@@ -611,6 +598,43 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    /// Re-sort all loaded daily tables to the current sort state, then reset
+    /// selection/scroll as if the view was freshly opened — re-ordering the
+    /// data makes the index-based selection and scroll offsets stale.
+    fn apply_sort_and_reset(&mut self) {
+        if let AppState::Ready { data } = &mut self.state {
+            data.apply_sort(self.sort_key, self.sort_direction);
+        }
+        self.reset_detail_selection_and_scroll();
+    }
+
+    /// Clear row selection and recompute scroll for all three period modes.
+    /// Date-ascending keeps the historical behavior of jumping to the latest
+    /// entries (bottom); any other sort starts at the top of its ranking.
+    fn reset_detail_selection_and_scroll(&mut self) {
+        self.daily_selected = None;
+        self.weekly_selected = None;
+        self.monthly_selected = None;
+
+        let scroll_to_bottom =
+            self.sort_key == SortKey::Date && self.sort_direction == SortDirection::Asc;
+        let (daily, weekly, monthly) = match &self.state {
+            AppState::Ready { data } if scroll_to_bottom => {
+                let vr = self.effective_visible_rows();
+                let daily_data = self.active_daily_data(data);
+                (
+                    DailyView::max_scroll_offset(daily_data, DailyViewMode::Daily, vr),
+                    DailyView::max_scroll_offset(daily_data, DailyViewMode::Weekly, vr),
+                    DailyView::max_scroll_offset(daily_data, DailyViewMode::Monthly, vr),
+                )
+            }
+            _ => (0, 0, 0),
+        };
+        self.daily_scroll = daily;
+        self.weekly_scroll = weekly;
+        self.monthly_scroll = monthly;
     }
 
     /// Handle keyboard events when quit confirm overlay is displayed
@@ -710,15 +734,11 @@ impl App {
     /// Apply data loading result to app state
     fn apply_data_result(&mut self, result: Result<Box<AppData>, String>) {
         match result {
-            Ok(data) => {
-                let vr = self.effective_visible_rows();
-                self.daily_scroll =
-                    DailyView::max_scroll_offset(&data.daily_data, DailyViewMode::Daily, vr);
-                self.weekly_scroll =
-                    DailyView::max_scroll_offset(&data.daily_data, DailyViewMode::Weekly, vr);
-                self.monthly_scroll =
-                    DailyView::max_scroll_offset(&data.daily_data, DailyViewMode::Monthly, vr);
+            Ok(mut data) => {
+                // Fresh loads arrive date-ascending; re-apply the user's sort.
+                data.apply_sort(self.sort_key, self.sort_direction);
                 self.state = AppState::Ready { data };
+                self.reset_detail_selection_and_scroll();
                 // Fresh data invalidates any previously computed audit.
                 self.audit = None;
                 self.audit_error = None;
@@ -1549,6 +1569,211 @@ mod tests {
             KeyModifiers::NONE,
         )));
         assert_eq!(app.daily_view_mode, DailyViewMode::Daily);
+    }
+
+    // ========== Sort toggle tests (issue #206) ==========
+
+    fn jan(day: u32) -> chrono::NaiveDate {
+        chrono::NaiveDate::from_ymd_opt(2025, 1, day).unwrap()
+    }
+
+    /// Daily summary with the given day of Jan 2025, token counts, and cost.
+    fn sort_test_summary(day: u32, input: u64, cache_read: u64, cost: f64) -> DailySummary {
+        DailySummary {
+            date: jan(day),
+            total_input_tokens: input,
+            total_output_tokens: 0,
+            total_cache_read_tokens: cache_read,
+            total_cache_creation_tokens: 0,
+            total_reasoning_tokens: 0,
+            total_cache_creation_5m_tokens: 0,
+            total_cache_creation_1h_tokens: 0,
+            total_web_search_requests: 0,
+            total_cost_usd: cost,
+            models: HashMap::new(),
+            projects: HashMap::new(),
+        }
+    }
+
+    /// Ready app inside the source detail view whose 20-day daily data has
+    /// distinct costs and token totals: Jan 5 is the most expensive and Jan 7
+    /// has the most tokens (cache-heavy), so cost, tokens, and date orders
+    /// all differ from each other.
+    fn make_sort_test_app() -> App {
+        let summaries: Vec<DailySummary> = (1..=20)
+            .map(|d| {
+                let cost = if d == 5 { 99.0 } else { d as f64 * 0.01 };
+                let cache_read = if d == 7 { 1_000_000 } else { 0 };
+                sort_test_summary(d, 100 + d as u64, cache_read, cost)
+            })
+            .collect();
+
+        let mut app = make_ready_app();
+        if let AppState::Ready { data } = &mut app.state {
+            data.daily_data = DailyData::from_daily_summaries(summaries);
+        }
+        app.view_mode = ViewMode::SourceDetail {
+            source: "claude".to_string(),
+        };
+        app
+    }
+
+    fn press(app: &mut App, code: KeyCode) {
+        app.handle_event(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)));
+    }
+
+    /// Date of the first row of the daily table in its current order.
+    fn first_daily_date(app: &App) -> chrono::NaiveDate {
+        match &app.state {
+            AppState::Ready { data } => data.daily_data.daily_summaries[0].date,
+            _ => panic!("expected Ready state"),
+        }
+    }
+
+    #[test]
+    fn test_s_key_cycles_sort_in_detail() {
+        let mut app = make_sort_test_app();
+        assert_eq!(app.sort_key, SortKey::Date);
+        assert_eq!(app.sort_direction, SortDirection::Asc);
+
+        press(&mut app, KeyCode::Char('s'));
+        assert_eq!(app.sort_key, SortKey::Cost);
+        assert_eq!(app.sort_direction, SortDirection::Desc);
+
+        press(&mut app, KeyCode::Char('s'));
+        assert_eq!(app.sort_key, SortKey::Tokens);
+        assert_eq!(app.sort_direction, SortDirection::Desc);
+
+        press(&mut app, KeyCode::Char('s'));
+        assert_eq!(app.sort_key, SortKey::Date);
+        assert_eq!(app.sort_direction, SortDirection::Asc);
+    }
+
+    #[test]
+    fn test_s_key_resorts_data_and_resets_selection_scroll() {
+        let mut app = make_sort_test_app();
+        app.daily_selected = Some(3);
+        app.weekly_selected = Some(1);
+
+        press(&mut app, KeyCode::Char('s')); // cost descending
+
+        assert_eq!(first_daily_date(&app), jan(5)); // most expensive first
+        assert_eq!(app.daily_selected, None);
+        assert_eq!(app.weekly_selected, None);
+        assert_eq!(app.monthly_selected, None);
+        // The ranking starts at the top, not at the latest date.
+        assert_eq!(app.daily_scroll, 0);
+        assert_eq!(app.weekly_scroll, 0);
+        assert_eq!(app.monthly_scroll, 0);
+    }
+
+    #[test]
+    fn test_s_key_tokens_sort_uses_token_totals() {
+        let mut app = make_sort_test_app();
+
+        press(&mut app, KeyCode::Char('s'));
+        press(&mut app, KeyCode::Char('s')); // tokens descending
+
+        assert_eq!(first_daily_date(&app), jan(7)); // cache-heavy day first
+    }
+
+    #[test]
+    fn test_shift_s_reverses_sort_direction() {
+        let mut app = make_sort_test_app();
+
+        press(&mut app, KeyCode::Char('S')); // date descending
+        assert_eq!(app.sort_key, SortKey::Date);
+        assert_eq!(app.sort_direction, SortDirection::Desc);
+        assert_eq!(first_daily_date(&app), jan(20)); // newest first
+        assert_eq!(app.daily_scroll, 0);
+
+        press(&mut app, KeyCode::Char('S')); // back to ascending
+        assert_eq!(app.sort_direction, SortDirection::Asc);
+        assert_eq!(first_daily_date(&app), jan(1));
+    }
+
+    #[test]
+    fn test_sort_keys_ignored_on_dashboard() {
+        let mut app = make_ready_app();
+        assert!(matches!(app.view_mode, ViewMode::Dashboard { .. }));
+
+        press(&mut app, KeyCode::Char('s'));
+        press(&mut app, KeyCode::Char('S'));
+
+        assert_eq!(app.sort_key, SortKey::Date);
+        assert_eq!(app.sort_direction, SortDirection::Asc);
+    }
+
+    #[test]
+    fn test_sort_cycle_back_to_date_restores_bottom_scroll() {
+        let mut app = make_sort_test_app();
+
+        press(&mut app, KeyCode::Char('s'));
+        press(&mut app, KeyCode::Char('s'));
+        press(&mut app, KeyCode::Char('s')); // back to date ascending
+
+        let expected = match &app.state {
+            AppState::Ready { data } => DailyView::max_scroll_offset(
+                &data.daily_data,
+                DailyViewMode::Daily,
+                app.effective_visible_rows(),
+            ),
+            _ => panic!("expected Ready state"),
+        };
+        assert!(expected > 0, "fixture must be taller than the viewport");
+        assert_eq!(app.daily_scroll, expected); // latest days visible again
+    }
+
+    #[test]
+    fn test_sort_persists_across_detail_views() {
+        let mut app = make_sort_test_app();
+        press(&mut app, KeyCode::Char('s')); // cost descending
+
+        press(&mut app, KeyCode::Esc); // back to the dashboard
+        assert!(matches!(app.view_mode, ViewMode::Dashboard { .. }));
+        assert_eq!(app.sort_key, SortKey::Cost);
+
+        press(&mut app, KeyCode::Enter); // re-enter the claude drill-down
+        assert!(matches!(app.view_mode, ViewMode::SourceDetail { .. }));
+        assert_eq!(first_daily_date(&app), jan(5)); // still sorted by cost
+        assert_eq!(app.daily_selected, None);
+        assert_eq!(app.daily_scroll, 0); // entry respects the active sort
+    }
+
+    #[test]
+    fn test_refresh_reapplies_current_sort() {
+        let mut app = make_sort_test_app();
+        press(&mut app, KeyCode::Char('s')); // cost descending
+
+        // A fresh load arrives date-ascending, like real loads do.
+        let mut fresh = marker_app_data(1);
+        fresh.daily_data = DailyData::from_daily_summaries(vec![
+            sort_test_summary(1, 100, 0, 0.10),
+            sort_test_summary(2, 100, 0, 5.00),
+            sort_test_summary(3, 100, 0, 1.00),
+        ]);
+        let (tx, rx) = mpsc::channel();
+        app.data_rx = Some(rx);
+        app.refreshing = true;
+
+        tx.send(Ok(fresh)).unwrap();
+        app.poll_data();
+
+        assert_eq!(first_daily_date(&app), jan(2)); // most expensive first
+        assert_eq!(app.daily_selected, None);
+        assert_eq!(app.daily_scroll, 0);
+    }
+
+    #[test]
+    fn test_enter_opens_breakdown_for_sorted_row() {
+        let mut app = make_sort_test_app();
+        press(&mut app, KeyCode::Char('s')); // cost descending: Jan 1 is cheapest, last
+
+        press(&mut app, KeyCode::Char('j')); // first press selects the bottom row
+        press(&mut app, KeyCode::Enter);
+
+        let breakdown = app.model_breakdown.expect("breakdown popup must open");
+        assert_eq!(breakdown.date_label, "2025-01-01");
     }
 
     // ========== Update overlay tests ==========
