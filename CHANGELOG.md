@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.15.0](https://github.com/mag123c/toktrack/compare/v2.14.1...v2.15.0) (2026-07-08)
+
+
+### Features
+
+* **tui:** add sort key/direction toggle (date/cost/tokens) to daily tables ([#207](https://github.com/mag123c/toktrack/issues/207)) ([558efc3](https://github.com/mag123c/toktrack/commit/558efc30e9cd69e0804feaf0435878853fc2249a))
+
 ## [2.14.1](https://github.com/mag123c/toktrack/compare/v2.14.0...v2.14.1) (2026-07-03)
 
 
