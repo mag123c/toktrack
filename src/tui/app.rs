@@ -610,6 +610,24 @@ impl App {
         self.reset_detail_selection_and_scroll();
     }
 
+    /// Whether the current sort keeps the historical date-ascending order,
+    /// where the most relevant rows (latest days) sit at the bottom. Every
+    /// other sort ranks its most relevant rows at the top.
+    fn sort_anchors_to_latest(&self) -> bool {
+        self.sort_key == SortKey::Date && self.sort_direction == SortDirection::Asc
+    }
+
+    /// Row where a first selection (no row selected yet) lands: the same
+    /// anchor the scroll reset uses, so the cursor appears where the view
+    /// is already looking.
+    fn initial_selection_index(&self, count: usize) -> usize {
+        if self.sort_anchors_to_latest() {
+            count.saturating_sub(1)
+        } else {
+            0
+        }
+    }
+
     /// Clear row selection and recompute scroll for all three period modes.
     /// Date-ascending keeps the historical behavior of jumping to the latest
     /// entries (bottom); any other sort starts at the top of its ranking.
@@ -618,10 +636,8 @@ impl App {
         self.weekly_selected = None;
         self.monthly_selected = None;
 
-        let scroll_to_bottom =
-            self.sort_key == SortKey::Date && self.sort_direction == SortDirection::Asc;
         let (daily, weekly, monthly) = match &self.state {
-            AppState::Ready { data } if scroll_to_bottom => {
+            AppState::Ready { data } if self.sort_anchors_to_latest() => {
                 let vr = self.effective_visible_rows();
                 let daily_data = self.active_daily_data(data);
                 (
@@ -801,7 +817,7 @@ impl App {
 
         let current = self.active_selected();
         let new_idx = match current {
-            None => count.saturating_sub(1),
+            None => self.initial_selection_index(count),
             Some(0) => 0,
             Some(idx) => idx.saturating_sub(1),
         };
@@ -833,7 +849,7 @@ impl App {
 
         let current = self.active_selected();
         let new_idx = match current {
-            None => count.saturating_sub(1),
+            None => self.initial_selection_index(count),
             Some(idx) if idx >= max_idx => max_idx,
             Some(idx) => idx + 1,
         };
@@ -1765,15 +1781,46 @@ mod tests {
     }
 
     #[test]
+    fn test_first_selection_starts_at_bottom_for_date_asc() {
+        let mut app = make_sort_test_app();
+
+        press(&mut app, KeyCode::Char('j')); // default date-ascending order
+
+        assert_eq!(app.daily_selected, Some(19)); // latest day (bottom row)
+    }
+
+    #[test]
+    fn test_first_selection_starts_at_top_when_sorted() {
+        let mut app = make_sort_test_app();
+        press(&mut app, KeyCode::Char('s')); // cost descending, anchored to the top
+
+        press(&mut app, KeyCode::Char('j'));
+
+        assert_eq!(app.daily_selected, Some(0)); // most expensive day (top row)
+        assert_eq!(app.daily_scroll, 0); // view must not jump to the bottom
+    }
+
+    #[test]
+    fn test_first_selection_starts_at_top_for_date_desc() {
+        let mut app = make_sort_test_app();
+        press(&mut app, KeyCode::Char('S')); // newest-first
+
+        press(&mut app, KeyCode::Char('k'));
+
+        assert_eq!(app.daily_selected, Some(0)); // today (top row)
+        assert_eq!(app.daily_scroll, 0);
+    }
+
+    #[test]
     fn test_enter_opens_breakdown_for_sorted_row() {
         let mut app = make_sort_test_app();
-        press(&mut app, KeyCode::Char('s')); // cost descending: Jan 1 is cheapest, last
+        press(&mut app, KeyCode::Char('s')); // cost descending: Jan 5 is priciest, first
 
-        press(&mut app, KeyCode::Char('j')); // first press selects the bottom row
+        press(&mut app, KeyCode::Char('j')); // first press selects the top row
         press(&mut app, KeyCode::Enter);
 
         let breakdown = app.model_breakdown.expect("breakdown popup must open");
-        assert_eq!(breakdown.date_label, "2025-01-01");
+        assert_eq!(breakdown.date_label, "2025-01-05");
     }
 
     // ========== Update overlay tests ==========
