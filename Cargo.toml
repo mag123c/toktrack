@@ -10,7 +10,7 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 # JSON parsing (SIMD optimized)
-simd-json = "0.14"
+simd-json = "0.17"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
