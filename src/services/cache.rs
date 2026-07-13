@@ -65,8 +65,9 @@ fn normalize_model_keys(models: HashMap<String, ModelUsage>) -> HashMap<String, 
 /// Mismatched version → past summaries are kept (history is preserved) but a
 /// warning is surfaced, and every date whose raw files still exist is recomputed
 /// so the new shape is populated. v14 added per-project breakdown
-/// (`DailySummary.projects`).
-const CACHE_VERSION: u32 = 14;
+/// (`DailySummary.projects`). v15 resolves gemini-default / missing-model
+/// records by timestamp so they no longer appear as "unknown".
+const CACHE_VERSION: u32 = 15;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DailySummaryCache {

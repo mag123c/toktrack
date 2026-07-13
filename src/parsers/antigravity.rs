@@ -249,8 +249,38 @@ fn decode_entry(
     }
 
     let message_id = proto::string(usage, 11).map(String::from);
-    let model = proto::string(cmm, 19).map(String::from);
+    let raw_model = proto::string(cmm, 19)
+        .map(String::from)
+        .filter(|s| !s.is_empty());
     let timestamp = decode_timestamp(cmm).unwrap_or(fallback_ts);
+
+    let model = match raw_model {
+        Some(m) => {
+            let lower = m.to_lowercase();
+            if lower == "gemini-default" || lower == "gemini/default" {
+                let ts = timestamp.timestamp();
+                if ts < 1742860800 {
+                    Some("gemini-2.0-flash".to_string())
+                } else if ts < 1779148800 {
+                    Some("gemini-2.5-flash".to_string())
+                } else {
+                    Some("gemini-3.5-flash".to_string())
+                }
+            } else {
+                Some(m)
+            }
+        }
+        None => {
+            let ts = timestamp.timestamp();
+            if ts < 1742860800 {
+                Some("gemini-2.0-flash".to_string())
+            } else if ts < 1779148800 {
+                Some("gemini-2.5-flash".to_string())
+            } else {
+                Some("gemini-3.5-flash".to_string())
+            }
+        }
+    };
 
     Some(UsageEntry {
         timestamp,
@@ -1036,6 +1066,39 @@ mod tests {
         let parser = AntigravityParser::with_data_dir(tmp.path().to_path_buf());
         let entries = parser.parse_all().unwrap();
         assert_eq!(entries[0].project.as_deref(), Some("g:/Scripts/proj"));
+    }
+
+    #[test]
+    fn test_missing_model_maps_by_timestamp() {
+        let test_cases = vec![
+            (1740000000, "gemini-2.0-flash"),
+            (1750000000, "gemini-2.5-flash"),
+            (1782298900, "gemini-3.5-flash"),
+        ];
+
+        for (secs, expected_model) in test_cases {
+            let tmp = TempDir::new().unwrap();
+            let usage = model_usage_stats(10, 5, 0, 0, 0, "r");
+            let start = chat_start(secs as u64, 0);
+            let mut cmm = Vec::new();
+            field_bytes(&mut cmm, 4, &usage);
+            field_bytes(&mut cmm, 9, &start);
+            seed_db(
+                tmp.path(),
+                "antigravity-ide",
+                "t.db",
+                "file:///work/x",
+                "traj-1",
+                &[Row {
+                    idx: 1,
+                    data: gen_blob(&cmm, "uuid-1"),
+                }],
+            );
+            let parser = AntigravityParser::with_data_dir(tmp.path().to_path_buf());
+            let entries = parser.parse_all().unwrap();
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0].model.as_deref(), Some(expected_model));
+        }
     }
 
     #[test]

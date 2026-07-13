@@ -183,6 +183,17 @@ fn format_version(version: &str) -> String {
 /// assert_eq!(normalize_model_name("claude-opus-4.5"), "claude-opus-4-5");
 /// ```
 pub fn normalize_model_name(model: &str) -> String {
+    let lower = model.to_lowercase();
+    if lower == "gemini-default" || lower == "gemini/default" {
+        return "gemini-3-5-flash".to_string();
+    }
+    if lower == "gemini-3-flash-a" || lower == "gemini/gemini-3-flash-a" {
+        return "gemini-3-flash-preview".to_string();
+    }
+    if lower == "gemini-3-pro-a" || lower == "gemini/gemini-3-pro-a" {
+        return "gemini-3-pro-preview".to_string();
+    }
+
     // Step 1: Replace dots with hyphens
     let normalized = model.replace('.', "-");
 
@@ -352,6 +363,19 @@ mod tests {
     }
 
     // ========== No-op cases ==========
+
+    #[test]
+    fn test_normalize_gemini_default() {
+        assert_eq!(normalize_model_name("gemini-default"), "gemini-3-5-flash");
+    }
+
+    #[test]
+    fn test_normalize_gemini_3_flash_a() {
+        assert_eq!(
+            normalize_model_name("gemini-3-flash-a"),
+            "gemini-3-flash-preview"
+        );
+    }
 
     #[test]
     fn test_already_normalized() {
