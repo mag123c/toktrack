@@ -1,0 +1,3 @@
+{"type":"session.start","data":{"sessionId":"session-closed-11111111-2222-3333-4444-555555555555","context":{"cwd":"/work/demo-repo"}},"timestamp":"2026-07-14T04:00:00.000Z"}
+{"type":"assistant.message","data":{"messageId":"msg-a","model":"gpt-5.3-codex","outputTokens":200,"requestId":"req-a"},"timestamp":"2026-07-14T04:05:00.000Z"}
+{"type":"session.shutdown","data":{"currentModel":"gpt-5.3-codex","tokenDetails":{"input":{"tokenCount":92078},"cache_read":{"tokenCount":1043840},"cache_write":{"tokenCount":0},"output":{"tokenCount":9227}}},"timestamp":"2026-07-14T04:56:56.777Z"}

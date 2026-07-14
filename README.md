@@ -14,7 +14,7 @@
 
 **The token & cost tracker that never loses your history.** Most tools re-read your CLI's session files on every run — so when Claude Code deletes them after 30 days, your cost history goes with them. toktrack keeps a **persistent cache**, so your history survives.
 
-Track usage across **all your AI coding CLIs** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, and Antigravity — in one dashboard. Built in Rust, so it stays fast even on huge histories (simd-json + rayon).
+Track usage across **all your AI coding CLIs** — Claude Code, GitHub Copilot CLI, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, and Antigravity — in one dashboard. Built in Rust, so it stays fast even on huge histories (simd-json + rayon).
 
 ![toktrack overview](assets/demo.gif)
 
@@ -23,13 +23,13 @@ Track usage across **all your AI coding CLIs** — Claude Code, Codex CLI, Gemin
 | Problem | Solution |
 |---------|----------|
 | 🗑️ **Claude Code deletes data after 30 days** — your cost history disappears | 💾 **Persistent cache** — history survives even after the CLI deletes its files |
-| 📊 **No unified view** — each CLI keeps its own separate data | 🎯 **One dashboard** — Claude Code, Codex, Gemini, Qwen, OpenCode, PI Agent in one place |
+| 📊 **No unified view** — each CLI keeps its own separate data | 🎯 **One dashboard** — Claude Code, Copilot, Codex, Gemini, Qwen, OpenCode, PI Agent in one place |
 | 🐌 **Re-scanning big histories is slow** | ⚡ **Cached queries in ~0.04s** — instant on every run |
 
 ## Features
 
 - **Data Preservation** — Persistent cache keeps your cost history even after a CLI deletes its own session files
-- **Multi-CLI Support** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, Antigravity in one place
+- **Multi-CLI Support** — Claude Code, GitHub Copilot CLI, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, Antigravity in one place
 - **TUI Dashboard** — 5 tabs (Overview, Stats, Models, Projects, Audit) with daily/weekly/monthly views
 - **Per-Project Breakdown** — the Projects tab shows token & cost usage per project (the session working directory), for CLIs that record one. Drill into any project for its day-by-day, per-model breakdown. Usage from CLIs that don't record a project is grouped under `(no project)`. Project details are cached, so they survive past the CLI's 30-day deletion
 - **CLI Commands** — `daily`, `weekly`, `monthly`, `stats` with JSON output support
@@ -205,6 +205,7 @@ existing snapshot/cache for that remote.
 | CLI | Status | Data Location |
 |-----|--------|---------------|
 | Claude Code | ✅ | `~/.claude/projects/` |
+| GitHub Copilot CLI | ✅ | `~/.copilot/session-state/*/events.jsonl` |
 | Codex CLI | ✅ | `~/.codex/sessions/` |
 | Gemini CLI | ✅ | `~/.gemini/tmp/*/chats/` |
 | Qwen Code | ✅ | `~/.qwen/tmp/*/chats/` |
@@ -212,9 +213,10 @@ existing snapshot/cache for that remote.
 | PI Agent | ✅ | `~/.pi/agent/sessions/` |
 | Antigravity | ✅ | `~/.gemini/antigravity-{ide,cli}/conversations/*.db` |
 
-> Costs from sources that don't record their own price (Gemini, Qwen, Codex, Antigravity, and modern Claude logs)
-> are computed from [LiteLLM](https://github.com/BerriAI/litellm) pricing and shown with a `~` marker
-> (estimated). Pricing works offline via a bundled snapshot when the network is unavailable.
+> Costs from sources that don't record their own price (Gemini, Qwen, Codex, Antigravity, GitHub Copilot, and modern Claude logs)
+> are computed from [LiteLLM](https://github.com/BerriAI/litellm) API list-price estimates and shown with a `~` marker
+> (estimated). For GitHub Copilot CLI, the displayed value is the API-equivalent cost rather than your actual subscription/credit spend.
+> Pricing works offline via a bundled snapshot when the network is unavailable.
 
 ### Environment Variables
 
@@ -223,6 +225,7 @@ Each source's data directory can be overridden (matching the upstream CLI's own 
 | Variable | Source | Default |
 |----------|--------|---------|
 | `CLAUDE_CONFIG_DIR` | Claude Code (root) | `~/.claude` (+ `/projects`) |
+| `COPILOT_HOME` | GitHub Copilot CLI | `~/.copilot` (+ `/session-state`) |
 | `CODEX_HOME` | Codex CLI (root) | `~/.codex` (+ `/sessions`) |
 | `GEMINI_CLI_HOME` | Gemini CLI (home root) | `~` (+ `/.gemini/tmp`) |
 | `QWEN_HOME` | Qwen Code | `~/.qwen` (+ `/tmp`) |
@@ -337,7 +340,7 @@ cargo bench   # Benchmarks
 
 ## Roadmap
 
-Now tracking 7 CLIs (Claude Code, Codex, Gemini, Qwen Code, OpenCode, PI Agent, Antigravity) — see [Supported AI CLIs](#supported-ai-clis). Planned: live/burn-rate monitoring, MCP server / statusline, more CLIs (Goose, Amp, Kimi, Copilot).
+Now tracking 8 CLIs (Claude Code, Copilot, Codex, Gemini, Qwen Code, OpenCode, PI Agent, Antigravity) — see [Supported AI CLIs](#supported-ai-clis). Planned: live/burn-rate monitoring, MCP server / statusline, more CLIs (Goose, Amp, Kimi).
 
 ## Contributing
 

@@ -10,7 +10,7 @@
 
 **비용 기록을 절대 잃지 않는 토큰 & 비용 트래커.** 대부분의 도구는 매 실행마다 CLI 세션 파일을 다시 읽습니다 — 그래서 Claude Code가 30일 후 파일을 삭제하면 비용 기록도 함께 사라집니다. toktrack은 **영구 캐시**를 유지해 기록이 살아남습니다.
 
-**모든 AI 코딩 CLI**의 사용량을 한 곳에서 — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, Antigravity 통합 대시보드. Rust 기반이라 대용량 기록에서도 빠릅니다 (simd-json + rayon).
+**모든 AI 코딩 CLI**의 사용량을 한 곳에서 — Claude Code, GitHub Copilot CLI, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, Antigravity 통합 대시보드. Rust 기반이라 대용량 기록에서도 빠릅니다 (simd-json + rayon).
 
 ![toktrack overview](assets/demo.gif)
 
@@ -19,13 +19,13 @@
 | 문제 | 해결책 |
 |------|--------|
 | 🗑️ **Claude Code 30일 후 데이터 삭제** — 비용 기록 사라짐 | 💾 **영구 캐시** — CLI가 파일을 삭제해도 기록 유지 |
-| 📊 **통합 뷰 없음** — CLI별로 데이터 분산 | 🎯 **원 대시보드** — Claude Code, Codex, Gemini, Qwen, OpenCode, PI Agent 통합 |
+| 📊 **통합 뷰 없음** — CLI별로 데이터 분산 | 🎯 **원 대시보드** — Claude Code, Copilot, Codex, Gemini, Qwen, OpenCode, PI Agent 통합 |
 | 🐌 **대용량 기록 재스캔이 느림** | ⚡ **캐시 시 ~0.04초** — 매 실행 즉시 |
 
 ## 주요 기능
 
 - **데이터 보존** — 영구 캐시로 CLI가 세션 파일을 삭제한 뒤에도 비용 기록 유지
-- **멀티 CLI 지원** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, Antigravity 한 곳에서
+- **멀티 CLI 지원** — Claude Code, GitHub Copilot CLI, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, Antigravity 한 곳에서
 - **TUI 대시보드** — 5개 탭 (Overview, Stats, Models, Projects, Audit), 일별/주별/월별 뷰
 - **프로젝트별 분석** — Projects 탭에서 프로젝트(세션 작업 디렉토리)별 토큰/비용 표시 (기록하는 CLI 한정). 프로젝트를 열면 일별·모델별 분석으로 드릴다운. 프로젝트를 기록하지 않는 CLI는 `(no project)`로 묶임. 프로젝트 상세는 캐시되므로 CLI의 30일 삭제 후에도 유지
 - **CLI 명령어** — `daily`, `weekly`, `monthly`, `stats` (JSON 출력 지원)
@@ -144,6 +144,7 @@ zsh/bash/fish 몇 줄이면 됩니다 — **[셸 통합 가이드](docs/shell-in
 | CLI | 상태 | 데이터 위치 |
 |-----|--------|---------------|
 | Claude Code | ✅ | `~/.claude/projects/` |
+| GitHub Copilot CLI | ✅ | `~/.copilot/session-state/*/events.jsonl` |
 | Codex CLI | ✅ | `~/.codex/sessions/` |
 | Gemini CLI | ✅ | `~/.gemini/tmp/*/chats/` |
 | Qwen Code | ✅ | `~/.qwen/tmp/*/chats/` |
@@ -151,8 +152,9 @@ zsh/bash/fish 몇 줄이면 됩니다 — **[셸 통합 가이드](docs/shell-in
 | PI Agent | ✅ | `~/.pi/agent/sessions/` |
 | Antigravity | ✅ | `~/.gemini/antigravity-{ide,cli}/conversations/*.db` |
 
-> 자체 비용을 기록하지 않는 소스(Gemini, Qwen, Codex, Antigravity, 최신 Claude 로그)의 비용은
-> [LiteLLM](https://github.com/BerriAI/litellm) 가격으로 계산되며 `~` 마커(추정치)로 표시됩니다.
+> 자체 비용을 기록하지 않는 소스(Gemini, Qwen, Codex, Antigravity, GitHub Copilot, 최신 Claude 로그)의 비용은
+> [LiteLLM](https://github.com/BerriAI/litellm) API 단가 추정치로 계산되며 `~` 마커(추정치)로 표시됩니다.
+> GitHub Copilot CLI의 경우, 표시되는 값은 실제 구독료나 크레딧 소모량이 아니라 API 상응 비용입니다.
 > 네트워크가 없을 때도 번들된 스냅샷으로 가격 계산이 동작합니다.
 
 ### 환경 변수
@@ -162,6 +164,7 @@ zsh/bash/fish 몇 줄이면 됩니다 — **[셸 통합 가이드](docs/shell-in
 | 변수 | 소스 | 기본값 |
 |------|------|--------|
 | `CLAUDE_CONFIG_DIR` | Claude Code (루트) | `~/.claude` (+ `/projects`) |
+| `COPILOT_HOME` | GitHub Copilot CLI | `~/.copilot` (+ `/session-state`) |
 | `CODEX_HOME` | Codex CLI (루트) | `~/.codex` (+ `/sessions`) |
 | `GEMINI_CLI_HOME` | Gemini CLI (홈 루트) | `~` (+ `/.gemini/tmp`) |
 | `QWEN_HOME` | Qwen Code | `~/.qwen` (+ `/tmp`) |
@@ -275,7 +278,7 @@ cargo bench   # 벤치마크 실행
 
 ## 로드맵
 
-현재 7개 CLI 지원 (Claude Code, Codex, Gemini, Qwen Code, OpenCode, PI Agent, Antigravity) — [지원하는 AI CLI](#지원하는-ai-cli) 참조. 예정: 실시간/번레이트 모니터링, MCP 서버 / statusline, 추가 CLI(Goose, Amp, Kimi, Copilot).
+현재 8개 CLI 지원 (Claude Code, Copilot, Codex, Gemini, Qwen Code, OpenCode, PI Agent, Antigravity) — [지원하는 AI CLI](#지원하는-ai-cli) 참조. 예정: 실시간/번레이트 모니터링, MCP 서버 / statusline, 추가 CLI(Goose, Amp, Kimi).
 
 ## 기여하기
 

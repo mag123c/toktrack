@@ -1,0 +1,5 @@
+{"type":"comment","text":"Copilot CLI version 1.250.0"}
+{"type":"session.start","data":{"sessionId":"session-real-11111111-2222-3333-4444-555555555555","context":{"cwd":"/work/demo-repo"}},"timestamp":"2026-07-14T04:00:00.000Z"}
+{"type":"assistant.message","data":{"messageId":"msg-a1","model":"gpt-5.3-codex","outputTokens":200,"requestId":"req-a1"},"timestamp":"2026-07-14T04:05:00.000Z"}
+{"type":"assistant.message","data":{"messageId":"msg-a2","model":"claude-3-5-sonnet","outputTokens":100,"requestId":"req-a2"},"timestamp":"2026-07-14T04:10:00.000Z"}
+{"type":"session.shutdown","data":{"currentModel":"gpt-5.3-codex","modelMetrics":{"gpt-5.3-codex":{"requests":{"count":1},"usage":{"inputTokens":1135918,"cacheReadTokens":1043840,"cacheWriteTokens":0,"outputTokens":9227,"reasoningTokens":321}},"claude-3-5-sonnet":{"requests":{"count":1},"usage":{"inputTokens":5000,"cacheReadTokens":1000,"cacheWriteTokens":500,"outputTokens":120,"reasoningTokens":0}}}},"timestamp":"2026-07-14T04:56:56.777Z"}

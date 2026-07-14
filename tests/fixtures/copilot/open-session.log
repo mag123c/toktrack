@@ -1,0 +1,3 @@
+{"type":"session.start","data":{"sessionId":"session-open-11111111-2222-3333-4444-555555555555","context":{"cwd":"/work/demo-repo"}},"timestamp":"2026-07-14T06:23:59.526Z"}
+{"type":"assistant.message","data":{"messageId":"msg-1","model":"gpt-5.3-codex","outputTokens":120,"requestId":"req-1"},"timestamp":"2026-07-14T06:24:10.000Z"}
+{"type":"assistant.message","data":{"messageId":"msg-2","model":"gpt-5.3-codex","outputTokens":80,"requestId":"req-2"},"timestamp":"2026-07-14T06:24:30.000Z"}

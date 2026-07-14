@@ -317,12 +317,11 @@ impl DataLoaderService {
         self.apply_pricing_with_ref(entries, self.pricing.as_ref())
     }
 
-    /// Whether a batch of entries is "estimated" — at least one non-Copilot entry
-    /// had no upstream cost, so its cost will be LiteLLM-calculated.
+    /// Whether a batch of entries is "estimated" — at least one entry had no
+    /// upstream cost, so its cost will be LiteLLM-calculated (this includes
+    /// Copilot, whose subscription cost is estimated from model pricing).
     fn batch_estimated(entries: &[UsageEntry]) -> bool {
-        entries
-            .iter()
-            .any(|e| e.cost_usd.is_none() && !is_copilot_provider(e.provider.as_deref()))
+        entries.iter().any(|e| e.cost_usd.is_none())
     }
 
     /// Override parser-provided source names with the concrete source id.
@@ -345,10 +344,11 @@ impl DataLoaderService {
         entries
             .into_iter()
             .map(|mut entry| {
-                // GitHub Copilot is free, override cost to 0
-                if is_copilot_provider(entry.provider.as_deref()) {
-                    entry.cost_usd = Some(0.0);
-                } else if entry.cost_usd.is_none() {
+                // Copilot usage is metered through a subscription rather than
+                // per-token, but we still surface an *estimated* cost using the
+                // model's LiteLLM pricing so totals are meaningful. Entries that
+                // already carry a cost (e.g. parsed from JSONL) are trusted.
+                if entry.cost_usd.is_none() {
                     if let Some(p) = pricing {
                         entry.cost_usd = Some(p.calculate_cost(&entry));
                     }
@@ -404,52 +404,12 @@ impl Default for DataLoaderService {
     }
 }
 
-/// Check if provider is GitHub Copilot (free service)
-pub fn is_copilot_provider(provider: Option<&str>) -> bool {
-    matches!(
-        provider,
-        Some("github-copilot") | Some("github-copilot-enterprise")
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use crate::parsers::{CodexParser, SourceInstance};
 
     use super::*;
     use std::path::PathBuf;
-
-    // ========== is_copilot_provider tests ==========
-
-    #[test]
-    fn test_is_copilot_provider_github_copilot() {
-        assert!(is_copilot_provider(Some("github-copilot")));
-    }
-
-    #[test]
-    fn test_is_copilot_provider_github_copilot_enterprise() {
-        assert!(is_copilot_provider(Some("github-copilot-enterprise")));
-    }
-
-    #[test]
-    fn test_is_copilot_provider_anthropic() {
-        assert!(!is_copilot_provider(Some("anthropic")));
-    }
-
-    #[test]
-    fn test_is_copilot_provider_openai() {
-        assert!(!is_copilot_provider(Some("openai")));
-    }
-
-    #[test]
-    fn test_is_copilot_provider_none() {
-        assert!(!is_copilot_provider(None));
-    }
-
-    #[test]
-    fn test_is_copilot_provider_empty_string() {
-        assert!(!is_copilot_provider(Some("")));
-    }
 
     // ========== build_source_usage tests ==========
 
@@ -506,11 +466,6 @@ mod tests {
         assert!(!DataLoaderService::batch_estimated(&[mk(Some(0.1), None)]));
         // calculated (no upstream cost) → estimated
         assert!(DataLoaderService::batch_estimated(&[mk(None, None)]));
-        // copilot without cost → free, not an estimate
-        assert!(!DataLoaderService::batch_estimated(&[mk(
-            None,
-            Some("github-copilot")
-        )]));
     }
 
     #[test]
@@ -790,12 +745,24 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_pricing_copilot_zero_cost() {
+    fn test_apply_pricing_copilot_estimated_cost() {
         let service = DataLoaderService::new();
+        // Copilot entries without a parsed cost get an estimated cost from the
+        // model's LiteLLM pricing (e.g. gpt-5.3-codex) instead of being forced to $0.
+        let mut entry = make_entry(None, Some("github-copilot"));
+        entry.model = Some("gpt-5.3-codex".to_string());
+        let result = service.apply_pricing(vec![entry]);
+        assert_ne!(result[0].cost_usd, Some(0.0));
+        assert_ne!(result[0].cost_usd, None);
+    }
+
+    #[test]
+    fn test_apply_pricing_copilot_existing_cost_preserved() {
+        let service = DataLoaderService::new();
+        // A cost parsed from JSONL is trusted as-is.
         let entries = vec![make_entry(Some(0.10), Some("github-copilot"))];
         let result = service.apply_pricing(entries);
-        // Copilot should always be $0 regardless of original cost
-        assert_eq!(result[0].cost_usd, Some(0.0));
+        assert_eq!(result[0].cost_usd, Some(0.10));
     }
 
     // ========== warm path filtering tests ==========

@@ -1,0 +1,5 @@
+{"type":"session.start","data":{"sessionId":"session-resumed","context":{"cwd":"/work/demo-repo"}},"timestamp":"2026-07-14T04:00:00.000Z"}
+{"type":"assistant.message","data":{"messageId":"msg-r1","model":"gpt-5.3-codex","outputTokens":200,"requestId":"req-r1"},"timestamp":"2026-07-14T04:05:00.000Z"}
+{"type":"session.shutdown","data":{"currentModel":"gpt-5.3-codex","modelMetrics":{"gpt-5.3-codex":{"requests":{"count":1},"usage":{"inputTokens":10000,"cacheReadTokens":0,"cacheWriteTokens":0,"outputTokens":200,"reasoningTokens":0}}}},"timestamp":"2026-07-14T04:56:56.777Z"}
+{"type":"session.start","data":{"sessionId":"session-resumed","context":{"cwd":"/work/demo-repo"}},"timestamp":"2026-07-14T06:00:00.000Z"}
+{"type":"assistant.message","data":{"messageId":"msg-r2","model":"gpt-5.3-codex","outputTokens":150,"requestId":"req-r2"},"timestamp":"2026-07-14T06:05:00.000Z"}

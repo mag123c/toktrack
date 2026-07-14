@@ -22,35 +22,41 @@ pub fn display_name(normalized: &str) -> String {
         return String::new();
     }
 
+    // Composite keys are "{model}::{provider}" (see `format_model_key`).
+    // Display only the model part: the provider is surfaced elsewhere (source
+    // column) and would otherwise leak into the friendly name, e.g.
+    // "gpt-5.3-codex::github-copilot" → "GPT-5.3 Codex::github-copilot".
+    let model = normalized.split("::").next().unwrap_or(normalized);
+
     // Claude: claude-{family}-{version} → {Family} {version}
-    if let Some(rest) = normalized.strip_prefix("claude-") {
+    if let Some(rest) = model.strip_prefix("claude-") {
         return parse_claude_name(rest);
     }
 
     // GPT: gpt-{variant}(-{suffix}) → GPT-{variant}( {Suffix})
-    if let Some(rest) = normalized.strip_prefix("gpt-") {
+    if let Some(rest) = model.strip_prefix("gpt-") {
         return parse_gpt_name(rest);
     }
 
     // Gemini: gemini-{version}-{tier} → Gemini {version} {Tier}
-    if let Some(rest) = normalized.strip_prefix("gemini-") {
+    if let Some(rest) = model.strip_prefix("gemini-") {
         return parse_gemini_name(rest);
     }
 
     // Codex: codex-{variant}(-latest) → Codex {Variant}
-    if let Some(rest) = normalized.strip_prefix("codex-") {
+    if let Some(rest) = model.strip_prefix("codex-") {
         return parse_codex_name(rest);
     }
 
     // OpenAI o-series: o{N}, o{N}-mini, o{N}-pro, etc.
-    if let Some(rest) = normalized.strip_prefix('o') {
+    if let Some(rest) = model.strip_prefix('o') {
         if rest.starts_with(|c: char| c.is_ascii_digit()) {
-            return parse_o_series(normalized);
+            return parse_o_series(model);
         }
     }
 
     // Fallback: return as-is
-    normalized.to_string()
+    model.to_string()
 }
 
 /// Parse Claude model name: {family}-{version} → {Family} {version}
@@ -321,6 +327,37 @@ mod tests {
     #[test]
     fn test_display_name_empty() {
         assert_eq!(display_name(""), "");
+    }
+
+    // ========== Composite key (model::provider) handling ==========
+
+    #[test]
+    fn test_display_name_strips_provider_suffix_gpt() {
+        // Copilot emits composite keys like "gpt-5.3-codex::github-copilot".
+        // The provider suffix must not leak into the friendly name.
+        assert_eq!(
+            display_name("gpt-5.3-codex::github-copilot"),
+            "GPT-5.3 Codex"
+        );
+    }
+
+    #[test]
+    fn test_display_name_strips_provider_suffix_claude() {
+        assert_eq!(
+            display_name("claude-haiku-4-5::github-copilot"),
+            "Haiku 4.5"
+        );
+    }
+
+    #[test]
+    fn test_display_name_strips_provider_suffix_unknown() {
+        assert_eq!(display_name("some-model::github-copilot"), "some-model");
+    }
+
+    #[test]
+    fn test_display_name_no_provider_suffix_unchanged() {
+        // Plain keys keep their existing behavior.
+        assert_eq!(display_name("gpt-5-3-codex"), "GPT-5.3 Codex");
     }
 
     // ========== Dot to hyphen conversion ==========

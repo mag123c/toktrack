@@ -3,6 +3,7 @@
 mod antigravity;
 mod claude;
 mod codex;
+mod copilot;
 pub mod discovery;
 mod gemini;
 mod opencode;
@@ -12,6 +13,7 @@ mod qwen;
 pub use antigravity::AntigravityParser;
 pub use claude::ClaudeCodeParser;
 pub use codex::CodexParser;
+pub use copilot::CopilotParser;
 pub use gemini::GeminiParser;
 pub use opencode::OpenCodeParser;
 pub use pi_agent::PiAgentParser;
@@ -153,6 +155,7 @@ impl ParserRegistry {
         Self {
             sources: vec![
                 SourceInstance::local(Box::new(ClaudeCodeParser::new())),
+                SourceInstance::local(Box::new(CopilotParser::new())),
                 SourceInstance::local(Box::new(CodexParser::new())),
                 SourceInstance::local(Box::new(GeminiParser::new())),
                 SourceInstance::local(Box::new(QwenParser::new())),
@@ -207,8 +210,9 @@ mod tests {
     #[test]
     fn test_registry_default_parsers() {
         let registry = ParserRegistry::new();
-        assert_eq!(registry.sources().len(), 7);
+        assert_eq!(registry.sources().len(), 8);
         assert!(registry.get("claude-code").is_some());
+        assert!(registry.get("copilot").is_some());
         assert!(registry.get("codex").is_some());
         assert!(registry.get("gemini").is_some());
         assert!(registry.get("qwen").is_some());
@@ -270,8 +274,8 @@ mod tests {
             ))),
         )]);
 
-        assert_eq!(registry.sources().len(), 8);
-        assert_eq!(registry.sources()[7].id, "codex@testbox");
+        assert_eq!(registry.sources().len(), 9);
+        assert_eq!(registry.sources()[8].id, "codex@testbox");
     }
 
     #[test]

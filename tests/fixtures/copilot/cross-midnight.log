@@ -1,0 +1,4 @@
+{"type":"session.start","data":{"sessionId":"session-midnight","context":{"cwd":"/work/demo-repo"}},"timestamp":"2026-07-14T23:00:00.000Z"}
+{"type":"assistant.message","data":{"messageId":"msg-m1","model":"gpt-5.3-codex","outputTokens":100,"requestId":"req-m1"},"timestamp":"2026-07-14T23:30:00.000Z"}
+{"type":"assistant.message","data":{"messageId":"msg-m2","model":"gpt-5.3-codex","outputTokens":300,"requestId":"req-m2"},"timestamp":"2026-07-15T00:30:00.000Z"}
+{"type":"session.shutdown","data":{"currentModel":"gpt-5.3-codex","modelMetrics":{"gpt-5.3-codex":{"requests":{"count":2},"usage":{"inputTokens":8000,"cacheReadTokens":4000,"cacheWriteTokens":0,"outputTokens":400,"reasoningTokens":0}}}},"timestamp":"2026-07-15T01:00:00.000Z"}
