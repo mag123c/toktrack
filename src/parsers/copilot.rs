@@ -319,6 +319,10 @@ impl CLIParser for CopilotParser {
         "**/events.jsonl"
     }
 
+    fn retroactive_reconciliation(&self) -> bool {
+        true
+    }
+
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>> {
         let file = File::open(path).map_err(ToktrackError::Io)?;
         let reader = BufReader::new(file);
@@ -512,6 +516,13 @@ impl CLIParser for CopilotParser {
                     // No matching messages or sum of output tokens is 0.
                     // Emit a single entry at session_start_time.
                     let entry_ts = session_start_time.unwrap_or(shutdown_ts);
+                    // The model must be part of the dedup key: entries share the
+                    // session id as message_id, so a multi-model shutdown reaching
+                    // this branch would otherwise collide and drop all but one.
+                    let request_id = Some(format!(
+                        "session.shutdown::{}",
+                        m_model.as_deref().unwrap_or("unknown")
+                    ));
                     entries.push(UsageEntry {
                         timestamp: entry_ts,
                         model: m_model,
@@ -527,7 +538,7 @@ impl CLIParser for CopilotParser {
                         reported_total_tokens: None,
                         cost_usd: None,
                         message_id: current_session_id.clone(),
-                        request_id: Some("session.shutdown".into()),
+                        request_id,
                         source: Some("copilot".into()),
                         provider: Some("github-copilot".into()),
                         project: current_project.clone(),
@@ -745,5 +756,51 @@ mod tests {
         let parser = CopilotParser::new();
         let result = parser.parse_file(Path::new("/nonexistent/file.jsonl"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_multimodel_no_messages_emits_distinct_dedup_hashes() {
+        // A multi-model shutdown with no matching assistant messages emits one
+        // entry per model via the else-branch. `parse_and_dedup` keys on
+        // `message_id:request_id`, so the entries must hash distinctly or a
+        // model's usage is silently dropped.
+        let parser = CopilotParser::with_data_dir(PathBuf::from("tests/fixtures/copilot"));
+        let entries = parser
+            .parse_file(&fixture_path("multimodel-no-messages.log"))
+            .unwrap();
+
+        assert_eq!(entries.len(), 2);
+
+        let mut seen = std::collections::HashSet::new();
+        for e in &entries {
+            assert!(
+                seen.insert(e.dedup_hash()),
+                "colliding dedup_hash drops a model: {:?}",
+                e.dedup_hash()
+            );
+        }
+
+        let gpt = entries
+            .iter()
+            .find(|e| e.model.as_deref() == Some("gpt-5.3-codex"))
+            .unwrap();
+        assert_eq!(gpt.input_tokens, 10000);
+        assert_eq!(gpt.output_tokens, 500);
+
+        let claude = entries
+            .iter()
+            .find(|e| e.model.as_deref() == Some("claude-3-5-sonnet"))
+            .unwrap();
+        assert_eq!(claude.input_tokens, 8000);
+        assert_eq!(claude.output_tokens, 300);
+    }
+
+    #[test]
+    fn test_copilot_reconciles_retroactively() {
+        // Copilot re-dates cumulative shutdown totals onto earlier messages, so
+        // the warm path must treat its recent files as able to touch old days.
+        assert!(CopilotParser::new().retroactive_reconciliation());
+        // Sources whose entries are final when written must not (perf).
+        assert!(!crate::parsers::ClaudeCodeParser::new().retroactive_reconciliation());
     }
 }

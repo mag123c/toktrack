@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::time::SystemTime;
 
-use chrono::{Local, TimeZone};
+use chrono::{Local, NaiveDate, TimeZone};
 
 use crate::parsers::{ParserRegistry, SourceInstance};
 use crate::services::{Aggregator, DailySummaryCacheService, PricingService};
@@ -23,6 +23,19 @@ fn has_date_gap(latest_cached: Option<chrono::NaiveDate>, yesterday: chrono::Nai
         Some(latest) => latest < yesterday - chrono::Duration::days(1),
         None => false, // No cache → no gap to detect; cold path handles this
     }
+}
+
+/// Warm-path guard: whether a recent-parse result must fall back to a full
+/// re-parse instead of the `>= yesterday` filter.
+///
+/// True only when the source reconciles retroactively (see
+/// `CLIParser::retroactive_reconciliation`) and the recent parse produced an
+/// entry dated before `yesterday`. Keeping such an entry and recomputing its day
+/// from the recent files alone would drop that day's entries in older,
+/// non-recent files; dropping it leaves the day's cache stale. A full re-parse
+/// recomputes the day from the complete file set instead.
+fn needs_full_reparse(retroactive: bool, entries: &[UsageEntry], yesterday: NaiveDate) -> bool {
+    retroactive && entries.iter().any(|e| e.local_date() < yesterday)
 }
 
 /// Compute the warm-path cutoff: yesterday 00:00:00 local time.
@@ -158,10 +171,28 @@ impl DataLoaderService {
                     }
                 } else {
                     match parser.parse_recent_files(since) {
-                        Ok(e) => e
-                            .into_iter()
-                            .filter(|entry| entry.local_date() >= yesterday)
-                            .collect(),
+                        Ok(e) => {
+                            if needs_full_reparse(
+                                parser.retroactive_reconciliation(),
+                                &e,
+                                yesterday,
+                            ) {
+                                match parser.parse_all() {
+                                    Ok(all) => all,
+                                    Err(err) => {
+                                        eprintln!(
+                                            "[toktrack] Warning: {} failed: {}",
+                                            source.label, err
+                                        );
+                                        continue;
+                                    }
+                                }
+                            } else {
+                                e.into_iter()
+                                    .filter(|entry| entry.local_date() >= yesterday)
+                                    .collect()
+                            }
+                        }
                         Err(e) => {
                             eprintln!("[toktrack] Warning: {} failed: {}", source.label, e);
                             continue;
@@ -850,6 +881,54 @@ mod tests {
         assert_eq!(filtered[1].local_date(), today);
         // The old entry with massive tokens should be gone
         assert!(filtered.iter().all(|e| e.input_tokens < 50_000_000));
+    }
+
+    #[test]
+    fn test_needs_full_reparse_only_retroactive_source_with_old_entry() {
+        let today = Local::now().date_naive();
+        let yesterday = today - chrono::Duration::days(1);
+        let two_days_ago = today - chrono::Duration::days(2);
+
+        let dated = |d: NaiveDate| UsageEntry {
+            timestamp: d.and_hms_opt(12, 0, 0).unwrap().and_utc(),
+            model: Some("gpt-5.3-codex".to_string()),
+            input_tokens: 1,
+            output_tokens: 1,
+            cache_read_tokens: 0,
+            cache_creation_tokens: 0,
+            reasoning_tokens: 0,
+            cache_creation_5m_tokens: 0,
+            cache_creation_1h_tokens: 0,
+            web_search_requests: 0,
+            web_fetch_requests: 0,
+            reported_total_tokens: None,
+            cost_usd: None,
+            message_id: None,
+            request_id: None,
+            source: Some("copilot".to_string()),
+            provider: Some("github-copilot".to_string()),
+            project: None,
+        };
+
+        let old = dated(two_days_ago);
+        let recent = dated(yesterday);
+
+        // Non-retroactive source never full-reparses: a long Claude/Codex session
+        // whose old-dated entries are already final must stay on the fast path.
+        assert!(!needs_full_reparse(
+            false,
+            std::slice::from_ref(&old),
+            yesterday
+        ));
+        // Retroactive source with only in-window entries: normal filter path.
+        assert!(!needs_full_reparse(
+            true,
+            std::slice::from_ref(&recent),
+            yesterday
+        ));
+        // Retroactive source with a retroactively-dated entry: full re-parse so
+        // the old day is recomputed from the complete file set, not clobbered.
+        assert!(needs_full_reparse(true, &[old, recent], yesterday));
     }
 
     // ========== gap detection tests ==========

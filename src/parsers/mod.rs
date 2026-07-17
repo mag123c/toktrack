@@ -40,6 +40,17 @@ pub trait CLIParser: Send + Sync {
     /// Parse a single file and return usage entries
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>>;
 
+    /// Whether this source rewrites earlier-dated entries when later data
+    /// arrives — Copilot reconciles a session's cumulative shutdown totals back
+    /// onto earlier message timestamps. The warm path relies on this: a recent
+    /// file from such a source may carry entries for days before the warm
+    /// window, and those days must be recomputed from the complete file set
+    /// rather than filtered out (dropping them) or recomputed from recent files
+    /// alone (losing that day's other, non-recent sessions).
+    fn retroactive_reconciliation(&self) -> bool {
+        false
+    }
+
     /// Parse all files in parallel using rayon, with deduplication
     fn parse_all(&self) -> Result<Vec<UsageEntry>> {
         let files = self.collect_files();
