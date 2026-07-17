@@ -5,7 +5,6 @@ use std::hint::black_box;
 use std::path::{Path, PathBuf};
 use toktrack::parsers::{CLIParser, ClaudeCodeParser};
 
-/// Find all JSONL files in a directory recursively
 fn find_all_jsonl(dir: &Path) -> Vec<PathBuf> {
     let pattern = dir.join("**/*.jsonl");
     let pattern_str = pattern.to_string_lossy();
@@ -20,14 +19,12 @@ fn find_all_jsonl(dir: &Path) -> Vec<PathBuf> {
         .unwrap_or_default()
 }
 
-/// Find the largest JSONL file in a directory recursively
 fn find_largest_jsonl(dir: &Path) -> Option<PathBuf> {
     find_all_jsonl(dir)
         .into_iter()
         .max_by_key(|path| std::fs::metadata(path).map(|m| m.len()).unwrap_or(0))
 }
 
-/// Get test file: prefer real Claude data, fallback to fixture
 fn get_bench_file(parser: &ClaudeCodeParser) -> PathBuf {
     let real_data_dir = parser.data_dir();
 
@@ -126,7 +123,7 @@ fn bench_parse_all_files(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("parser");
     group.throughput(Throughput::Bytes(total_size));
-    group.sample_size(10); // 3GB는 시간이 오래 걸리므로 샘플 수 줄임
+    group.sample_size(10); // Keep the 3 GiB benchmark practical.
 
     group.bench_function("parse_all_files_sequential", |b| {
         b.iter(|| {

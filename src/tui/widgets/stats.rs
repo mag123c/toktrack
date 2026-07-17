@@ -54,7 +54,6 @@ impl<'a> StatsView<'a> {
 
 impl Widget for StatsView<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        // Apply max width constraint and center the content
         let content_width = area.width.min(MAX_CONTENT_WIDTH);
         let x_offset = (area.width.saturating_sub(content_width)) / 2;
         let centered_area = Rect {
@@ -64,7 +63,6 @@ impl Widget for StatsView<'_> {
             height: area.height,
         };
 
-        // Calculate grid layout
         let cols = cards_per_row(centered_area.width);
         let rows = 6_usize.div_ceil(cols); // 6 cards total
         let grid_height = (rows as u16) * (CARD_HEIGHT + 1); // +1 for spacing
@@ -81,22 +79,16 @@ impl Widget for StatsView<'_> {
         ])
         .split(centered_area);
 
-        // Render tabs
         self.render_tabs(chunks[0], buf);
 
-        // Render separator
         self.render_separator(chunks[1], buf);
 
-        // Render title
         self.render_title(chunks[2], buf);
 
-        // Render card grid
         self.render_card_grid(chunks[4], buf, cols);
 
-        // Render separator
         self.render_separator(chunks[5], buf);
 
-        // Render keybindings
         self.render_keybindings(chunks[6], buf);
     }
 }
@@ -131,7 +123,6 @@ impl StatsView<'_> {
     fn render_card_grid(&self, area: Rect, buf: &mut Buffer, cols: usize) {
         let cards = self.build_cards();
 
-        // Calculate grid positioning
         let total_cards_width = (cols as u16) * CARD_WIDTH + ((cols - 1) as u16) * 2; // 2 = spacing
         let start_x = area.x + (area.width.saturating_sub(total_cards_width)) / 2;
 
@@ -142,7 +133,6 @@ impl StatsView<'_> {
             let card_x = start_x + (col as u16) * (CARD_WIDTH + 2);
             let card_y = area.y + (row as u16) * (CARD_HEIGHT + 1);
 
-            // Skip if card is outside area
             if card_y + CARD_HEIGHT > area.y + area.height {
                 continue;
             }
@@ -206,13 +196,11 @@ impl StatsView<'_> {
     }
 
     fn render_card(&self, area: Rect, buf: &mut Buffer, card: &StatCard) {
-        // Draw card border with card-specific color
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(card.border_color));
         block.render(area, buf);
 
-        // Render title (centered, line 1 inside border) with matching border color
         if area.height > 2 {
             let title_y = area.y + 1;
             let title = &card.title;
@@ -225,7 +213,6 @@ impl StatsView<'_> {
             );
         }
 
-        // Render value (centered, line 2-3 inside border)
         if area.height > 3 {
             let value_y = area.y + 3;
             let value = &card.value;
@@ -289,21 +276,18 @@ mod tests {
 
     #[test]
     fn test_cards_per_row_narrow() {
-        // Width 60 should fit 1-2 cards
         let cols = cards_per_row(60);
         assert!((1..=2).contains(&cols));
     }
 
     #[test]
     fn test_cards_per_row_wide() {
-        // Width 170 should fit max 3 cards (FIXED_COLS)
         let cols = cards_per_row(170);
         assert_eq!(cols, 3);
     }
 
     #[test]
     fn test_cards_per_row_minimum() {
-        // Even with very narrow width, should return at least 1
         assert_eq!(cards_per_row(20), 1);
         assert_eq!(cards_per_row(10), 1);
     }

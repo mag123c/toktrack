@@ -122,7 +122,7 @@ impl QwenParser {
             let mut bytes = line.into_bytes();
             let parsed: QwenLine = match simd_json::from_slice(&mut bytes) {
                 Ok(v) => v,
-                Err(_) => continue, // malformed line: skip
+                Err(_) => continue,
             };
 
             // Only `assistant` lines carry usage. The same counts also appear on
@@ -276,20 +276,17 @@ mod tests {
     fn test_parser_name_and_data_dir_with_env() {
         let saved = std::env::var("QWEN_HOME").ok();
 
-        // Default — without QWEN_HOME, data dir resolves under `~/.qwen`.
         std::env::remove_var("QWEN_HOME");
         let parser = QwenParser::new();
         assert_eq!(parser.name(), "qwen");
         assert!(parser.data_dir().ends_with(".qwen"));
 
-        // Override — QWEN_HOME points the data dir elsewhere.
         std::env::set_var("QWEN_HOME", "/tmp/toktrack-qwen-env-test");
         assert_eq!(
             QwenParser::new().data_dir(),
             Path::new("/tmp/toktrack-qwen-env-test")
         );
 
-        // Restore prior env state.
         match saved {
             Some(v) => std::env::set_var("QWEN_HOME", v),
             None => std::env::remove_var("QWEN_HOME"),
@@ -298,8 +295,6 @@ mod tests {
 
     #[test]
     fn test_new_format_counts_only_assistant_usage_lines() {
-        // user / system / ui_telemetry / tool_result / malformed / assistant-without-
-        // usage are all skipped; only a1 and a2 (assistant + usageMetadata) survive.
         let parser = QwenParser::with_data_dir(root());
         let entries = parser.parse_file(&new_session()).unwrap();
         let ids: Vec<_> = entries
@@ -316,19 +311,15 @@ mod tests {
 
         let a1 = &entries[0];
         assert_eq!(a1.model, Some("glm-5.2".to_string()));
-        // prompt(1000) includes cached(200) → billable non-cached input = 800
         assert_eq!(a1.input_tokens, 800);
-        // candidates(500) includes thoughts(100) → output = 400, reasoning = 100
         assert_eq!(a1.output_tokens, 400);
         assert_eq!(a1.cache_read_tokens, 200);
         assert_eq!(a1.cache_creation_tokens, 0);
         assert_eq!(a1.reasoning_tokens, 100);
         assert_eq!(a1.reported_total_tokens, Some(1500));
-        // total_tokens() must reconcile with the upstream-reported total.
         assert_eq!(a1.total_tokens(), 1500);
         assert_eq!(a1.source, Some("qwen".into()));
         assert_eq!(a1.request_id, Some("S".to_string()));
-        // cwd on the line is the project identifier (no sidecar needed)
         assert_eq!(a1.project.as_deref(), Some("G:\\proj"));
 
         let a2 = &entries[1];
@@ -352,8 +343,6 @@ mod tests {
     fn test_collect_files_finds_new_and_legacy() {
         let parser = QwenParser::with_data_dir(root());
         let files = parser.collect_files();
-        // projects/g--scripts-test-qwen/chats/sess-new.jsonl  (new)
-        // tmp/hash1/chats/session-2026-06-01....jsonl          (legacy)
         assert_eq!(files.len(), 2, "got files: {:?}", files);
         assert!(files
             .iter()
@@ -386,7 +375,6 @@ mod tests {
     fn test_parse_all_aggregates_new_and_legacy() {
         let parser = QwenParser::with_data_dir(root());
         let entries = parser.parse_all().unwrap();
-        // new: a1, a2 (2) + legacy: lq2 (1) = 3, all tagged "qwen"
         assert_eq!(entries.len(), 3);
         assert!(entries.iter().all(|e| e.source == Some("qwen".into())));
     }
@@ -403,11 +391,9 @@ mod tests {
         assert_eq!(entries.len(), 1);
         let e = &entries[0];
         assert_eq!(e.model, Some("qwen3-coder".to_string()));
-        // legacy: input 200 incl. cached 40 → 160 ; total reconciles to 300
         assert_eq!(e.input_tokens, 160);
         assert_eq!(e.cache_read_tokens, 40);
         assert_eq!(e.reported_total_tokens, Some(300));
-        // project comes from the `.project_root` sidecar in legacy layout
         assert_eq!(e.project.as_deref(), Some("/work/legacy-demo"));
     }
 }

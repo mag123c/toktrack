@@ -220,7 +220,6 @@ impl PricingService {
                 custom,
             }),
             Ok(cache) => {
-                // Expired → try refresh, fallback to expired cache
                 if let Ok(fresh) = Self::fetch_pricing() {
                     let _ = Self::save_cache(&cache_path, &fresh);
                     Some(Self {
@@ -237,7 +236,6 @@ impl PricingService {
                 }
             }
             Err(_) => {
-                // Corrupt or unreadable → try fresh fetch, else vendored snapshot.
                 if let Ok(fresh) = Self::fetch_pricing() {
                     let _ = Self::save_cache(&cache_path, &fresh);
                     Some(Self {
@@ -361,17 +359,14 @@ impl PricingService {
 
     /// Load cache from disk or fetch fresh data
     fn load_or_fetch_cache(cache_path: &PathBuf) -> Result<PricingCache> {
-        // Try loading existing cache
         if let Ok(cache) = Self::load_cache(cache_path) {
             if !cache.is_expired() {
                 return Ok(cache);
             }
-            // Cache expired, try to refresh
             if let Ok(fresh_cache) = Self::fetch_pricing() {
                 let _ = Self::save_cache(cache_path, &fresh_cache);
                 return Ok(fresh_cache);
             }
-            // Fetch failed, use expired cache
             return Ok(cache);
         }
 
@@ -451,7 +446,6 @@ impl PricingService {
             None => return 0.0,
         };
 
-        // Custom pricing takes precedence over LiteLLM
         let custom = self.get_custom_pricing(model);
         let litellm = self.get_pricing(model);
 
@@ -531,7 +525,6 @@ impl PricingService {
             .unwrap_or(0.0);
         let reasoning = entry.reasoning_tokens as f64 * reasoning_rate;
 
-        // Web search cost
         let web_search_cost = self.get_web_search_cost(entry, pricing);
         let web_fetch_cost = self.get_web_fetch_cost(entry);
 
@@ -575,12 +568,10 @@ impl PricingService {
 
     /// Get pricing for a model (exact → normalized → fuzzy substring)
     pub fn get_pricing(&self, model: &str) -> Option<&ModelPricing> {
-        // 1. Exact match
         if let Some(pricing) = self.cache.models.get(model) {
             return Some(pricing);
         }
 
-        // 2. Normalized match
         let normalized = super::normalize_model_name(model);
         if normalized != model {
             if let Some(pricing) = self.cache.models.get(&normalized) {
@@ -588,7 +579,6 @@ impl PricingService {
             }
         }
 
-        // 3. Substring fuzzy match (longest key wins)
         let lower = normalized.to_lowercase();
         let mut best: Option<(&str, &ModelPricing)> = None;
         for (key, pricing) in &self.cache.models {
@@ -690,7 +680,6 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let cache_path = temp_dir.path().join("pricing.json");
 
-        // Create mock pricing data
         let mut models = HashMap::new();
         models.insert(
             "claude-sonnet-4".to_string(),
@@ -712,7 +701,6 @@ mod tests {
                 ..Default::default()
             },
         );
-        // Model with tiered pricing (above 200k tokens)
         models.insert(
             "claude-opus-4-6".to_string(),
             ModelPricing {
@@ -738,7 +726,6 @@ mod tests {
             models,
         };
 
-        // Save mock cache
         let content = serde_json::to_string_pretty(&cache).unwrap();
         fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
         fs::write(&cache_path, content).unwrap();
@@ -746,8 +733,6 @@ mod tests {
         let service = PricingService::with_cache_path(cache_path).unwrap();
         (service, temp_dir)
     }
-
-    // ========== get_or_calculate_cost tests (auto mode) ==========
 
     #[test]
     fn test_returns_existing_cost_usd_when_present() {
@@ -774,8 +759,6 @@ mod tests {
             cost
         );
     }
-
-    // ========== calculate_cost tests ==========
 
     #[test]
     fn test_calculate_cost_basic() {
@@ -858,8 +841,6 @@ mod tests {
         );
     }
 
-    // ========== get_pricing tests ==========
-
     #[test]
     fn test_get_pricing_exact_match() {
         let (service, _temp) = create_test_service();
@@ -883,7 +864,6 @@ mod tests {
     #[test]
     fn test_get_pricing_normalized_date_suffix() {
         let (service, _temp) = create_test_service();
-        // claude-sonnet-4 is in cache, try with date suffix
         let pricing = service.get_pricing("claude-sonnet-4-20250514");
 
         assert!(pricing.is_some());
@@ -894,13 +874,10 @@ mod tests {
     #[test]
     fn test_get_pricing_normalized_dot_to_hyphen() {
         let (service, _temp) = create_test_service();
-        // claude-opus-4 is in cache, try with dot version
         let pricing = service.get_pricing("claude-opus-4");
 
         assert!(pricing.is_some());
     }
-
-    // ========== fuzzy pricing tests ==========
 
     fn create_fuzzy_test_service() -> (PricingService, TempDir) {
         let temp_dir = TempDir::new().unwrap();
@@ -973,7 +950,6 @@ mod tests {
     #[test]
     fn test_fuzzy_pricing_prefers_exact() {
         let (service, _temp) = create_fuzzy_test_service();
-        // gpt-5-2-codex is an exact match in the cache
         let pricing = service.get_pricing("gpt-5-2-codex");
         assert!(pricing.is_some());
         let p = pricing.unwrap();
@@ -991,8 +967,6 @@ mod tests {
         // Should be "gpt-5" pricing ($0.00001), not "azure/gpt-5" ($0.00002)
         assert!((p.input_cost_per_token.unwrap() - 0.00001).abs() < 1e-10);
     }
-
-    // ========== PricingCache tests ==========
 
     #[test]
     fn test_cache_is_expired_after_1h() {
@@ -1046,10 +1020,8 @@ mod tests {
             models,
         };
 
-        // Save
         PricingService::save_cache(&cache_path, &cache).unwrap();
 
-        // Load
         let loaded = PricingService::load_cache(&cache_path).unwrap();
 
         assert_eq!(loaded.fetched_at, 12345);
@@ -1060,7 +1032,6 @@ mod tests {
     fn test_model_count() {
         let (service, _temp) = create_test_service();
 
-        // We added 3 models in create_test_service
         assert_eq!(service.model_count(), 3);
     }
 
@@ -1087,8 +1058,6 @@ mod tests {
         );
     }
 
-    // ========== from_cache_only tests ==========
-
     #[test]
     fn test_from_cache_only_with_valid_cache() {
         let (_, temp_dir) = create_test_service();
@@ -1113,7 +1082,6 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let cache_path = temp_dir.path().join("pricing.json");
 
-        // Create expired cache (fetched_at = 0 → long expired)
         let mut models = HashMap::new();
         models.insert("test-model".to_string(), ModelPricing::default());
         let cache = PricingCache {
@@ -1133,15 +1101,11 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let cache_path = temp_dir.path().join("pricing.json");
 
-        // Write corrupt JSON
         fs::write(&cache_path, "not valid json{{{").unwrap();
 
-        // Corrupt cache with no network → should return None
         let service = PricingService::from_cache_only_with_path(&cache_path);
         assert!(service.is_none());
     }
-
-    // ========== tiered_cost unit tests ==========
 
     #[test]
     fn test_tiered_cost_below_threshold() {
@@ -1216,16 +1180,12 @@ mod tests {
 
     #[test]
     fn test_tier_resolver_precedence() {
-        // 128k present → wins
         assert_eq!(
             tier(Some(0.1), Some(0.2), Some(0.3), Some(0.4)),
             Some((128_000, 0.1))
         );
-        // only 272k present
         assert_eq!(tier(None, None, None, Some(0.4)), Some((272_000, 0.4)));
-        // only 200k present
         assert_eq!(tier(None, Some(0.2), None, None), Some((200_000, 0.2)));
-        // none → flat
         assert_eq!(tier(None, None, None, None), None);
     }
 
@@ -1280,8 +1240,6 @@ mod tests {
             cost
         );
     }
-
-    // ========== calculate_cost tiered integration tests ==========
 
     #[test]
     fn test_calculate_cost_tiered_model_below_threshold() {
@@ -1352,8 +1310,6 @@ mod tests {
             cost
         );
     }
-
-    // ========== Custom pricing tests ==========
 
     #[test]
     fn test_custom_pricing_overrides_litellm() {
@@ -1426,7 +1382,6 @@ mod tests {
             .unwrap()
             .with_custom_pricing(Some(custom));
 
-        // claude-sonnet-4 not in custom → should use LiteLLM pricing
         let entry = make_entry(Some("claude-sonnet-4"), 1_000_000, 0, 0, 0, None);
         let cost = service.calculate_cost(&entry);
 
@@ -1516,11 +1471,9 @@ mod tests {
             .unwrap()
             .with_custom_pricing(Some(custom));
 
-        // Entry with flat cache_creation but NO TTL breakdown (historical)
         let entry = make_entry(Some("claude-sonnet-4"), 0, 0, 0, 100_000, None);
         let cost = service.calculate_cost(&entry);
 
-        // Should use flat rate: 100k * $3.75/1M = $0.375
         let expected = 100_000.0 * (3.75 / 1_000_000.0);
         assert!(
             (cost - expected).abs() < 1e-6,
@@ -1571,7 +1524,6 @@ mod tests {
 
         let service = PricingService::from_cache_only_with_path(&cache_path).unwrap();
 
-        // No custom pricing loaded → should use LiteLLM as before
         let entry = make_entry(Some("claude-sonnet-4"), 1_000, 500, 200, 100, None);
         let cost = service.calculate_cost(&entry);
 
@@ -1623,8 +1575,6 @@ web_search_per_request = 0.01
         assert_eq!(global.web_search_per_request, Some(0.01));
     }
 
-    // ========== TOKTRACK_PRICING_FILE env var tests ==========
-
     #[test]
     fn test_load_custom_pricing_from_env_var() {
         let temp_dir = TempDir::new().unwrap();
@@ -1639,7 +1589,6 @@ output = 50.0
         )
         .unwrap();
 
-        // Set env var and load
         std::env::set_var("TOKTRACK_PRICING_FILE", toml_path.to_str().unwrap());
         let config = PricingService::load_custom_pricing();
         std::env::remove_var("TOKTRACK_PRICING_FILE");
@@ -1657,12 +1606,8 @@ output = 50.0
         let config = PricingService::load_custom_pricing();
         std::env::remove_var("TOKTRACK_PRICING_FILE");
 
-        // Should fall back to default path (which also likely doesn't exist in test)
-        // The key is it doesn't panic
         let _ = config;
     }
-
-    // ========== Custom tiered pricing tests ==========
 
     #[test]
     fn test_custom_tiered_pricing_above_200k() {
@@ -1759,7 +1704,6 @@ output = 50.0
         let cache_path = temp_dir.path().join("pricing.json");
         create_mock_cache(&cache_path);
 
-        // No _above_200k fields → should use flat rate for all tokens
         let custom = CustomPricingConfig {
             models: Some(HashMap::from([(
                 "flat-only".to_string(),
@@ -1823,8 +1767,6 @@ web_search_per_request = 0.01
         assert_eq!(sonnet.cache_creation_above_200k, Some(7.50));
     }
 
-    // ========== #1 web search: search_context_cost_per_query ==========
-
     /// Write a pricing cache file with a raw JSON `models` object (so tests can
     /// exercise LiteLLM field names without going through the typed struct).
     fn write_cache_json(cache_path: &std::path::Path, models_json: &str) {
@@ -1869,7 +1811,6 @@ web_search_per_request = 0.01
     fn test_web_search_cost_medium_falls_back_to_low_then_high() {
         let temp_dir = TempDir::new().unwrap();
         let cache_path = temp_dir.path().join("pricing.json");
-        // medium absent → fall back to low
         write_cache_json(
             &cache_path,
             r#"{
@@ -1925,7 +1866,6 @@ web_search_per_request = 0.01
         let cache_path = temp_dir.path().join("pricing.json");
         create_mock_cache(&cache_path);
 
-        // No override → web fetch contributes nothing (no LiteLLM source).
         let service = PricingService::from_cache_only_with_path(&cache_path).unwrap();
         let mut entry = make_entry(Some("claude-sonnet-4"), 0, 0, 0, 0, None);
         entry.web_fetch_requests = 4;
@@ -1934,7 +1874,6 @@ web_search_per_request = 0.01
             "web fetch must be free without a custom override"
         );
 
-        // Custom global override → priced per request.
         let custom = CustomPricingConfig {
             models: None,
             global: Some(GlobalPricing {
@@ -1970,13 +1909,10 @@ web_search_per_request = 0.01
         );
     }
 
-    // ========== #2 reasoning/thinking token cost ==========
-
     #[test]
     fn test_reasoning_tokens_priced_at_output_rate_by_default() {
         let temp_dir = TempDir::new().unwrap();
         let cache_path = temp_dir.path().join("pricing.json");
-        // No reasoning-specific rate → thinking billed at output rate.
         write_cache_json(
             &cache_path,
             r#"{
@@ -2035,7 +1971,6 @@ web_search_per_request = 0.01
             r#"{ "claude-x": { "input_cost_per_token": 0.000003, "output_cost_per_token": 0.000015 } }"#,
         );
         let service = PricingService::from_cache_only_with_path(&cache_path).unwrap();
-        // reasoning_tokens defaults to 0 (Claude folds thinking into output)
         let entry = make_entry(Some("claude-x"), 1000, 500, 0, 0, None);
 
         let cost = service.calculate_cost(&entry);

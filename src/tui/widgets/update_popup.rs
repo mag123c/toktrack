@@ -63,10 +63,8 @@ impl<'a> UpdatePopup<'a> {
 
 impl<'a> Widget for UpdatePopup<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        // Clear the area first (for overlay effect)
         Clear.render(area, buf);
 
-        // Create block with border
         let block = Block::default()
             .title(" Update Available ")
             .title_alignment(Alignment::Center)
@@ -76,7 +74,6 @@ impl<'a> Widget for UpdatePopup<'a> {
         let inner = block.inner(area);
         block.render(area, buf);
 
-        // Layout for content
         let chunks = Layout::vertical([
             Constraint::Length(1), // [0] Padding
             Constraint::Length(1), // [1] Version info
@@ -91,7 +88,6 @@ impl<'a> Widget for UpdatePopup<'a> {
         ])
         .split(inner);
 
-        // Version info line
         let version_line = Line::from(vec![
             Span::styled("  v", Style::default().fg(self.theme.text())),
             Span::styled(
@@ -113,7 +109,6 @@ impl<'a> Widget for UpdatePopup<'a> {
             .alignment(Alignment::Center)
             .render(chunks[1], buf);
 
-        // Separator
         let sep = "─".repeat(inner.width as usize);
         buf.set_string(
             chunks[3].x,
@@ -122,7 +117,6 @@ impl<'a> Widget for UpdatePopup<'a> {
             Style::default().fg(self.theme.muted()),
         );
 
-        // Selection items
         let (update_marker, update_style) = if self.selection == 0 {
             (
                 "▸ ",
@@ -159,7 +153,6 @@ impl<'a> Widget for UpdatePopup<'a> {
             .alignment(Alignment::Center)
             .render(chunks[6], buf);
 
-        // Key hints - two lines
         let hint_line1 = Line::from(vec![
             Span::styled("  ↑↓", Style::default().fg(self.theme.accent())),
             Span::styled("  Select", Style::default().fg(self.theme.muted())),
@@ -237,7 +230,6 @@ mod tests {
     fn test_dim_overlay_sets_colors() {
         let area = Rect::new(0, 0, 10, 5);
         let mut buf = Buffer::empty(area);
-        // Write some content first
         buf.set_string(
             0,
             0,
@@ -247,7 +239,6 @@ mod tests {
 
         DimOverlay.render(area, &mut buf);
 
-        // Every cell should have DarkGray fg and Black bg
         for y in 0..5 {
             for x in 0..10 {
                 let cell = buf.cell(Position { x, y }).unwrap();
@@ -300,7 +291,6 @@ mod tests {
         let area = Rect::new(0, 0, 60, 20);
         let popup_area = UpdateMessagePopup::centered_area(area);
 
-        // Success message
         let mut buf = Buffer::empty(area);
         let popup_success =
             UpdateMessagePopup::new("Updated! Press any key to exit.", Color::Green);
@@ -312,7 +302,6 @@ mod tests {
             "Success message not found in buffer"
         );
 
-        // Error message
         let mut buf2 = Buffer::empty(area);
         let popup_error = UpdateMessagePopup::new("Failed: npm error", Color::Red);
         popup_error.render(popup_area, &mut buf2);

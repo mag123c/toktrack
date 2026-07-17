@@ -59,10 +59,9 @@ impl ModelsData {
                     cost_usd: usage.cost_usd,
                 }
             })
-            .filter(|m| m.total_tokens > 0) // Filter out zero-token models
+            .filter(|m| m.total_tokens > 0)
             .collect();
 
-        // Sort by cost descending (NaN-safe)
         models.sort_by(|a, b| {
             b.cost_usd
                 .partial_cmp(&a.cost_usd)
@@ -103,7 +102,6 @@ impl<'a> ModelsView<'a> {
 
 impl Widget for ModelsView<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        // Apply max width constraint and center the content
         let content_width = area.width.min(MAX_CONTENT_WIDTH);
         let x_offset = (area.width.saturating_sub(content_width)) / 2;
         let centered_area = Rect {
@@ -113,8 +111,7 @@ impl Widget for ModelsView<'_> {
             height: area.height,
         };
 
-        // Calculate layout with models list
-        let max_model_rows = self.data.models.len().min(10) as u16; // Show up to 10 models
+        let max_model_rows = self.data.models.len().min(10) as u16;
         let chunks = Layout::vertical([
             Constraint::Length(1),              // Tabs
             Constraint::Length(1),              // Separator
@@ -126,22 +123,16 @@ impl Widget for ModelsView<'_> {
         ])
         .split(centered_area);
 
-        // Render tab bar
         TabBar::new(self.tab, self.theme).render(chunks[0], buf);
 
-        // Render separator
         self.render_separator(chunks[1], buf);
 
-        // Render header
         self.render_header(chunks[2], buf);
 
-        // Render model rows
         self.render_models(chunks[3], buf);
 
-        // Render separator
         self.render_separator(chunks[4], buf);
 
-        // Render keybindings
         self.render_keybindings(chunks[5], buf);
     }
 }
@@ -165,7 +156,6 @@ impl ModelsView<'_> {
     fn render_header(&self, area: Rect, buf: &mut Buffer) {
         let offset = self.calculate_table_offset(area.width);
 
-        // Column widths: Model(30), Tokens(18), Cost(12), Usage(18)
         let header = Line::from(vec![
             Span::styled(
                 format!("{:<30}", "Model"),
@@ -228,7 +218,6 @@ impl ModelsView<'_> {
 
             let bar = format_percentage_bar(percent, 14);
 
-            // Convert to display name and truncate if too long (UTF-8 safe)
             let name = display_name(&model.name);
             let name = if name.chars().count() > 28 {
                 format!("{}…", name.chars().take(27).collect::<String>())
@@ -289,8 +278,6 @@ impl ModelsView<'_> {
 mod tests {
     use super::*;
 
-    // ========== format_percentage_bar tests ==========
-
     #[test]
     fn test_format_percentage_bar_zero() {
         assert_eq!(format_percentage_bar(0.0, 10), "░░░░░░░░░░");
@@ -308,17 +295,13 @@ mod tests {
 
     #[test]
     fn test_format_percentage_bar_twenty_five() {
-        // 25% of 8 = 2 filled
         assert_eq!(format_percentage_bar(25.0, 8), "██░░░░░░");
     }
 
     #[test]
     fn test_format_percentage_bar_rounding() {
-        // 33% of 10 = 3.3 → rounds to 3
         assert_eq!(format_percentage_bar(33.0, 10), "███░░░░░░░");
     }
-
-    // ========== ModelsData tests ==========
 
     #[test]
     fn test_models_data_empty() {
@@ -352,7 +335,7 @@ mod tests {
 
         assert_eq!(data.models.len(), 1);
         assert_eq!(data.models[0].name, "claude-sonnet-4");
-        assert_eq!(data.models[0].total_tokens, 1650); // 1000+500+100+50
+        assert_eq!(data.models[0].total_tokens, 1650);
         assert!((data.models[0].cost_usd - 0.05).abs() < f64::EPSILON);
         assert!((data.total_cost - 0.05).abs() < f64::EPSILON);
     }
@@ -409,7 +392,6 @@ mod tests {
         let data = ModelsData::from_model_usage(&model_map);
 
         assert_eq!(data.models.len(), 3);
-        // Should be sorted by cost descending: opus (0.50) > sonnet (0.10) > haiku (0.01)
         assert_eq!(data.models[0].name, "claude-opus");
         assert_eq!(data.models[1].name, "claude-sonnet");
         assert_eq!(data.models[2].name, "claude-haiku");

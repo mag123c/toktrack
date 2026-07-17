@@ -89,11 +89,9 @@ impl ClaudeCodeParser {
 
         let data: ClaudeJsonLine = simd_json::from_slice(line).ok()?;
 
-        // Only process lines with message and usage data
         let message = data.message.as_ref()?;
         let usage = message.usage.as_ref()?;
 
-        // Skip synthetic responses (no actual API call)
         if message.model == Some("<synthetic>") {
             return None;
         }
@@ -163,7 +161,6 @@ impl CLIParser for ClaudeCodeParser {
         let reader = BufReader::new(file);
         let mut entries = Vec::new();
 
-        // Stream line-by-line to avoid loading entire file into memory
         for line_result in reader.lines() {
             let line = match line_result {
                 Ok(l) => l,
@@ -174,7 +171,6 @@ impl CLIParser for ClaudeCodeParser {
                 continue;
             }
 
-            // Convert to mutable bytes for simd-json
             let mut line_bytes = line.into_bytes();
             if let Some(entry) = self.parse_line(&mut line_bytes) {
                 entries.push(entry);
@@ -232,7 +228,6 @@ mod tests {
             .parse_file(&fixture_path("claude-sample.jsonl"))
             .unwrap();
 
-        // Should parse 4 assistant messages (skipping user message, invalid line, and synthetic)
         assert_eq!(entries.len(), 4);
     }
 
@@ -272,7 +267,6 @@ mod tests {
             .parse_file(&fixture_path("claude-sample.jsonl"))
             .unwrap();
 
-        // Third entry has no cache tokens, message_id, or request_id
         let third = &entries[2];
         assert_eq!(third.cache_creation_tokens, 0);
         assert_eq!(third.cache_read_tokens, 0);
@@ -287,7 +281,6 @@ mod tests {
             .parse_file(&fixture_path("claude-sample.jsonl"))
             .unwrap();
 
-        // Invalid JSON line should be skipped, not cause an error
         assert_eq!(entries.len(), 4);
     }
 
@@ -298,8 +291,6 @@ mod tests {
             .parse_file(&fixture_path("claude-sample.jsonl"))
             .unwrap();
 
-        // User message has no usage, should be skipped
-        // All entries should have input_tokens > 0
         assert!(entries.iter().all(|e| e.input_tokens > 0));
     }
 
@@ -310,10 +301,8 @@ mod tests {
             .parse_file(&fixture_path("claude-sample.jsonl"))
             .unwrap();
 
-        // First entry has both message_id and request_id
         assert_eq!(entries[0].dedup_hash(), Some("msg-001:req-001".to_string()));
 
-        // Third entry has neither
         assert_eq!(entries[2].dedup_hash(), None);
     }
 
@@ -364,7 +353,6 @@ mod tests {
             .parse_file(&fixture_path("claude-sample.jsonl"))
             .unwrap();
 
-        // <synthetic> model entries should be filtered out
         assert!(
             entries
                 .iter()
@@ -380,7 +368,6 @@ mod tests {
             .parse_file(&fixture_path("claude-sample.jsonl"))
             .unwrap();
 
-        // Fourth entry has cache_creation with ephemeral_5m and ephemeral_1h
         let fourth = &entries[3];
         assert_eq!(fourth.cache_creation_tokens, 5000);
         assert_eq!(fourth.cache_creation_5m_tokens, 3000);
@@ -394,7 +381,6 @@ mod tests {
             .parse_file(&fixture_path("claude-sample.jsonl"))
             .unwrap();
 
-        // Fourth entry has web_search_requests = 3
         let fourth = &entries[3];
         assert_eq!(fourth.web_search_requests, 3);
     }
@@ -406,7 +392,6 @@ mod tests {
             .parse_file(&fixture_path("claude-sample.jsonl"))
             .unwrap();
 
-        // First entry has no cache_creation detail or server_tool_use
         let first = &entries[0];
         assert_eq!(first.cache_creation_5m_tokens, 0);
         assert_eq!(first.cache_creation_1h_tokens, 0);

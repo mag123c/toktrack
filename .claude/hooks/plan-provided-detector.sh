@@ -1,5 +1,3 @@
 #!/bin/bash
-# 플랜 제공 감지 - 비활성화
-# 플랜 키워드만으로 /implement 강제는 너무 광범위
-# 코드 작업이 아닌 경우(문서, 마케팅 등)도 플랜이 제공될 수 있음
+# Disabled: plan keywords are too broad to require implementation for non-code work.
 exit 0

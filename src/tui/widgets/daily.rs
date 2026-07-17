@@ -238,7 +238,6 @@ const COLUMNS: [(&str, u16); 8] = [
 /// Columns are hidden in priority order: Input first, then Output, Cache, Usage.
 /// This prioritizes showing Usage (visual bar) in narrow views.
 pub fn visible_columns(width: u16) -> Vec<usize> {
-    // Ordered by hide priority: first element is hidden first
     const HIDE_ORDER: [usize; 4] = [COL_INPUT, COL_OUTPUT, COL_CACHE, COL_USAGE];
 
     let mut visible: Vec<usize> = (0..COLUMNS.len()).collect();
@@ -301,7 +300,6 @@ impl<'a> DailyView<'a> {
 
 impl Widget for DailyView<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        // Apply max width constraint and center the content
         let content_width = area.width.min(MAX_CONTENT_WIDTH);
         let x_offset = (area.width.saturating_sub(content_width)) / 2;
         let centered_area = Rect {
@@ -311,10 +309,8 @@ impl Widget for DailyView<'_> {
             height: area.height,
         };
 
-        // Determine visible columns based on available width
         let visible = visible_columns(centered_area.width);
 
-        // Calculate layout
         let chunks = Layout::vertical([
             Constraint::Length(1), // Top padding
             Constraint::Length(1), // Tabs
@@ -327,22 +323,16 @@ impl Widget for DailyView<'_> {
         ])
         .split(centered_area);
 
-        // Render separator (no tabs, just separator at line 1 position too)
         self.render_separator(chunks[2], buf);
 
-        // Render mode indicator
         self.render_mode_indicator(chunks[3], buf);
 
-        // Render header
         self.render_header(chunks[4], buf, &visible);
 
-        // Render daily rows
         self.render_daily_rows(chunks[5], buf, &visible);
 
-        // Render separator
         self.render_separator(chunks[6], buf);
 
-        // Render keybindings
         self.render_keybindings(chunks[7], buf);
     }
 }
@@ -475,7 +465,6 @@ impl DailyView<'_> {
 
         let cache_tokens = summary.total_cache_read_tokens + summary.total_cache_creation_tokens;
 
-        // Get primary model (highest cost) + count of others, filtering out zero-token models
         let non_zero_models: Vec<_> = summary
             .models
             .iter()
@@ -488,13 +477,11 @@ impl DailyView<'_> {
             })
             .collect();
 
-        // Separate primary model name and count suffix for different coloring
         let (primary_model, count_suffix) = if non_zero_models.len() == 1 {
             (display_name(non_zero_models[0].0), None)
         } else if non_zero_models.is_empty() {
             ("unknown".to_string(), None)
         } else {
-            // Find model with highest cost among non-zero models
             let primary = non_zero_models
                 .iter()
                 .max_by(|a, b| {
@@ -525,7 +512,6 @@ impl DailyView<'_> {
 
         let sparkline = format_sparkline(total_tokens, max_tokens, 14);
 
-        // Format date based on view mode
         let date_str = match self.view_mode {
             DailyViewMode::Daily | DailyViewMode::Weekly => {
                 summary.date.format("%Y-%m-%d").to_string()
@@ -533,7 +519,6 @@ impl DailyView<'_> {
             DailyViewMode::Monthly => summary.date.format("%Y-%m").to_string(),
         };
 
-        // Selection marker and style modifier
         let selection_modifier = if is_selected {
             Modifier::BOLD | Modifier::REVERSED
         } else {
@@ -542,7 +527,6 @@ impl DailyView<'_> {
 
         let mut spans = Vec::new();
 
-        // Add selection marker for first column
         for (col_idx, &col) in visible.iter().enumerate() {
             // COL_MODEL is special: renders primary model (accent) + count (muted)
             if col == COL_MODEL {
@@ -576,7 +560,6 @@ impl DailyView<'_> {
 
             let (text, base_style) = match col {
                 COL_DATE => {
-                    // Prepend marker to date column
                     let marker = if is_selected { "▸ " } else { "  " };
                     // Adjust width: marker takes 2 chars, so date field is 12
                     (
@@ -619,11 +602,9 @@ impl DailyView<'_> {
                 _ => unreachable!(),
             };
 
-            // Apply selection highlight to all columns except first (which has marker)
             let style = if is_selected && col_idx > 0 {
                 base_style.add_modifier(selection_modifier)
             } else if is_selected && col_idx == 0 {
-                // First column already has marker, just make it bold
                 base_style.add_modifier(Modifier::BOLD)
             } else {
                 base_style
@@ -666,8 +647,6 @@ mod tests {
     use chrono::NaiveDate;
     use std::collections::HashMap;
 
-    // ========== format_sparkline tests ==========
-
     #[test]
     fn test_format_sparkline_zero() {
         assert_eq!(format_sparkline(0, 1000, 8), "░░░░░░░░");
@@ -685,7 +664,6 @@ mod tests {
 
     #[test]
     fn test_format_sparkline_zero_max() {
-        // When max is 0, should return all empty
         assert_eq!(format_sparkline(100, 0, 8), "░░░░░░░░");
     }
 
@@ -696,11 +674,8 @@ mod tests {
 
     #[test]
     fn test_format_sparkline_overflow_ratio() {
-        // When tokens > max (ratio > 1.0), should clamp to width
         assert_eq!(format_sparkline(2000, 1000, 8), "▓▓▓▓▓▓▓▓");
     }
-
-    // ========== DailyData tests ==========
 
     #[allow(clippy::too_many_arguments)]
     fn make_daily_summary(
@@ -738,7 +713,6 @@ mod tests {
 
     #[test]
     fn test_daily_data_sorted_asc() {
-        // Input is ascending (as from Aggregator::daily)
         let summaries = vec![
             make_daily_summary(2024, 1, 10, 100, 50, 10, 5, 0.01),
             make_daily_summary(2024, 1, 15, 200, 100, 20, 10, 0.02),
@@ -748,7 +722,6 @@ mod tests {
         let data = DailyData::from_daily_summaries(summaries);
 
         assert_eq!(data.daily_summaries.len(), 3);
-        // Should remain ascending (oldest first)
         assert_eq!(data.daily_summaries[0].date.to_string(), "2024-01-10");
         assert_eq!(data.daily_summaries[1].date.to_string(), "2024-01-15");
         assert_eq!(data.daily_summaries[2].date.to_string(), "2024-01-20");
@@ -757,17 +730,15 @@ mod tests {
     #[test]
     fn test_daily_data_max_tokens() {
         let summaries = vec![
-            make_daily_summary(2024, 1, 10, 100, 50, 10, 5, 0.01), // total: 165
-            make_daily_summary(2024, 1, 15, 200, 100, 20, 10, 0.02), // total: 330
-            make_daily_summary(2024, 1, 20, 300, 150, 30, 15, 0.03), // total: 495
+            make_daily_summary(2024, 1, 10, 100, 50, 10, 5, 0.01),
+            make_daily_summary(2024, 1, 15, 200, 100, 20, 10, 0.02),
+            make_daily_summary(2024, 1, 20, 300, 150, 30, 15, 0.03),
         ];
 
         let data = DailyData::from_daily_summaries(summaries);
 
         assert_eq!(data.daily_max_tokens, 495);
     }
-
-    // ========== DailyView scroll tests ==========
 
     #[test]
     fn test_daily_view_scroll_bounds_empty() {
@@ -785,7 +756,6 @@ mod tests {
             make_daily_summary(2024, 1, 15, 200, 100, 20, 10, 0.02),
         ];
         let data = DailyData::from_daily_summaries(summaries);
-        // 2 items < VISIBLE_ROWS (15), so max offset is 0
         assert_eq!(
             DailyView::max_scroll_offset(&data, DailyViewMode::Daily, VISIBLE_ROWS),
             0
@@ -798,18 +768,14 @@ mod tests {
             .map(|d| make_daily_summary(2024, 1, d, 100, 50, 10, 5, 0.01))
             .collect();
         let data = DailyData::from_daily_summaries(summaries);
-        // 20 items, VISIBLE_ROWS = 15, so max offset = 5
         assert_eq!(
             DailyView::max_scroll_offset(&data, DailyViewMode::Daily, VISIBLE_ROWS),
             5
         );
     }
 
-    // ========== DailyData multi-mode tests ==========
-
     #[test]
     fn test_daily_data_has_all_modes() {
-        // 3 days across 2 weeks, 1 month
         let summaries = vec![
             make_daily_summary(2025, 1, 13, 100, 50, 0, 0, 0.01), // Mon, week of Jan 12
             make_daily_summary(2025, 1, 15, 200, 100, 0, 0, 0.02), // Wed, week of Jan 12
@@ -835,13 +801,11 @@ mod tests {
         assert_eq!(daily.len(), 3);
 
         let (weekly, _) = data.for_mode(DailyViewMode::Weekly);
-        assert_eq!(weekly.len(), 3); // 3 different weeks
+        assert_eq!(weekly.len(), 3);
 
         let (monthly, _) = data.for_mode(DailyViewMode::Monthly);
-        assert_eq!(monthly.len(), 2); // Jan and Feb
+        assert_eq!(monthly.len(), 2);
     }
-
-    // ========== Sort tests ==========
 
     #[test]
     fn test_sort_key_cycle() {
@@ -896,7 +860,6 @@ mod tests {
 
     #[test]
     fn test_apply_sort_tokens_differs_from_cost() {
-        // Jan 14 is cache-heavy: the most tokens but the lowest cost.
         let mut data = DailyData::from_daily_summaries(vec![
             make_daily_summary(2025, 1, 13, 500, 200, 0, 0, 2.00),
             make_daily_summary(2025, 1, 14, 100, 50, 10_000, 0, 0.50),
@@ -917,7 +880,6 @@ mod tests {
 
     #[test]
     fn test_apply_sort_all_period_modes() {
-        // Two days in different weeks and months so each mode has 2 entries.
         let mut data = DailyData::from_daily_summaries(vec![
             make_daily_summary(2025, 1, 13, 100, 0, 0, 0, 1.00),
             make_daily_summary(2025, 2, 10, 100, 0, 0, 0, 3.00),
@@ -989,13 +951,8 @@ mod tests {
         assert_eq!(DailyViewMode::Monthly.date_column_label(), "Month");
     }
 
-    // ========== Responsive column tests ==========
-    // Hide order: Input → Output → Cache → Usage (keeps Usage visible longest)
-    // Full: 141, -Input: 123, -Output: 105, -Cache: 87, -Usage: 69
-
     #[test]
     fn test_visible_columns_full_width() {
-        // >= 141: all 8 columns visible
         let cols = visible_columns(141);
         assert_eq!(cols.len(), 8);
         assert_eq!(cols, vec![0, 1, 2, 3, 4, 5, 6, 7]);
@@ -1003,37 +960,33 @@ mod tests {
 
     #[test]
     fn test_visible_columns_hide_input() {
-        // 123..140: 7 columns (Input hidden first)
         let cols = visible_columns(123);
         assert_eq!(cols.len(), 7);
         assert!(!cols.contains(&COL_INPUT));
-        assert!(cols.contains(&COL_USAGE)); // Usage still visible
+        assert!(cols.contains(&COL_USAGE));
     }
 
     #[test]
     fn test_visible_columns_hide_input_and_output() {
-        // 105..122: 6 columns (Input + Output hidden)
         let cols = visible_columns(105);
         assert_eq!(cols.len(), 6);
         assert!(!cols.contains(&COL_INPUT));
         assert!(!cols.contains(&COL_OUTPUT));
-        assert!(cols.contains(&COL_USAGE)); // Usage still visible
+        assert!(cols.contains(&COL_USAGE));
     }
 
     #[test]
     fn test_visible_columns_hide_three() {
-        // 87..104: 5 columns (Input + Output + Cache hidden)
         let cols = visible_columns(87);
         assert_eq!(cols.len(), 5);
         assert!(!cols.contains(&COL_INPUT));
         assert!(!cols.contains(&COL_OUTPUT));
         assert!(!cols.contains(&COL_CACHE));
-        assert!(cols.contains(&COL_USAGE)); // Usage still visible
+        assert!(cols.contains(&COL_USAGE));
     }
 
     #[test]
     fn test_visible_columns_minimum() {
-        // < 87: 4 columns (Date + Model + Total + Cost)
         let cols = visible_columns(69);
         assert_eq!(cols.len(), 4);
         assert_eq!(cols, vec![COL_DATE, COL_MODEL, COL_TOTAL, COL_COST]);
@@ -1053,7 +1006,6 @@ mod tests {
 
     #[test]
     fn test_visible_columns_wide_terminal() {
-        // Very wide terminal should still show all 8
         let cols = visible_columns(200);
         assert_eq!(cols.len(), 8);
     }

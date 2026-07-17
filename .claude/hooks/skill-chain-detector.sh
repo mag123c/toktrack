@@ -1,6 +1,5 @@
 #!/bin/bash
-# 스킬 체인 상태 관리
-# Skill 호출 시 체인 단계를 마커 파일로 추적
+# Track skill-chain state with marker files.
 set -e
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""')

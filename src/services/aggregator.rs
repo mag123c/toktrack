@@ -97,7 +97,6 @@ impl Aggregator {
             return Vec::new();
         }
 
-        // Group by date
         let mut daily_map: HashMap<chrono::NaiveDate, DailySummary> = HashMap::new();
 
         for entry in entries {
@@ -149,7 +148,6 @@ impl Aggregator {
                 .saturating_add(entry.web_search_requests);
             summary.total_cost_usd += cost;
 
-            // Update model breakdown
             let model_usage = summary.models.entry(model_name.clone()).or_default();
             model_usage.add(entry, cost);
 
@@ -163,7 +161,6 @@ impl Aggregator {
                 .add(entry, cost, &model_name);
         }
 
-        // Sort by date ascending
         let mut result: Vec<DailySummary> = daily_map.into_values().collect();
         result.sort_by_key(|s| s.date);
         result
@@ -178,7 +175,6 @@ impl Aggregator {
         let mut week_map: HashMap<chrono::NaiveDate, DailySummary> = HashMap::new();
 
         for summary in daily_summaries {
-            // Calculate the Sunday that starts this week
             let days_from_sunday = summary.date.weekday().num_days_from_sunday();
             let week_start = summary
                 .date
@@ -296,7 +292,6 @@ impl Aggregator {
                 .saturating_add(s.total_web_search_requests);
             summary.total_cost_usd += s.total_cost_usd;
 
-            // entry_count = sum of per-model counts across all daily summaries
             for model_usage in s.models.values() {
                 summary.entry_count = summary.entry_count.saturating_add(model_usage.count);
             }
@@ -452,7 +447,6 @@ impl Aggregator {
             })
             .collect();
 
-        // Sort by total_tokens descending
         result.sort_by_key(|b| std::cmp::Reverse(b.total_tokens));
         result
     }
@@ -572,7 +566,6 @@ mod tests {
                 Some(0.3),
                 Some("/proj/b"),
             ),
-            // No project -> bucketed under NO_PROJECT
             make_entry_with_project(2026, 1, 1, Some("gpt-4o"), 10, Some(0.1), None),
         ];
 
@@ -580,13 +573,11 @@ mod tests {
         assert_eq!(daily.len(), 1);
         let day = &daily[0];
 
-        // Three project buckets: /proj/a, /proj/b, NO_PROJECT
         assert_eq!(day.projects.len(), 3);
 
         let a = day.projects.get("/proj/a").expect("project a present");
         assert_eq!(a.input_tokens, 150);
         assert_eq!(a.count, 2);
-        // Nested per-model breakdown within the project.
         assert_eq!(a.models.len(), 2);
 
         let b = day.projects.get("/proj/b").expect("project b present");
@@ -595,7 +586,6 @@ mod tests {
         let none = day.projects.get(NO_PROJECT).expect("no-project bucket");
         assert_eq!(none.input_tokens, 10);
 
-        // Project totals reconcile with the day total.
         let proj_sum: u64 = day.projects.values().map(|p| p.input_tokens).sum();
         assert_eq!(proj_sum, day.total_input_tokens);
     }
@@ -674,12 +664,10 @@ mod tests {
         let daily = Aggregator::daily(&entries);
         let per_project = Aggregator::project_daily_summaries(&daily);
 
-        // Project a spans two days; project b only one.
         let a_days = per_project.get("/proj/a").unwrap();
         assert_eq!(a_days.len(), 2);
-        assert_eq!(a_days[0].total_input_tokens, 100); // sorted ascending by date
+        assert_eq!(a_days[0].total_input_tokens, 100);
         assert_eq!(a_days[1].total_input_tokens, 200);
-        // Each exploded day carries the project's per-model breakdown.
         assert!(!a_days[0].models.is_empty());
 
         let b_days = per_project.get("/proj/b").unwrap();
@@ -712,7 +700,6 @@ mod tests {
         let daily = Aggregator::daily(&entries);
         let weekly = Aggregator::weekly(&daily);
 
-        // Both days fall in the same week; the project breakdown must be merged.
         assert_eq!(weekly.len(), 1);
         let week = &weekly[0];
         assert_eq!(week.projects.get("/proj/a").unwrap().input_tokens, 300);
@@ -790,7 +777,6 @@ mod tests {
         let result = Aggregator::daily(&entries);
 
         assert_eq!(result.len(), 3);
-        // Should be sorted ascending by date
         assert_eq!(result[0].date.to_string(), "2024-01-10");
         assert_eq!(result[1].date.to_string(), "2024-01-15");
         assert_eq!(result[2].date.to_string(), "2024-01-20");
@@ -811,7 +797,6 @@ mod tests {
         assert_eq!(result[0].total_cache_read_tokens, 30);
         assert_eq!(result[0].total_cache_creation_tokens, 15);
         assert!((result[0].total_cost_usd - 0.03).abs() < f64::EPSILON);
-        // Should have 2 models in the breakdown
         assert_eq!(result[0].models.len(), 2);
     }
 
@@ -872,8 +857,8 @@ mod tests {
         assert_eq!(result.len(), 2);
 
         let claude = result.get("claude").unwrap();
-        assert_eq!(claude.input_tokens, 300); // 100 + 200
-        assert_eq!(claude.output_tokens, 150); // 50 + 100
+        assert_eq!(claude.input_tokens, 300);
+        assert_eq!(claude.output_tokens, 150);
         assert_eq!(claude.count, 2);
 
         let gpt = result.get("gpt-4").unwrap();
@@ -884,7 +869,6 @@ mod tests {
 
     #[test]
     fn test_by_model_normalizes_date_suffix() {
-        // claude-sonnet-4-20250514 and claude-sonnet-4 should be grouped together
         let entries = vec![
             make_entry(
                 2024,
@@ -900,10 +884,9 @@ mod tests {
 
         let result = Aggregator::by_model(&entries);
 
-        // Should have only one model: claude-sonnet-4
         assert_eq!(result.len(), 1);
         let usage = result.get("claude-sonnet-4").unwrap();
-        assert_eq!(usage.input_tokens, 300); // 100 + 200
+        assert_eq!(usage.input_tokens, 300);
         assert_eq!(usage.count, 2);
     }
 
@@ -925,7 +908,6 @@ mod tests {
         let result = Aggregator::daily(&entries);
 
         assert_eq!(result.len(), 1);
-        // Should have only one model in the breakdown
         assert_eq!(result[0].models.len(), 1);
         assert!(result[0].models.contains_key("claude-opus-4-5"));
     }
@@ -978,29 +960,26 @@ mod tests {
 
         let result = Aggregator::total(&entries);
 
-        assert_eq!(result.total_input_tokens, 600); // 100 + 200 + 300
-        assert_eq!(result.total_output_tokens, 300); // 50 + 100 + 150
-        assert_eq!(result.total_cache_read_tokens, 60); // 10 + 20 + 30
-        assert_eq!(result.total_cache_creation_tokens, 30); // 5 + 10 + 15
+        assert_eq!(result.total_input_tokens, 600);
+        assert_eq!(result.total_output_tokens, 300);
+        assert_eq!(result.total_cache_read_tokens, 60);
+        assert_eq!(result.total_cache_creation_tokens, 30);
         assert!((result.total_cost_usd - 0.06).abs() < f64::EPSILON);
         assert_eq!(result.entry_count, 3);
-        assert_eq!(result.day_count, 2); // 2 distinct days
+        assert_eq!(result.day_count, 2);
     }
 
     #[test]
     fn test_total_with_none_cost() {
         let entries = vec![
             make_entry(2024, 1, 15, Some("claude"), 100, 50, Some(0.01)),
-            make_entry(2024, 1, 15, Some("claude"), 100, 50, None), // No cost
+            make_entry(2024, 1, 15, Some("claude"), 100, 50, None),
         ];
 
         let result = Aggregator::total(&entries);
 
-        // None cost should be treated as 0.0
         assert!((result.total_cost_usd - 0.01).abs() < f64::EPSILON);
     }
-
-    // ========== Weekly aggregation tests ==========
 
     fn make_daily_summary(
         year: i32,
@@ -1059,7 +1038,6 @@ mod tests {
 
     #[test]
     fn test_weekly_single_day() {
-        // 2025-01-15 is Wednesday → week starts on 2025-01-12 (Sunday)
         let summaries = vec![make_daily_summary(2025, 1, 15, 100, 50, 0.01)];
         let result = Aggregator::weekly(&summaries);
 
@@ -1071,7 +1049,6 @@ mod tests {
 
     #[test]
     fn test_weekly_same_week_merge() {
-        // 2025-01-13 (Mon) and 2025-01-15 (Wed) → both in week starting 2025-01-12 (Sun)
         let summaries = vec![
             make_daily_summary(2025, 1, 13, 100, 50, 0.01),
             make_daily_summary(2025, 1, 15, 200, 100, 0.02),
@@ -1087,8 +1064,6 @@ mod tests {
 
     #[test]
     fn test_weekly_cross_week() {
-        // 2025-01-18 (Sat) → week of 2025-01-12
-        // 2025-01-19 (Sun) → week of 2025-01-19
         let summaries = vec![
             make_daily_summary(2025, 1, 18, 100, 50, 0.01),
             make_daily_summary(2025, 1, 19, 200, 100, 0.02),
@@ -1102,8 +1077,6 @@ mod tests {
 
     #[test]
     fn test_weekly_sunday_stays() {
-        // Sunday itself is the start of its own week
-        // 2025-01-12 is a Sunday
         let summaries = vec![make_daily_summary(2025, 1, 12, 100, 50, 0.01)];
         let result = Aggregator::weekly(&summaries);
 
@@ -1113,7 +1086,6 @@ mod tests {
 
     #[test]
     fn test_weekly_saturday_maps_to_sunday() {
-        // 2025-01-18 is Saturday → maps to Sunday 2025-01-12
         let summaries = vec![make_daily_summary(2025, 1, 18, 100, 50, 0.01)];
         let result = Aggregator::weekly(&summaries);
 
@@ -1157,7 +1129,6 @@ mod tests {
             },
         );
 
-        // Same week (Mon and Wed of 2025-01-12 week)
         let summaries = vec![
             make_daily_summary_with_models(2025, 1, 13, 100, 50, 0.01, models_a),
             make_daily_summary_with_models(2025, 1, 15, 250, 125, 0.025, models_b),
@@ -1179,9 +1150,9 @@ mod tests {
     #[test]
     fn test_weekly_sorted() {
         let summaries = vec![
-            make_daily_summary(2025, 1, 20, 100, 50, 0.01), // week of Jan 19
-            make_daily_summary(2025, 1, 6, 200, 100, 0.02), // week of Jan 5
-            make_daily_summary(2025, 1, 13, 150, 75, 0.015), // week of Jan 12
+            make_daily_summary(2025, 1, 20, 100, 50, 0.01),
+            make_daily_summary(2025, 1, 6, 200, 100, 0.02),
+            make_daily_summary(2025, 1, 13, 150, 75, 0.015),
         ];
         let result = Aggregator::weekly(&summaries);
 
@@ -1190,8 +1161,6 @@ mod tests {
         assert_eq!(result[1].date.to_string(), "2025-01-12");
         assert_eq!(result[2].date.to_string(), "2025-01-19");
     }
-
-    // ========== Monthly aggregation tests ==========
 
     #[test]
     fn test_monthly_empty() {
@@ -1239,7 +1208,6 @@ mod tests {
 
     #[test]
     fn test_monthly_first_of_month() {
-        // Date is already first of month
         let summaries = vec![make_daily_summary(2025, 3, 1, 100, 50, 0.01)];
         let result = Aggregator::monthly(&summaries);
 
@@ -1261,8 +1229,6 @@ mod tests {
         assert_eq!(result[1].date.to_string(), "2025-02-01");
         assert_eq!(result[2].date.to_string(), "2025-03-01");
     }
-
-    // ========== total_from_daily tests ==========
 
     #[test]
     fn test_total_from_daily_empty() {
@@ -1338,11 +1304,9 @@ mod tests {
         assert_eq!(result.total_input_tokens, 300);
         assert_eq!(result.total_output_tokens, 150);
         assert!((result.total_cost_usd - 0.03).abs() < f64::EPSILON);
-        assert_eq!(result.entry_count, 3); // 2 + 1
+        assert_eq!(result.entry_count, 3);
         assert_eq!(result.day_count, 2);
     }
-
-    // ========== by_model_from_daily tests ==========
 
     #[test]
     fn test_by_model_from_daily_empty() {
@@ -1402,8 +1366,6 @@ mod tests {
         assert_eq!(gpt.input_tokens, 50);
         assert_eq!(gpt.count, 1);
     }
-
-    // ========== accumulate_summary / merge_model_usage gap tests ==========
 
     #[test]
     fn test_accumulate_summary_with_cache_tokens() {
@@ -1484,7 +1446,6 @@ mod tests {
 
     #[test]
     fn test_total_from_daily_entry_count_zero_count_models() {
-        // Models with count=0 should not inflate entry_count
         let mut models = HashMap::new();
         models.insert(
             "claude".to_string(),
@@ -1492,7 +1453,7 @@ mod tests {
                 input_tokens: 100,
                 output_tokens: 50,
                 cost_usd: 0.01,
-                count: 0, // zero count edge case
+                count: 0,
                 ..Default::default()
             },
         );
@@ -1512,7 +1473,7 @@ mod tests {
 
         let result = Aggregator::total_from_daily(&summaries);
 
-        assert_eq!(result.entry_count, 5); // 0 + 5
+        assert_eq!(result.entry_count, 5);
         assert_eq!(result.day_count, 1);
     }
 
@@ -1582,7 +1543,6 @@ mod tests {
 
         accumulate_summary(&mut target, &source);
 
-        // Models should be merged
         assert_eq!(target.models.len(), 2);
         let claude = target.models.get("claude").unwrap();
         assert_eq!(claude.input_tokens, 300);
@@ -1591,8 +1551,6 @@ mod tests {
         assert_eq!(gpt.input_tokens, 50);
         assert_eq!(gpt.count, 1);
     }
-
-    // ========== by_source tests ==========
 
     #[allow(clippy::too_many_arguments)]
     fn make_entry_with_source(
@@ -1626,8 +1584,6 @@ mod tests {
             project: None,
         }
     }
-
-    // ========== Timezone boundary tests ==========
 
     #[test]
     fn test_daily_groups_by_local_date_not_utc() {
@@ -1680,18 +1636,14 @@ mod tests {
 
         let result = Aggregator::daily(&[entry_late.clone(), entry_early.clone()]);
 
-        // Both entries should be grouped by their LOCAL date, not UTC date.
-        // Verify grouping uses local_date()
         let expected_date_late = entry_late.local_date();
         let expected_date_early = entry_early.local_date();
 
         if expected_date_late == expected_date_early {
-            // Same local date → single summary
             assert_eq!(result.len(), 1);
             assert_eq!(result[0].date, expected_date_late);
-            assert_eq!(result[0].total_input_tokens, 300); // 100 + 200
+            assert_eq!(result[0].total_input_tokens, 300);
         } else {
-            // Different local dates → two summaries
             assert_eq!(result.len(), 2);
             let late_summary = result
                 .iter()
@@ -1757,7 +1709,6 @@ mod tests {
 
         let result = Aggregator::total(&entries);
 
-        // day_count should reflect local dates, not UTC dates
         let local_date1 = entries[0].local_date();
         let local_date2 = entries[1].local_date();
         let expected_days = if local_date1 == local_date2 { 1 } else { 2 };
@@ -1798,7 +1749,7 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].source, "claude");
-        assert_eq!(result[0].total_tokens, 450); // 100+50 + 200+100
+        assert_eq!(result[0].total_tokens, 450);
         assert!((result[0].total_cost_usd - 0.03).abs() < f64::EPSILON);
     }
 
@@ -1839,13 +1790,12 @@ mod tests {
         let result = Aggregator::by_source(&entries);
 
         assert_eq!(result.len(), 3);
-        // Sorted by total_tokens descending
         assert_eq!(result[0].source, "opencode");
-        assert_eq!(result[0].total_tokens, 450); // 300+150
+        assert_eq!(result[0].total_tokens, 450);
         assert_eq!(result[1].source, "claude");
-        assert_eq!(result[1].total_tokens, 150); // 100+50
+        assert_eq!(result[1].total_tokens, 150);
         assert_eq!(result[2].source, "gemini");
-        assert_eq!(result[2].total_tokens, 75); // 50+25
+        assert_eq!(result[2].total_tokens, 75);
     }
 
     #[test]
@@ -1865,8 +1815,6 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].source, "unknown");
     }
-
-    // ========== merge_by_date tests ==========
 
     #[test]
     fn test_merge_by_date_empty() {
@@ -1889,7 +1837,6 @@ mod tests {
 
     #[test]
     fn test_merge_by_date_merges_same_date() {
-        // Two summaries from different sources for the same date
         let summaries = vec![
             make_daily_summary(2025, 1, 15, 100, 50, 0.01),
             make_daily_summary(2025, 1, 15, 200, 100, 0.02),
@@ -1956,8 +1903,6 @@ mod tests {
         assert!(result[0].models.contains_key("gpt-4"));
     }
 
-    // ========== Issue #134: provider-aware model key ==========
-
     #[allow(clippy::too_many_arguments)]
     fn make_entry_with_provider(
         year: i32,
@@ -1993,13 +1938,11 @@ mod tests {
 
     #[test]
     fn test_format_model_key_provider_none() {
-        // provider=None preserves the legacy key (backward compatible).
         assert_eq!(format_model_key("claude-opus-4-5", None), "claude-opus-4-5");
     }
 
     #[test]
     fn test_format_model_key_provider_empty() {
-        // Empty string is treated as None.
         assert_eq!(format_model_key("gpt-4", Some("")), "gpt-4");
     }
 
@@ -2013,7 +1956,6 @@ mod tests {
 
     #[test]
     fn test_format_model_key_normalizes_model() {
-        // Model normalization (date-suffix removal) still applies.
         assert_eq!(
             format_model_key("claude-opus-4-5-20251101", Some("anthropic")),
             "claude-opus-4-5::anthropic"
@@ -2022,7 +1964,6 @@ mod tests {
 
     #[test]
     fn test_daily_separates_same_model_different_providers() {
-        // Issue #134: same model billed through different providers must split.
         let entries = vec![
             make_entry_with_provider(
                 2026,
@@ -2061,7 +2002,6 @@ mod tests {
 
     #[test]
     fn test_daily_keeps_legacy_key_when_provider_none() {
-        // Regression: provider=None entries must keep the legacy key format.
         let entries = vec![make_entry_with_provider(
             2026,
             4,
@@ -2114,7 +2054,6 @@ mod tests {
 
     #[test]
     fn test_weekly_separates_providers_across_days() {
-        // weekly() must keep same-model/different-provider entries separate.
         let entries = vec![
             make_entry_with_provider(
                 2026,
@@ -2183,7 +2122,6 @@ mod tests {
 
     #[test]
     fn test_merge_by_date_preserves_provider_separation() {
-        // merge_by_date must keep different-provider entries on the same date separate.
         let mut models_a = HashMap::new();
         models_a.insert(
             "gpt-5-4::github-copilot".to_string(),
@@ -2247,7 +2185,6 @@ mod tests {
 
     #[test]
     fn test_by_model_aggregates_same_provider() {
-        // Same model + same provider must aggregate into one entry.
         let entries = vec![
             make_entry_with_provider(
                 2026,

@@ -340,7 +340,6 @@ impl CLIParser for CopilotParser {
         let mut session_start_time: Option<DateTime<Utc>> = None;
         let mut last_shutdown: Option<(DateTime<Utc>, Vec<ShutdownModelEntry>)> = None;
 
-        // Internal struct to keep parsed assistant messages
         struct ParsedMessage {
             timestamp: DateTime<Utc>,
             message_id: Option<String>,
@@ -644,7 +643,6 @@ mod tests {
         assert_eq!(entries.len(), 1);
         let entry = &entries[0];
         assert_eq!(entry.model.as_deref(), Some("gpt-5.3-codex"));
-        // 92078 input - 1043840 cache_read - 0 cache_write = saturating to 0
         assert_eq!(entry.input_tokens, 0);
         assert_eq!(entry.cache_read_tokens, 1_043_840);
         assert_eq!(entry.cache_creation_tokens, 0);
@@ -698,7 +696,6 @@ mod tests {
 
         assert_eq!(entries.len(), 2);
 
-        // Message 1 on 2026-07-14 gets 100 / 400 = 25% of the total tokens
         let m1 = entries
             .iter()
             .find(|e| e.message_id.as_deref() == Some("msg-m1"))
@@ -708,7 +705,6 @@ mod tests {
         assert_eq!(m1.cache_read_tokens, 1000); // 25% of 4000 = 1000
         assert_eq!(m1.output_tokens, 100); // 25% of 400 = 100
 
-        // Message 2 on 2026-07-15 gets 300 / 400 = 75% of the total tokens
         let m2 = entries
             .iter()
             .find(|e| e.message_id.as_deref() == Some("msg-m2"))
@@ -726,7 +722,6 @@ mod tests {
             .parse_file(&fixture_path("resumed-session.log"))
             .unwrap();
 
-        // Should return 2 entries: the reconciled shutdown entry and the new provisional entry
         assert_eq!(entries.len(), 2);
 
         let m1 = entries
@@ -800,7 +795,6 @@ mod tests {
         // Copilot re-dates cumulative shutdown totals onto earlier messages, so
         // the warm path must treat its recent files as able to touch old days.
         assert!(CopilotParser::new().retroactive_reconciliation());
-        // Sources whose entries are final when written must not (perf).
         assert!(!crate::parsers::ClaudeCodeParser::new().retroactive_reconciliation());
     }
 }

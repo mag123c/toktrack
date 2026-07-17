@@ -31,7 +31,6 @@ pub struct ModelBreakdownState {
 impl ModelBreakdownState {
     /// Create a new state from date label and model map
     pub fn new(date_label: String, models: Vec<(String, ModelUsage)>) -> Self {
-        // Filter out zero-token models and sort by cost descending
         let mut models: Vec<_> = models
             .into_iter()
             .filter(|(_, usage)| {
@@ -81,10 +80,8 @@ impl<'a> ModelBreakdownPopup<'a> {
 
 impl Widget for ModelBreakdownPopup<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        // Clear the area first (for overlay effect)
         Clear.render(area, buf);
 
-        // Create block with border and date title
         let title = format!(" {} ", self.state.date_label);
         let block = Block::default()
             .title(title)
@@ -95,7 +92,6 @@ impl Widget for ModelBreakdownPopup<'_> {
         let inner = block.inner(area);
         block.render(area, buf);
 
-        // Apply internal padding: 1 top, 2 left/right
         let padded = Rect {
             x: inner.x + 2,
             y: inner.y + 1,
@@ -103,11 +99,9 @@ impl Widget for ModelBreakdownPopup<'_> {
             height: inner.height.saturating_sub(1), // Only top padding
         };
 
-        // Calculate visible rows (minus header, separator, padding, footer)
         let available_rows = padded.height.saturating_sub(4) as usize;
         let models_to_show = self.state.models.len().min(available_rows);
 
-        // Build layout
         let mut constraints = vec![
             Constraint::Length(1), // Header
             Constraint::Length(1), // Separator
@@ -120,7 +114,6 @@ impl Widget for ModelBreakdownPopup<'_> {
 
         let chunks = Layout::vertical(constraints).split(padded);
 
-        // Header
         let header_style = Style::default()
             .fg(self.theme.text())
             .add_modifier(Modifier::BOLD);
@@ -133,7 +126,6 @@ impl Widget for ModelBreakdownPopup<'_> {
             .alignment(Alignment::Left)
             .render(chunks[0], buf);
 
-        // Separator
         let sep = "─".repeat(padded.width as usize);
         buf.set_string(
             padded.x,
@@ -142,7 +134,6 @@ impl Widget for ModelBreakdownPopup<'_> {
             Style::default().fg(self.theme.muted()),
         );
 
-        // Model rows
         for (i, (model_name, usage)) in self.state.models.iter().take(models_to_show).enumerate() {
             let chunk_idx = i + 2;
             let display = display_name(model_name);
@@ -176,7 +167,6 @@ impl Widget for ModelBreakdownPopup<'_> {
                 .render(chunks[chunk_idx], buf);
         }
 
-        // Footer hint
         let footer_idx = chunks.len() - 1;
         let footer = Line::from(Span::styled(
             "Press Esc to close",
@@ -236,7 +226,6 @@ mod tests {
         assert_eq!(popup_area.width, POPUP_WIDTH);
         assert!(popup_area.height >= POPUP_MIN_HEIGHT);
         assert!(popup_area.height <= POPUP_MAX_HEIGHT);
-        // Should be centered
         assert_eq!(popup_area.x, (100 - POPUP_WIDTH) / 2);
     }
 
@@ -245,7 +234,6 @@ mod tests {
         let area = Rect::new(0, 0, 100, 50);
         let popup_area = ModelBreakdownPopup::centered_area(area, 20);
 
-        // Should cap at max height
         assert!(popup_area.height <= POPUP_MAX_HEIGHT);
     }
 
@@ -254,7 +242,6 @@ mod tests {
         let area = Rect::new(0, 0, 40, 10);
         let popup_area = ModelBreakdownPopup::centered_area(area, 5);
 
-        // Should fit within terminal bounds
         assert!(popup_area.width <= area.width);
         assert!(popup_area.height <= area.height);
     }
@@ -278,7 +265,6 @@ mod tests {
         let mut buf = Buffer::empty(area);
         ModelBreakdownPopup::new(&state, Theme::Dark).render(popup_area, &mut buf);
 
-        // Verify content rendered
         let content: String = buf.content().iter().map(|c| c.symbol()).collect();
         assert!(content.contains("2026-02-05"));
         assert!(content.contains("Model"));
@@ -301,7 +287,6 @@ mod tests {
         ModelBreakdownPopup::new(&state, Theme::Dark).render(popup_area, &mut buf);
 
         let content: String = buf.content().iter().map(|c| c.symbol()).collect();
-        // display_name converts claude-opus-4-5-20251101 to "Opus 4.5"
         assert!(content.contains("Opus 4.5"));
     }
 
@@ -319,7 +304,6 @@ mod tests {
         ModelBreakdownPopup::new(&state, Theme::Dark).render(popup_area, &mut buf);
 
         let content: String = buf.content().iter().map(|c| c.symbol()).collect();
-        // Should contain truncation marker
         assert!(content.contains('…'));
     }
 }

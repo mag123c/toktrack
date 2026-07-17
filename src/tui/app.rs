@@ -353,7 +353,6 @@ impl App {
         }
         if let Event::Key(key) = event {
             if key.kind == KeyEventKind::Press {
-                // Ctrl+C shows quit confirmation
                 if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
                     self.quit_confirm = Some(QuitConfirmState::new());
                     return;
@@ -427,7 +426,6 @@ impl App {
 
     /// Handle keyboard events in Dashboard mode
     fn handle_dashboard_event(&mut self, code: KeyCode) {
-        // Common keys for all tabs
         match code {
             KeyCode::Esc => {
                 if self.show_help {
@@ -486,7 +484,6 @@ impl App {
             _ => {}
         }
 
-        // Tab-specific keys
         match self.current_tab() {
             Tab::Overview => match code {
                 KeyCode::Up | KeyCode::Char('k') if self.source_selected > 0 => {
@@ -555,7 +552,6 @@ impl App {
                 if self.show_help {
                     self.show_help = false;
                 } else {
-                    // Return to the tab the drill-down was entered from.
                     let tab = match &self.view_mode {
                         ViewMode::ProjectDetail { .. } => Tab::Projects,
                         _ => Tab::Overview,
@@ -658,27 +654,22 @@ impl App {
         if let Event::Key(key) = event {
             if key.kind == KeyEventKind::Press {
                 match key.code {
-                    // Arrow keys toggle selection
                     KeyCode::Left | KeyCode::Right | KeyCode::Up | KeyCode::Down => {
                         if let Some(ref mut state) = self.quit_confirm {
                             state.selection = 1 - state.selection;
                         }
                     }
-                    // Enter confirms the selection
                     KeyCode::Enter => {
                         if let Some(ref state) = self.quit_confirm {
                             if state.selection == 0 {
-                                // Yes selected -> quit
                                 self.should_quit = true;
                             }
                         }
                         self.quit_confirm = None;
                     }
-                    // Esc or 'n' cancels
                     KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
                         self.quit_confirm = None;
                     }
-                    // 'y' quits immediately
                     KeyCode::Char('y') | KeyCode::Char('Y') => {
                         self.should_quit = true;
                         self.quit_confirm = None;
@@ -708,7 +699,6 @@ impl App {
         if let Event::Key(key) = event {
             if key.kind == KeyEventKind::Press {
                 match (&self.update_status, key.code) {
-                    // Available state: up/down to select, Enter to confirm, Esc to dismiss
                     (UpdateStatus::Available { .. }, KeyCode::Up | KeyCode::Down) => {
                         self.update_selection = 1 - self.update_selection;
                     }
@@ -720,12 +710,10 @@ impl App {
                             self.consume_pending_data();
                         }
                     }
-                    // Esc dismisses update overlay (skip update)
                     (UpdateStatus::Available { .. }, KeyCode::Esc) => {
                         self.update_status = UpdateStatus::Resolved;
                         self.consume_pending_data();
                     }
-                    // UpdateDone state: any key dismisses
                     (UpdateStatus::UpdateDone { success, .. }, _) => {
                         if *success {
                             self.should_quit = true;
@@ -1050,13 +1038,11 @@ impl Widget for &App {
                     }
                 }
 
-                // Render help popup overlay if active
                 if self.show_help {
                     let popup_area = HelpPopup::centered_area(area);
                     HelpPopup::new(self.theme).render(popup_area, buf);
                 }
 
-                // Render model breakdown popup if active
                 if let Some(ref state) = self.model_breakdown {
                     DimOverlay.render(area, buf);
                     let popup_area = ModelBreakdownPopup::centered_area(area, state.models.len());
@@ -1192,7 +1178,6 @@ fn build_app_data_from_summaries(
 
     let daily_data = DailyData::from_daily_summaries(summaries);
 
-    // Build per-source data
     let mut source_daily_data = HashMap::new();
     let mut source_models_data = HashMap::new();
     let mut source_stats_data = HashMap::new();
@@ -1234,17 +1219,14 @@ fn run_app(terminal: &mut DefaultTerminal, config: TuiConfig, theme: Theme) -> a
     let mut app = App::new(config, theme);
     app.terminal_height = terminal.size()?.height;
 
-    // Kick off the startup data load on a background thread
     app.start_data_load();
 
-    // Spawn background thread for update check
     let (update_tx, update_rx) = mpsc::channel();
     thread::spawn(move || {
         let result = check_for_update();
         let _ = update_tx.send(result);
     });
 
-    // Channel for async execute_update result
     let (execute_tx, execute_rx) = mpsc::channel();
 
     loop {
@@ -1254,13 +1236,10 @@ fn run_app(terminal: &mut DefaultTerminal, config: TuiConfig, theme: Theme) -> a
             break;
         }
 
-        // Check for data loading completion (non-blocking)
         app.poll_data();
 
-        // Check for on-demand audit completion (non-blocking)
         app.poll_audit();
 
-        // Check for update check completion (non-blocking)
         if app.update_status == UpdateStatus::Checking {
             if let Ok(result) = update_rx.try_recv() {
                 match result {
@@ -1274,7 +1253,6 @@ fn run_app(terminal: &mut DefaultTerminal, config: TuiConfig, theme: Theme) -> a
             }
         }
 
-        // Handle Updating state: spawn background thread for npm update
         if app.update_status == UpdateStatus::Updating {
             app.update_status = UpdateStatus::UpdateRunning;
             let tx = execute_tx.clone();
@@ -1284,7 +1262,6 @@ fn run_app(terminal: &mut DefaultTerminal, config: TuiConfig, theme: Theme) -> a
             });
         }
 
-        // Check for execute_update completion (non-blocking)
         if app.update_status == UpdateStatus::UpdateRunning {
             if let Ok(result) = execute_rx.try_recv() {
                 match result {
@@ -1304,7 +1281,6 @@ fn run_app(terminal: &mut DefaultTerminal, config: TuiConfig, theme: Theme) -> a
             }
         }
 
-        // Poll for events with 100ms timeout for spinner animation
         if event::poll(Duration::from_millis(100))? {
             let ev = event::read()?;
             // Priority chain: quit_confirm > model_breakdown > update > main
@@ -1478,7 +1454,6 @@ mod tests {
     #[test]
     fn test_enter_navigates_to_source_detail() {
         let mut app = make_ready_app();
-        // source_selected defaults to 0, source_usage has "claude"
         let event = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         app.handle_event(event);
 
@@ -1506,7 +1481,6 @@ mod tests {
     #[test]
     fn test_source_selection_up_down() {
         let mut app = make_ready_app();
-        // Add a second source
         if let AppState::Ready { data } = &mut app.state {
             data.source_usage.push(SourceUsage {
                 source: "opencode".to_string(),
@@ -1519,19 +1493,15 @@ mod tests {
 
         assert_eq!(app.source_selected, 0);
 
-        // Down
         app.handle_event(Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
         assert_eq!(app.source_selected, 1);
 
-        // Down again should stay at 1 (max)
         app.handle_event(Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
         assert_eq!(app.source_selected, 1);
 
-        // Up
         app.handle_event(Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
         assert_eq!(app.source_selected, 0);
 
-        // Up again should stay at 0
         app.handle_event(Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
         assert_eq!(app.source_selected, 0);
     }
@@ -1588,8 +1558,6 @@ mod tests {
         )));
         assert_eq!(app.daily_view_mode, DailyViewMode::Daily);
     }
-
-    // ========== Sort toggle tests (issue #206) ==========
 
     fn jan(day: u32) -> chrono::NaiveDate {
         chrono::NaiveDate::from_ymd_opt(2025, 1, day).unwrap()
@@ -1675,11 +1643,10 @@ mod tests {
 
         press(&mut app, KeyCode::Char('s')); // cost descending
 
-        assert_eq!(first_daily_date(&app), jan(5)); // most expensive first
+        assert_eq!(first_daily_date(&app), jan(5));
         assert_eq!(app.daily_selected, None);
         assert_eq!(app.weekly_selected, None);
         assert_eq!(app.monthly_selected, None);
-        // The ranking starts at the top, not at the latest date.
         assert_eq!(app.daily_scroll, 0);
         assert_eq!(app.weekly_scroll, 0);
         assert_eq!(app.monthly_scroll, 0);
@@ -1692,7 +1659,7 @@ mod tests {
         press(&mut app, KeyCode::Char('s'));
         press(&mut app, KeyCode::Char('s')); // tokens descending
 
-        assert_eq!(first_daily_date(&app), jan(7)); // cache-heavy day first
+        assert_eq!(first_daily_date(&app), jan(7));
     }
 
     #[test]
@@ -1702,7 +1669,7 @@ mod tests {
         press(&mut app, KeyCode::Char('S')); // date descending
         assert_eq!(app.sort_key, SortKey::Date);
         assert_eq!(app.sort_direction, SortDirection::Desc);
-        assert_eq!(first_daily_date(&app), jan(20)); // newest first
+        assert_eq!(first_daily_date(&app), jan(20));
         assert_eq!(app.daily_scroll, 0);
 
         press(&mut app, KeyCode::Char('S')); // back to ascending
@@ -1739,7 +1706,7 @@ mod tests {
             _ => panic!("expected Ready state"),
         };
         assert!(expected > 0, "fixture must be taller than the viewport");
-        assert_eq!(app.daily_scroll, expected); // latest days visible again
+        assert_eq!(app.daily_scroll, expected);
     }
 
     #[test]
@@ -1753,9 +1720,9 @@ mod tests {
 
         press(&mut app, KeyCode::Enter); // re-enter the claude drill-down
         assert!(matches!(app.view_mode, ViewMode::SourceDetail { .. }));
-        assert_eq!(first_daily_date(&app), jan(5)); // still sorted by cost
+        assert_eq!(first_daily_date(&app), jan(5));
         assert_eq!(app.daily_selected, None);
-        assert_eq!(app.daily_scroll, 0); // entry respects the active sort
+        assert_eq!(app.daily_scroll, 0);
     }
 
     #[test]
@@ -1763,7 +1730,6 @@ mod tests {
         let mut app = make_sort_test_app();
         press(&mut app, KeyCode::Char('s')); // cost descending
 
-        // A fresh load arrives date-ascending, like real loads do.
         let mut fresh = marker_app_data(1);
         fresh.daily_data = DailyData::from_daily_summaries(vec![
             sort_test_summary(1, 100, 0, 0.10),
@@ -1777,7 +1743,7 @@ mod tests {
         tx.send(Ok(fresh)).unwrap();
         app.poll_data();
 
-        assert_eq!(first_daily_date(&app), jan(2)); // most expensive first
+        assert_eq!(first_daily_date(&app), jan(2));
         assert_eq!(app.daily_selected, None);
         assert_eq!(app.daily_scroll, 0);
     }
@@ -1788,7 +1754,7 @@ mod tests {
 
         press(&mut app, KeyCode::Char('j')); // default date-ascending order
 
-        assert_eq!(app.daily_selected, Some(19)); // latest day (bottom row)
+        assert_eq!(app.daily_selected, Some(19));
     }
 
     #[test]
@@ -1798,8 +1764,8 @@ mod tests {
 
         press(&mut app, KeyCode::Char('j'));
 
-        assert_eq!(app.daily_selected, Some(0)); // most expensive day (top row)
-        assert_eq!(app.daily_scroll, 0); // view must not jump to the bottom
+        assert_eq!(app.daily_selected, Some(0));
+        assert_eq!(app.daily_scroll, 0);
     }
 
     #[test]
@@ -1809,7 +1775,7 @@ mod tests {
 
         press(&mut app, KeyCode::Char('k'));
 
-        assert_eq!(app.daily_selected, Some(0)); // today (top row)
+        assert_eq!(app.daily_selected, Some(0));
         assert_eq!(app.daily_scroll, 0);
     }
 
@@ -1824,8 +1790,6 @@ mod tests {
         let breakdown = app.model_breakdown.expect("breakdown popup must open");
         assert_eq!(breakdown.date_label, "2025-01-05");
     }
-
-    // ========== Update overlay tests ==========
 
     #[test]
     fn test_app_initial_update_status() {
@@ -1997,8 +1961,6 @@ mod tests {
         assert_eq!(app.update_status, UpdateStatus::Resolved);
     }
 
-    // ========== TuiConfig & App::new tests ==========
-
     #[test]
     fn test_tuiconfig_default_values() {
         let config = TuiConfig::default();
@@ -2070,8 +2032,6 @@ mod tests {
             ),
         }
     }
-
-    // ========== Quit confirm popup tests ==========
 
     #[test]
     fn test_ctrl_c_shows_quit_confirm_popup() {
@@ -2212,8 +2172,6 @@ mod tests {
         assert!(app.quit_confirm.is_none());
     }
 
-    // ========== Model breakdown popup tests ==========
-
     #[test]
     fn test_app_new_has_no_model_breakdown() {
         let app = App::new(TuiConfig::default(), Theme::Dark);
@@ -2278,8 +2236,6 @@ mod tests {
         assert_eq!(app.daily_scroll, 5);
     }
 
-    // ========== Tab switching tests ==========
-
     #[test]
     fn test_tab_key_switches_tab() {
         let mut app = App::default();
@@ -2323,7 +2279,6 @@ mod tests {
     fn test_backtab_switches_tab() {
         let mut app = App::default();
 
-        // From Overview, BackTab wraps to the last tab (Audit).
         app.handle_event(Event::Key(KeyEvent::new(
             KeyCode::BackTab,
             KeyModifiers::SHIFT,
@@ -2465,7 +2420,6 @@ mod tests {
         let key = "/srv/work/alpha/beta";
         let mut app = ready_app_with_one_project(key);
 
-        // Jump to the Projects tab (key '4').
         app.handle_event(Event::Key(KeyEvent::new(
             KeyCode::Char('4'),
             KeyModifiers::NONE,
@@ -2475,7 +2429,6 @@ mod tests {
             ViewMode::Dashboard { tab: Tab::Projects }
         ));
 
-        // Enter drills into the selected project.
         app.handle_event(Event::Key(KeyEvent::new(
             KeyCode::Enter,
             KeyModifiers::NONE,
@@ -2485,7 +2438,6 @@ mod tests {
             other => panic!("expected ProjectDetail, got {:?}", other),
         }
 
-        // Esc returns to the Projects tab (not Overview).
         app.handle_event(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
         assert!(matches!(
             app.view_mode,
@@ -2505,8 +2457,6 @@ mod tests {
             ViewMode::Dashboard { tab: Tab::Audit }
         ));
     }
-
-    // ========== Manual refresh tests (issue #198) ==========
 
     /// Stub loader for refresh tests — never touches the real filesystem.
     fn stub_loader(_: RemoteOptions) -> Result<Box<AppData>, String> {
@@ -2550,7 +2500,6 @@ mod tests {
 
         assert!(app.refreshing);
         assert!(app.data_rx.is_some());
-        // Current data stays on screen — no flicker back to the loading spinner.
         assert!(matches!(app.state, AppState::Ready { .. }));
     }
 
@@ -2562,10 +2511,8 @@ mod tests {
         app.data_rx = Some(rx);
         app.refreshing = true;
 
-        // 'r' must not replace the in-flight channel.
         press_r(&mut app);
 
-        // The original channel must still be the one polled.
         tx.send(Ok(marker_app_data(999))).unwrap();
         app.poll_data();
 
@@ -2607,7 +2554,6 @@ mod tests {
         }
         assert!(!app.refreshing);
         assert!(app.data_rx.is_none());
-        // Refreshed data invalidates the previously computed audit.
         assert!(app.audit.is_none());
         assert!(app.audit_error.is_none());
         // The in-flight audit receiver must be dropped so poll_audit can never
@@ -2632,7 +2578,6 @@ mod tests {
         tx.send(Err("boom".to_string())).unwrap();
         app.poll_data();
 
-        // Graceful degrade: old data survives a failed refresh.
         assert!(matches!(app.state, AppState::Ready { .. }));
         assert!(!app.refreshing);
         assert!(app.data_rx.is_none());
@@ -2645,7 +2590,6 @@ mod tests {
         app.data_rx = Some(rx);
         app.refreshing = true;
 
-        // Sender dropped without sending — as if the worker thread panicked.
         drop(tx);
         app.poll_data();
 
@@ -2679,7 +2623,6 @@ mod tests {
 
         press_r(&mut app);
 
-        // Retry from the error screen goes back to the loading spinner.
         assert!(matches!(app.state, AppState::Loading { .. }));
         assert!(app.data_rx.is_some());
         assert!(!app.refreshing);
@@ -2696,13 +2639,11 @@ mod tests {
         press_r(&mut app);
         assert!(app.refreshing);
 
-        // Swap in a deterministic channel and apply the result.
         let (tx, rx) = mpsc::channel();
         app.data_rx = Some(rx);
         tx.send(Ok(marker_app_data(555))).unwrap();
         app.poll_data();
 
-        // The drill-down view survives the refresh.
         assert!(matches!(app.view_mode, ViewMode::SourceDetail { .. }));
         assert!(matches!(app.state, AppState::Ready { .. }));
     }

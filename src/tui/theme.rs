@@ -230,8 +230,6 @@ mod tests {
         assert_eq!(t.heatmap_color(HeatmapLevel::Max), Color::Indexed(28));
     }
 
-    // ========== Spike level tests ==========
-
     #[test]
     fn test_spike_level_normal() {
         assert_eq!(spike_level(1.0, 1.0), SpikeLevel::Normal);
@@ -260,8 +258,6 @@ mod tests {
     fn test_spike_level_zero_cost() {
         assert_eq!(spike_level(0.0, 1.0), SpikeLevel::Normal);
     }
-
-    // ========== Spike color tests ==========
 
     #[test]
     fn test_dark_spike_color() {

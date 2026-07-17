@@ -131,17 +131,13 @@ pub fn build_grid(
         all_values.push(tokens);
     }
 
-    // Calculate percentiles for intensity mapping
     let percentiles = calculate_percentiles(&all_values);
 
-    // Find the start of the current week (Monday)
     let days_since_monday = today.weekday().num_days_from_monday();
     let week_start = today - Duration::days(days_since_monday as i64);
 
-    // Go back (weeks_to_show - 1) more weeks
     let grid_start = week_start - Duration::weeks((weeks_to_show - 1) as i64);
 
-    // Build grid: 7 rows (Mon-Sun) x weeks_to_show columns
     let mut grid: Vec<Vec<Option<HeatmapCell>>> = vec![vec![None; weeks_to_show]; 7];
 
     #[allow(clippy::needless_range_loop)]
@@ -150,7 +146,6 @@ pub fn build_grid(
             let date =
                 grid_start + Duration::weeks(week_idx as i64) + Duration::days(day_idx as i64);
 
-            // Skip future dates
             if date > today {
                 continue;
             }
@@ -199,7 +194,6 @@ impl Heatmap {
     /// Compute weeks to show based on terminal width
     /// Returns weeks count for responsive layout (2-char cells, no borders)
     pub fn weeks_for_width(width: u16) -> usize {
-        // Account for label only (no border)
         let available = width.saturating_sub(LABEL_WIDTH);
         let max_weeks = (available / CELL_WIDTH) as usize;
 
@@ -231,7 +225,6 @@ impl Heatmap {
         let start_x = area.x + x_offset + LABEL_WIDTH;
         let max_x = area.x + area.width;
 
-        // Draw weekday label
         buf.set_string(
             area.x + x_offset,
             y,
@@ -239,7 +232,6 @@ impl Heatmap {
             Style::default().fg(self.theme.muted()),
         );
 
-        // Cells (no borders)
         let row = &self.grid[day_idx];
         for (col_idx, cell) in row.iter().enumerate() {
             if col_idx >= self.weeks_to_show {
@@ -250,7 +242,6 @@ impl Heatmap {
                 break;
             }
 
-            // Cell content (2 chars)
             if let Some(cell) = cell {
                 let style = Style::default().fg(cell.intensity.color(self.theme));
                 buf.set_string(x, y, "██", style);
@@ -275,18 +266,15 @@ impl Widget for Heatmap {
         let x_offset = self.calculate_x_offset(area);
         let start_x = area.x + x_offset + LABEL_WIDTH;
 
-        // Render 7 rows (Mon-Sun) directly, no borders
         for (day_idx, (_, label)) in DISPLAY_ROWS.iter().enumerate() {
             let y = area.y + day_idx as u16;
             if y >= area.y + area.height {
                 break;
             }
 
-            // Content row: Mon ████████
             self.render_content_row(area, buf, y, day_idx, label, x_offset);
         }
 
-        // Render month labels below the grid (after 7 rows)
         let month_label_y = area.y + 7;
         if month_label_y < area.y + area.height && !self.grid[0].is_empty() {
             self.render_month_labels(area, buf, start_x, month_label_y, CELL_WIDTH);
@@ -337,8 +325,6 @@ mod tests {
     use super::*;
     use chrono::NaiveDate;
 
-    // ========== HeatmapIntensity tests ==========
-
     #[test]
     fn test_intensity_to_char() {
         assert_eq!(HeatmapIntensity::None.to_char(), ' ');
@@ -350,7 +336,6 @@ mod tests {
 
     #[test]
     fn test_intensity_to_cell_str() {
-        // Each intensity uses distinct block characters for colorblind accessibility
         assert_eq!(HeatmapIntensity::None.to_cell_str(), "░░ ");
         assert_eq!(HeatmapIntensity::Low.to_cell_str(), "▒▒ ");
         assert_eq!(HeatmapIntensity::Medium.to_cell_str(), "▓▓ ");
@@ -380,8 +365,6 @@ mod tests {
         assert_eq!(HeatmapIntensity::Max.color(theme), Color::Indexed(28));
     }
 
-    // ========== calculate_percentiles tests ==========
-
     #[test]
     fn test_calculate_percentiles_empty() {
         let result = calculate_percentiles(&[]);
@@ -404,7 +387,6 @@ mod tests {
 
     #[test]
     fn test_calculate_percentiles_four_values() {
-        // [10, 20, 30, 40] sorted
         let result = calculate_percentiles(&[40, 10, 30, 20]).unwrap();
         assert_eq!(result.p25, 10); // 25% of 4 = 1 -> index 0
         assert_eq!(result.p50, 20); // 50% of 4 = 2 -> index 1
@@ -414,13 +396,10 @@ mod tests {
     #[test]
     fn test_calculate_percentiles_ignores_zeros() {
         let result = calculate_percentiles(&[0, 100, 0, 200, 0, 300, 0, 400]).unwrap();
-        // Non-zero: [100, 200, 300, 400]
         assert_eq!(result.p25, 100);
         assert_eq!(result.p50, 200);
         assert_eq!(result.p75, 300);
     }
-
-    // ========== Percentiles::to_intensity tests ==========
 
     #[test]
     fn test_intensity_mapping() {
@@ -440,8 +419,6 @@ mod tests {
         assert_eq!(p.intensity(400), HeatmapIntensity::Max);
     }
 
-    // ========== build_grid tests ==========
-
     #[test]
     fn test_build_grid_dimensions() {
         let today = NaiveDate::from_ymd_opt(2024, 6, 15).unwrap(); // Saturday
@@ -449,9 +426,7 @@ mod tests {
 
         let grid = build_grid(&daily_tokens, today, 52);
 
-        // Should be 7 rows (weekdays)
         assert_eq!(grid.len(), 7);
-        // Each row should have 52 columns (weeks)
         for row in &grid {
             assert_eq!(row.len(), 52);
         }
@@ -493,7 +468,6 @@ mod tests {
 
         let grid = build_grid(&daily_tokens, today, 52);
 
-        // Find today's cell and verify it has data
         let mut found = false;
         for row in &grid {
             for cell in row.iter().flatten() {
@@ -513,7 +487,6 @@ mod tests {
 
         let grid = build_grid(&daily_tokens, today, 52);
 
-        // Future dates (Thu, Fri, Sat, Sun of current week) should be None
         for row in &grid {
             for cell in row.iter().flatten() {
                 assert!(cell.date <= today, "Grid should not contain future dates");
@@ -521,12 +494,8 @@ mod tests {
         }
     }
 
-    // ========== weeks_for_width tests ==========
-
     #[test]
     fn test_weeks_for_width_wide() {
-        // 52 weeks needs: label 4 + 52*2 = 108 (2-char cells, no borders)
-        // So width >= 108 -> 52 weeks
         assert_eq!(Heatmap::weeks_for_width(108), 52);
         assert_eq!(Heatmap::weeks_for_width(120), 52);
         assert_eq!(Heatmap::weeks_for_width(200), 52);
@@ -534,8 +503,6 @@ mod tests {
 
     #[test]
     fn test_weeks_for_width_medium() {
-        // 26 weeks needs: label 4 + 26*2 = 56
-        // So width 56-107 -> 26 weeks
         assert_eq!(Heatmap::weeks_for_width(56), 26);
         assert_eq!(Heatmap::weeks_for_width(80), 26);
         assert_eq!(Heatmap::weeks_for_width(107), 26);
@@ -543,23 +510,15 @@ mod tests {
 
     #[test]
     fn test_weeks_for_width_narrow() {
-        // 13 weeks needs: label 4 + 13*2 = 30
-        // So width < 56 -> 13 weeks
         assert_eq!(Heatmap::weeks_for_width(30), 13);
         assert_eq!(Heatmap::weeks_for_width(55), 13);
     }
 
-    // ========== CELL_WIDTH tests ==========
-
     #[test]
     fn test_cell_dimensions() {
-        // Cell should be 2 chars wide (no border)
         assert_eq!(CELL_WIDTH, 2);
-        // Label width should be 4 chars ("Mon ")
         assert_eq!(LABEL_WIDTH, 4);
     }
-
-    // ========== Grid rendering tests (borderless) ==========
 
     /// Helper to create a test buffer and heatmap
     fn create_test_heatmap(weeks: usize) -> (Heatmap, Rect, Buffer) {
@@ -570,7 +529,6 @@ mod tests {
         ];
         let heatmap = Heatmap::new(&daily_tokens, today, weeks, Theme::Dark);
 
-        // Create area large enough for grid: label(4) + weeks*2
         let width = LABEL_WIDTH + (weeks as u16 * CELL_WIDTH);
         let height = 8; // 7 rows + 1 month label
         let area = Rect::new(0, 0, width, height);
@@ -583,10 +541,8 @@ mod tests {
     fn test_render_content_row_has_label() {
         let (heatmap, area, mut buf) = create_test_heatmap(3);
 
-        // x_offset is 0 when buffer width equals heatmap width
         heatmap.render_content_row(area, &mut buf, 0, 0, "Mon", 0);
 
-        // Check label at x=0
         let cell = buf.cell((0, 0)).unwrap();
         assert_eq!(cell.symbol(), "M");
         let cell = buf.cell((1, 0)).unwrap();
@@ -599,14 +555,11 @@ mod tests {
     fn test_render_content_row_no_borders() {
         let (heatmap, area, mut buf) = create_test_heatmap(3);
 
-        // x_offset is 0 when buffer width equals heatmap width
         heatmap.render_content_row(area, &mut buf, 0, 0, "Mon", 0);
 
         let start_x = LABEL_WIDTH as usize;
 
-        // Cell content should be directly at start_x (no left border)
         let cell = buf.cell((start_x as u16, 0)).unwrap();
-        // Should be a block char from intensity, not a border
         assert_ne!(cell.symbol(), "│");
     }
 
@@ -614,15 +567,12 @@ mod tests {
     fn test_full_grid_structure_borderless() {
         let (heatmap, area, mut buf) = create_test_heatmap(3);
 
-        // Render full heatmap
         heatmap.render(area, &mut buf);
 
-        // Row 0: Mon content row - should have label
         assert_eq!(buf.cell((0, 0)).unwrap().symbol(), "M");
         assert_eq!(buf.cell((1, 0)).unwrap().symbol(), "o");
         assert_eq!(buf.cell((2, 0)).unwrap().symbol(), "n");
 
-        // Row 6: Sun content row - should have label
         assert_eq!(buf.cell((0, 6)).unwrap().symbol(), "S");
         assert_eq!(buf.cell((1, 6)).unwrap().symbol(), "u");
         assert_eq!(buf.cell((2, 6)).unwrap().symbol(), "n");

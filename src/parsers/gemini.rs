@@ -213,7 +213,7 @@ impl GeminiParser {
             let mut bytes = line.into_bytes();
             let parsed: GeminiJsonlLine = match simd_json::from_slice(&mut bytes) {
                 Ok(v) => v,
-                Err(_) => continue, // malformed line: skip
+                Err(_) => continue,
             };
 
             // Metadata line — capture sessionId for subsequent message records.
@@ -415,8 +415,6 @@ mod tests {
             .join("session-2026-04-22T11-00-00-no00meta.jsonl")
     }
 
-    // ===== Legacy .json regression tests (preserved from prior version) =====
-
     #[test]
     fn test_parse_gemini_json() {
         let parser = GeminiParser::with_data_dir(PathBuf::from("tests/fixtures/gemini"));
@@ -431,7 +429,6 @@ mod tests {
 
         let first = &entries[0];
         assert_eq!(first.model, Some("gemini-2.5-pro".to_string()));
-        // input(100) includes cached(20) upstream → billable non-cached = 80
         assert_eq!(first.input_tokens, 80);
         assert_eq!(first.output_tokens, 50);
         assert_eq!(first.cache_read_tokens, 20);
@@ -448,7 +445,6 @@ mod tests {
         let entries = parser.parse_file(&fixture_path()).unwrap();
 
         let second = &entries[1];
-        // input(250) includes cached(50) upstream → billable non-cached = 200
         assert_eq!(second.input_tokens, 200);
         assert_eq!(second.output_tokens, 150);
         assert_eq!(second.cache_read_tokens, 50);
@@ -472,7 +468,6 @@ mod tests {
     #[test]
     fn test_parser_file_pattern() {
         let parser = GeminiParser::new();
-        // Representative — see `collect_files` for the full glob set.
         assert_eq!(parser.file_pattern(), "*/chats/session-*.jsonl");
     }
 
@@ -487,8 +482,6 @@ mod tests {
     fn test_total_tokens_includes_thinking() {
         let parser = GeminiParser::with_data_dir(PathBuf::from("tests/fixtures/gemini"));
         let entries = parser.parse_file(&fixture_path()).unwrap();
-        // non-cached input + output + cache_read + reasoning
-        // e0: 80 + 50 + 20 + 30 = 180 ; e1: 200 + 150 + 50 + 100 = 500
         assert_eq!(entries[0].total_tokens(), 180);
         assert_eq!(entries[1].total_tokens(), 500);
     }
@@ -518,7 +511,6 @@ mod tests {
 
     #[test]
     fn test_project_none_when_no_project_root() {
-        // Without a `.project_root` sidecar, project stays None (→ no-project bucket).
         let tmp = tempfile::TempDir::new().unwrap();
         let chats = tmp.path().join("tmp").join("p").join("chats");
         std::fs::create_dir_all(&chats).unwrap();
@@ -557,14 +549,11 @@ mod tests {
             .all(|e| e.model.is_some() && e.model.as_deref() != Some("unknown")));
     }
 
-    // ===== JSONL tests =====
-
     #[test]
     fn test_parse_jsonl_main_session() {
         let parser = GeminiParser::with_data_dir(PathBuf::from("tests/fixtures/gemini"));
         let entries = parser.parse_file(&jsonl_fixture_path()).unwrap();
 
-        // Only `type: "gemini"` lines (m2, m4) count; user/error/$set/$rewindTo are skipped.
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].message_id, Some("m2".to_string()));
         assert_eq!(entries[0].model, Some("gemini-2.5-pro".to_string()));
@@ -577,9 +566,7 @@ mod tests {
         let parser = GeminiParser::with_data_dir(PathBuf::from("tests/fixtures/gemini"));
         let entries = parser.parse_file(&jsonl_fixture_path()).unwrap();
 
-        // m2: input=100 (incl. cached=20), tool=10 → (100-20)+10 = 90
         assert_eq!(entries[0].input_tokens, 90);
-        // m4: input=250 (incl. cached=50), no tool → 250-50 = 200
         assert_eq!(entries[1].input_tokens, 200);
     }
 
@@ -600,13 +587,11 @@ mod tests {
                 "total_tokens() must reconcile with upstream reported total"
             );
         }
-        // m2: 90 + 50 + 20 + 30 = 190
         assert_eq!(entries[0].reported_total_tokens, Some(190));
     }
 
     #[test]
     fn test_legacy_json_has_no_reported_total() {
-        // Legacy .json fixtures carry no `total` field → None.
         let parser = GeminiParser::with_data_dir(PathBuf::from("tests/fixtures/gemini"));
         let entries = parser.parse_file(&fixture_path()).unwrap();
         assert!(entries.iter().all(|e| e.reported_total_tokens.is_none()));
@@ -624,8 +609,6 @@ mod tests {
 
     #[test]
     fn test_parse_jsonl_skips_set_and_rewind_and_non_gemini() {
-        // Implicitly covered by main_session test (len == 2), but make it explicit:
-        // m1 (user), $set, m3 (error), $rewindTo are all skipped.
         let parser = GeminiParser::with_data_dir(PathBuf::from("tests/fixtures/gemini"));
         let entries = parser.parse_file(&jsonl_fixture_path()).unwrap();
         let ids: Vec<_> = entries
@@ -642,7 +625,6 @@ mod tests {
 
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].message_id, Some("sm2".to_string()));
-        // input=40 includes cached=5 → billable non-cached = 35
         assert_eq!(entries[0].input_tokens, 35);
         assert_eq!(
             entries[0].request_id,
@@ -655,8 +637,6 @@ mod tests {
         let parser = GeminiParser::with_data_dir(PathBuf::from("tests/fixtures/gemini"));
         let entries = parser.parse_file(&jsonl_malformed_path()).unwrap();
 
-        // Blank line, `{not_json`, and gemini-without-timestamp should all skip.
-        // Only `bm1` (well-formed gemini) survives.
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].message_id, Some("bm1".to_string()));
         assert_eq!(entries[0].input_tokens, 7);
@@ -668,7 +648,6 @@ mod tests {
         let entries = parser.parse_file(&jsonl_no_meta_path()).unwrap();
 
         assert_eq!(entries.len(), 1);
-        // No metadata line → request_id falls back to the file stem.
         assert_eq!(
             entries[0].request_id,
             Some("session-2026-04-22T11-00-00-no00meta".to_string())
@@ -687,23 +666,14 @@ mod tests {
         let parser = GeminiParser::with_data_dir(fixture_root());
         let files = parser.collect_files();
 
-        // Expected matches:
-        // - tmp123/chats/session-abc123.json                          (legacy main)
-        // - tmp456/chats/session-no-session-model.json                (legacy main)
-        // - tmp_jsonl/chats/session-2026-04-20T10-00-00-abc12345.jsonl (main new)
-        // - tmp_jsonl/chats/parent-session-xyz/sub-abc.jsonl           (subagent)
-        // - tmp_jsonl_malformed/chats/session-bad.jsonl                (main new, bad lines)
-        // - tmp_jsonl_no_meta/chats/session-2026-04-22T11-00-00-no00meta.jsonl (main new)
         assert_eq!(files.len(), 6, "got files: {:?}", files);
 
-        // Spot-check both extensions present
         assert!(files
             .iter()
             .any(|f| f.extension().and_then(|s| s.to_str()) == Some("json")));
         assert!(files
             .iter()
             .any(|f| f.extension().and_then(|s| s.to_str()) == Some("jsonl")));
-        // Spot-check subagent path nested under a parent dir under chats/
         assert!(files
             .iter()
             .any(|f| f.to_string_lossy().contains("parent-session-xyz")));
@@ -714,14 +684,6 @@ mod tests {
         let parser = GeminiParser::with_data_dir(fixture_root());
         let entries = parser.parse_all().unwrap();
 
-        // Expected entries per file:
-        // - tmp123/...session-abc123.json: 2
-        // - tmp456/...session-no-session-model.json: 2
-        // - tmp_jsonl/...session-2026-04-20....jsonl: 2
-        // - tmp_jsonl/...parent-session-xyz/sub-abc.jsonl: 1
-        // - tmp_jsonl_malformed/...session-bad.jsonl: 1
-        // - tmp_jsonl_no_meta/...session-2026-04-22....jsonl: 1
-        // = 9 total, all unique message_id × request_id combos.
         assert_eq!(entries.len(), 9);
     }
 
@@ -733,18 +695,15 @@ mod tests {
     fn test_gemini_cli_home_env_var() {
         let saved = std::env::var("GEMINI_CLI_HOME").ok();
 
-        // Case 1 — non-empty value overrides home.
         std::env::set_var("GEMINI_CLI_HOME", "/tmp/toktrack-gemini-env-test");
         assert_eq!(
             GeminiParser::new().data_dir(),
             Path::new("/tmp/toktrack-gemini-env-test/.gemini/tmp")
         );
 
-        // Case 2 — empty value is treated as unset (matches gemini-cli JS falsiness).
         std::env::set_var("GEMINI_CLI_HOME", "");
         assert_ne!(GeminiParser::new().data_dir(), Path::new("/.gemini/tmp"));
 
-        // Restore prior env state.
         match saved {
             Some(v) => std::env::set_var("GEMINI_CLI_HOME", v),
             None => std::env::remove_var("GEMINI_CLI_HOME"),

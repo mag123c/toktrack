@@ -1,5 +1,5 @@
 #!/bin/bash
-# 스킬 체인 강제 - UserPromptSubmit 시 다음 단계 안내
+# Remind the next workflow phase on UserPromptSubmit.
 set -e
 INPUT=$(cat)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
@@ -9,10 +9,8 @@ CHAIN_DIR="/tmp/toktrack-chain-$SESSION_ID"
 
 CURRENT=$(cat "$CHAIN_DIR/current" 2>/dev/null || echo "")
 
-# 각 단계 완료 후 다음 단계 안내
 case "$CURRENT" in
   "implement")
-    # implement 단계에서 verify가 시작되지 않은 경우
     if [ ! -f "$CHAIN_DIR/verify-started" ]; then
       cat << 'EOF'
 {
@@ -26,7 +24,6 @@ EOF
     fi
     ;;
   "verify")
-    # verify 단계에서 review가 시작되지 않은 경우
     if [ ! -f "$CHAIN_DIR/review-started" ]; then
       cat << 'EOF'
 {
@@ -40,7 +37,6 @@ EOF
     fi
     ;;
   "review")
-    # review 단계에서 wrap이 시작되지 않은 경우
     if [ ! -f "$CHAIN_DIR/wrap-started" ]; then
       cat << 'EOF'
 {

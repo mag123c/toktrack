@@ -54,10 +54,8 @@ impl QuitConfirmPopup {
 
 impl Widget for QuitConfirmPopup {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        // Clear the area first (for overlay effect)
         Clear.render(area, buf);
 
-        // Create block with border
         let block = Block::default()
             .title(" Quit? ")
             .title_alignment(Alignment::Center)
@@ -67,7 +65,6 @@ impl Widget for QuitConfirmPopup {
         let inner = block.inner(area);
         block.render(area, buf);
 
-        // Layout for content
         let chunks = Layout::vertical([
             Constraint::Length(1), // [0] Padding
             Constraint::Length(1), // [1] Question
@@ -79,7 +76,6 @@ impl Widget for QuitConfirmPopup {
         ])
         .split(inner);
 
-        // Question line
         let question_line = Line::from(Span::styled(
             "Are you sure you want to quit?",
             Style::default().fg(self.theme.text()),
@@ -88,7 +84,6 @@ impl Widget for QuitConfirmPopup {
             .alignment(Alignment::Center)
             .render(chunks[1], buf);
 
-        // Buttons: Yes / No
         let (yes_marker, yes_style) = if self.selection == 0 {
             (
                 "▸ ",
@@ -122,7 +117,6 @@ impl Widget for QuitConfirmPopup {
             .alignment(Alignment::Center)
             .render(chunks[3], buf);
 
-        // Key hints - two lines
         let hint_line1 = Line::from(vec![
             Span::styled("  ←→", Style::default().fg(self.theme.accent())),
             Span::styled("  Select", Style::default().fg(self.theme.muted())),
@@ -148,13 +142,12 @@ mod tests {
     #[test]
     fn test_quit_confirm_default_selection_is_yes() {
         let state = QuitConfirmState::new();
-        assert_eq!(state.selection, 0); // 0 = Yes
+        assert_eq!(state.selection, 0);
     }
 
     #[test]
     fn test_quit_confirm_state_default_is_yes() {
         let state = QuitConfirmState::default();
-        // Both default() and new() should give selection=0 (Yes)
         assert_eq!(state.selection, 0);
     }
 
@@ -192,10 +185,9 @@ mod tests {
         let area = Rect::new(0, 0, 60, 20);
         let popup_area = QuitConfirmPopup::centered_area(area);
         let mut buf = Buffer::empty(area);
-        let popup = QuitConfirmPopup::new(0, Theme::Dark); // Yes selected
+        let popup = QuitConfirmPopup::new(0, Theme::Dark);
         popup.render(popup_area, &mut buf);
 
-        // Should render without panic
         let content: String = buf.content().iter().map(|c| c.symbol()).collect();
         assert!(content.contains("Quit?"));
         assert!(content.contains("Yes"));

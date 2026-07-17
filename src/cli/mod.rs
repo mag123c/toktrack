@@ -343,10 +343,8 @@ fn run_report(
         sr.estimated = estimated.get(sr.name.as_str()).copied().unwrap_or(false);
     }
 
-    // Always print text report
     println!("{}", crate::report::text::render(&data));
 
-    // Optionally write SVG
     if let Some(path) = svg {
         let svg_content = crate::report::svg::render(&data);
         std::fs::write(&path, svg_content)?;
@@ -549,7 +547,6 @@ mod tests {
 
     #[test]
     fn test_cli_parse_backup_removed() {
-        // backup subcommand should no longer exist
         let result = Cli::try_parse_from(["toktrack", "backup"]);
         assert!(result.is_err());
     }

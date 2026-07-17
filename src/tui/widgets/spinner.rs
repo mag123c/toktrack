@@ -69,10 +69,8 @@ impl Widget for Spinner {
             return;
         }
 
-        // Calculate center Y (4 lines: name, tagline, empty, spinner)
         let center_y = area.y + area.height / 2;
 
-        // App name with version (bold)
         let name_with_version = format!("{} v{}", APP_NAME, VERSION);
         let name_y = center_y.saturating_sub(2);
         let name_x = area.x + (area.width.saturating_sub(name_with_version.len() as u16)) / 2;
@@ -85,7 +83,6 @@ impl Widget for Spinner {
                 .add_modifier(Modifier::BOLD),
         );
 
-        // Tagline (muted)
         let tag_y = name_y + 1;
         let tag_x = area.x + (area.width.saturating_sub(TAGLINE.len() as u16)) / 2;
         buf.set_string(
@@ -95,7 +92,6 @@ impl Widget for Spinner {
             Style::default().fg(self.theme.muted()),
         );
 
-        // Spinner (accent) - 1 blank line after tagline
         let spinner_text = format!("{} {}", self.current_char(), self.stage.message());
         let spinner_y = tag_y + 2;
         let spinner_x = area.x + (area.width.saturating_sub(spinner_text.len() as u16)) / 2;
@@ -129,7 +125,7 @@ mod tests {
     #[test]
     fn test_spinner_wraps() {
         let spinner = Spinner::new(10, LoadingStage::Scanning, Theme::Dark);
-        assert_eq!(spinner.current_char(), '⠋'); // 10 % 10 = 0
+        assert_eq!(spinner.current_char(), '⠋');
     }
 
     #[test]

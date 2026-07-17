@@ -460,8 +460,6 @@ mod tests {
     use rusqlite::params;
     use tempfile::TempDir;
 
-    // ===== protobuf encode helpers (build fixture blobs) =====
-
     fn enc_varint(out: &mut Vec<u8>, mut n: u64) {
         loop {
             let mut byte = (n & 0x7f) as u8;
@@ -544,8 +542,6 @@ mod tests {
         field_bytes(&mut t, 7, uri.as_bytes());
         t
     }
-
-    // ===== fixture DB builder =====
 
     struct Row {
         idx: i64,
@@ -656,13 +652,8 @@ mod tests {
         t
     }
 
-    // ===== tests =====
-
     #[test]
     fn test_read_gen_metadata_skips_unreadable_rows() {
-        // The "warned, never fatal" contract: a row whose `data` can't be read as
-        // a blob (e.g. a NULL cell in a partially-written DB) is skipped, while the
-        // readable rows are still returned in `idx` order.
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(
             "CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB, size INTEGER);",
@@ -673,7 +664,6 @@ mod tests {
             params![vec![1u8, 2, 3]],
         )
         .unwrap();
-        // NULL `data` → `get::<Vec<u8>>` errors → this row is warned-and-skipped.
         conn.execute(
             "INSERT INTO gen_metadata (idx, data, size) VALUES (1, NULL, 0)",
             [],
@@ -694,17 +684,12 @@ mod tests {
 
     #[test]
     fn test_read_gen_metadata_caps_warnings_past_threshold() {
-        // More unreadable rows than `MAX_ROW_WARNINGS` (5) exercises the summary
-        // branch: every bad row is still skipped (none fatal), and only the one
-        // readable blob comes back. Guards the warn-cap path so a partially-written
-        // DB can't flood stderr.
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(
             "CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB, size INTEGER);",
         )
         .unwrap();
         for idx in 0..7 {
-            // NULL `data` → `get::<Vec<u8>>` errors → warned-and-skipped.
             conn.execute(
                 "INSERT INTO gen_metadata (idx, data, size) VALUES (?, NULL, 0)",
                 params![idx],
@@ -762,14 +747,11 @@ mod tests {
         assert_eq!(e.reasoning_tokens, 577); // thinking_output_tokens
         assert_eq!(e.cache_read_tokens, 12208);
         assert_eq!(e.cache_creation_tokens, 0);
-        // total = 4626 + 1474 + 12208 + 0 + 577
         assert_eq!(e.total_tokens(), 18885);
         assert_eq!(e.source.as_deref(), Some("antigravity"));
         assert_eq!(e.message_id.as_deref(), Some("resp-a"));
         assert_eq!(e.request_id.as_deref(), Some("traj-1"));
-        // file:///g:/... → g:/... (drive-letter slash stripped)
         assert_eq!(e.project.as_deref(), Some("g:/Scripts/proj"));
-        // timestamp decoded from chat_start_metadata (1_782_298_884 + idx)
         assert_eq!(e.timestamp.timestamp(), 1_782_298_885);
 
         // Invariant the test name claims: ModelUsageStats.output_tokens (f3) ==
@@ -800,7 +782,6 @@ mod tests {
         let parser = AntigravityParser::with_data_dir(tmp.path().to_path_buf());
         let entries = parser.parse_all().unwrap();
         assert_eq!(entries[0].cache_creation_tokens, 77);
-        // unix-style path keeps its leading slash
         assert_eq!(entries[0].project.as_deref(), Some("/work/x"));
     }
 
@@ -887,7 +868,6 @@ mod tests {
     #[test]
     fn test_parse_all_aggregates_and_dedups() {
         let tmp = TempDir::new().unwrap();
-        // Two distinct generations in IDE + one in CLI = 3 entries.
         seed_db(
             tmp.path(),
             "antigravity-ide",
@@ -990,8 +970,6 @@ mod tests {
 
     #[test]
     fn test_missing_usage_submessage_skipped() {
-        // A valid ChatModelMetadata with model + timestamp but NO usage (f4) is
-        // skipped — distinct from the malformed-blob and zero-token paths.
         let tmp = TempDir::new().unwrap();
         let start = chat_start(1_782_298_900, 0);
         let no_usage = cmm_parts(None, Some(&start), "gemini-3-flash-a");
@@ -1017,8 +995,6 @@ mod tests {
 
     #[test]
     fn test_missing_timestamp_falls_back_to_file_mtime() {
-        // No chat_start (f9) → decode_timestamp returns None → timestamp falls back
-        // to the DB file's mtime.
         let tmp = TempDir::new().unwrap();
         let usage = model_usage_stats(10, 5, 0, 0, 0, "r");
         let no_start = cmm_parts(Some(&usage), None, "gemini-3-flash-a");
@@ -1053,8 +1029,6 @@ mod tests {
 
     #[test]
     fn test_project_resolves_via_field1_fallback() {
-        // Older layout: trajectory_metadata_blob has ONLY the nested field 1→1 URI
-        // (no field 7). The project must still resolve.
         let tmp = TempDir::new().unwrap();
         seed_db_with_traj(
             tmp.path(),
@@ -1104,8 +1078,6 @@ mod tests {
 
     #[test]
     fn test_resolve_gemini_default_boundaries() {
-        // Boundaries are exclusive upper bounds: a timestamp exactly on a
-        // boundary belongs to the LATER bucket. Pins `<` vs `<=`.
         assert_eq!(resolve_gemini_default(1742860799), "gemini-2.0-flash"); // 1s before 2025-03-25
         assert_eq!(resolve_gemini_default(1742860800), "gemini-2.5-flash"); // exactly 2025-03-25
         assert_eq!(resolve_gemini_default(1779148799), "gemini-2.5-flash"); // 1s before 2026-05-19
@@ -1114,8 +1086,6 @@ mod tests {
 
     #[test]
     fn test_oversized_token_varints_do_not_panic() {
-        // Corrupt/adversarial usage counts near u64::MAX must not overflow-panic
-        // the zero-check sum; the row is still produced.
         let tmp = TempDir::new().unwrap();
         // Build the usage blob directly (model_usage_stats would overflow its own
         // f3 = thinking + response computation with MAX inputs).

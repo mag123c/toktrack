@@ -270,7 +270,6 @@ mod tests {
             .parse_file(&fixture_path("sample-session.jsonl"))
             .unwrap();
 
-        // Fixture contains a single assistant usage event
         assert_eq!(entries.len(), 1);
     }
 
@@ -301,8 +300,6 @@ mod tests {
             .parse_file(&fixture_path("sample-session.jsonl"))
             .unwrap();
 
-        // The leading `session` line carries cwd="/tmp/example-project"; it must
-        // be attached to the file's usage entries as the project.
         assert_eq!(entries[0].project.as_deref(), Some("/tmp/example-project"));
     }
 
@@ -313,8 +310,6 @@ mod tests {
             .parse_file(&fixture_path("sample-session.jsonl"))
             .unwrap();
 
-        // 5 lines total: session, model_change, thinking_level_change, user msg,
-        // assistant msg → only the assistant message produces an entry
         assert_eq!(entries.len(), 1);
     }
 
@@ -332,7 +327,6 @@ mod tests {
 
     #[test]
     fn test_pi_session_dir_env_takes_precedence() {
-        // PI_CODING_AGENT_SESSION_DIR (== --session-dir) wins over legacy PI_AGENT_DIR.
         let saved_s = std::env::var("PI_CODING_AGENT_SESSION_DIR").ok();
         let saved_a = std::env::var("PI_AGENT_DIR").ok();
         std::env::set_var("PI_AGENT_DIR", "/tmp/toktrack-pi-legacy");

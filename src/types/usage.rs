@@ -29,7 +29,6 @@ impl StatsData {
 
         let active_days = summaries.len() as u32;
 
-        // Calculate totals
         let mut total_tokens: u64 = 0;
         let mut total_cost: f64 = 0.0;
         let mut peak_day: Option<(NaiveDate, u64)> = None;
@@ -492,7 +491,7 @@ mod tests {
         let summaries = vec![make_summary(2024, 1, 15, 1000, 500, 100, 50, 0.10)];
         let data = StatsData::from_daily_summaries(&summaries);
 
-        assert_eq!(data.total_tokens, 1650); // 1000 + 500 + 100 + 50
+        assert_eq!(data.total_tokens, 1650);
         assert_eq!(data.daily_avg_tokens, 1650);
         assert_eq!(
             data.peak_day,
@@ -506,14 +505,14 @@ mod tests {
     #[test]
     fn test_stats_data_multiple_days() {
         let summaries = vec![
-            make_summary(2024, 1, 10, 100, 50, 10, 5, 0.05), // 165 tokens
-            make_summary(2024, 1, 15, 500, 250, 50, 25, 0.20), // 825 tokens (peak)
-            make_summary(2024, 1, 20, 200, 100, 20, 10, 0.10), // 330 tokens
+            make_summary(2024, 1, 10, 100, 50, 10, 5, 0.05),
+            make_summary(2024, 1, 15, 500, 250, 50, 25, 0.20),
+            make_summary(2024, 1, 20, 200, 100, 20, 10, 0.10),
         ];
         let data = StatsData::from_daily_summaries(&summaries);
 
-        assert_eq!(data.total_tokens, 165 + 825 + 330); // 1320
-        assert_eq!(data.daily_avg_tokens, 1320 / 3); // 440
+        assert_eq!(data.total_tokens, 165 + 825 + 330);
+        assert_eq!(data.daily_avg_tokens, 1320 / 3);
         assert_eq!(
             data.peak_day,
             Some((NaiveDate::from_ymd_opt(2024, 1, 15).unwrap(), 825))
@@ -525,15 +524,13 @@ mod tests {
 
     #[test]
     fn test_stats_data_peak_day_tie_keeps_first() {
-        // When multiple days have the same max tokens, first one wins
         let summaries = vec![
-            make_summary(2024, 1, 10, 500, 250, 50, 25, 0.10), // 825 tokens (first peak)
-            make_summary(2024, 1, 15, 500, 250, 50, 25, 0.10), // 825 tokens (tie)
-            make_summary(2024, 1, 20, 100, 50, 10, 5, 0.05),   // 165 tokens
+            make_summary(2024, 1, 10, 500, 250, 50, 25, 0.10),
+            make_summary(2024, 1, 15, 500, 250, 50, 25, 0.10),
+            make_summary(2024, 1, 20, 100, 50, 10, 5, 0.05),
         ];
         let data = StatsData::from_daily_summaries(&summaries);
 
-        // First day with max should win
         assert_eq!(
             data.peak_day,
             Some((NaiveDate::from_ymd_opt(2024, 1, 10).unwrap(), 825))
@@ -694,7 +691,6 @@ mod tests {
         };
 
         let local_date = entry.local_date();
-        // Verify it matches what chrono::Local would produce
         let expected = utc_ts.with_timezone(&Local).date_naive();
         assert_eq!(local_date, expected);
 

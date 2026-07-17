@@ -28,42 +28,33 @@ pub fn display_name(normalized: &str) -> String {
     // "gpt-5.3-codex::github-copilot" → "GPT-5.3 Codex::github-copilot".
     let model = normalized.split("::").next().unwrap_or(normalized);
 
-    // Claude: claude-{family}-{version} → {Family} {version}
     if let Some(rest) = model.strip_prefix("claude-") {
         return parse_claude_name(rest);
     }
 
-    // GPT: gpt-{variant}(-{suffix}) → GPT-{variant}( {Suffix})
     if let Some(rest) = model.strip_prefix("gpt-") {
         return parse_gpt_name(rest);
     }
 
-    // Gemini: gemini-{version}-{tier} → Gemini {version} {Tier}
     if let Some(rest) = model.strip_prefix("gemini-") {
         return parse_gemini_name(rest);
     }
 
-    // Codex: codex-{variant}(-latest) → Codex {Variant}
     if let Some(rest) = model.strip_prefix("codex-") {
         return parse_codex_name(rest);
     }
 
-    // OpenAI o-series: o{N}, o{N}-mini, o{N}-pro, etc.
     if let Some(rest) = model.strip_prefix('o') {
         if rest.starts_with(|c: char| c.is_ascii_digit()) {
             return parse_o_series(model);
         }
     }
 
-    // Fallback: return as-is
     model.to_string()
 }
 
 /// Parse Claude model name: {family}-{version} → {Family} {version}
 fn parse_claude_name(rest: &str) -> String {
-    // Split into family and version parts
-    // e.g., "opus-4-5" → family="opus", version="4-5"
-    // e.g., "sonnet-4" → family="sonnet", version="4"
     let parts: Vec<&str> = rest.splitn(2, '-').collect();
     if parts.len() < 2 {
         return format!("Claude {}", capitalize(rest));
@@ -107,16 +98,11 @@ fn parse_gpt_name(rest: &str) -> String {
 
 /// Parse Gemini model name: {version}-{tier} → Gemini {version} {Tier}
 fn parse_gemini_name(rest: &str) -> String {
-    // e.g., "2-5-pro" → "2.5 Pro"
-    // e.g., "2-0-flash" → "2.0 Flash"
-    // Find the tier (last part that's not a number)
     let parts: Vec<&str> = rest.split('-').collect();
     if parts.len() < 2 {
         return format!("Gemini {}", rest);
     }
 
-    // Find where version ends and tier begins
-    // Version parts are numeric, tier is alphabetic
     let mut version_parts = Vec::new();
     let mut tier_parts = Vec::new();
 
@@ -150,8 +136,6 @@ fn parse_codex_name(rest: &str) -> String {
 
 /// Parse OpenAI o-series: o{N}, o{N}-mini, o{N}-pro, etc.
 fn parse_o_series(name: &str) -> String {
-    // e.g., "o1" → "o1"
-    // e.g., "o1-mini" → "o1 Mini"
     if let Some(pos) = name.find('-') {
         let base = &name[..pos];
         let suffix = &name[pos + 1..];
@@ -200,11 +184,8 @@ pub fn normalize_model_name(model: &str) -> String {
         return "gemini-3-pro-preview".to_string();
     }
 
-    // Step 1: Replace dots with hyphens
     let normalized = model.replace('.', "-");
 
-    // Step 2: Remove 8-digit date suffix at end (e.g., -20251101)
-    // Pattern: ends with -YYYYMMDD where YYYYMMDD is 8 digits starting with 20
     if let Some(suffix_start) = normalized.rfind('-') {
         let suffix = &normalized[suffix_start + 1..];
         if suffix.len() == 8
@@ -221,8 +202,6 @@ pub fn normalize_model_name(model: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ========== display_name tests ==========
 
     #[test]
     fn test_display_name_claude_opus_4_5() {
@@ -329,12 +308,8 @@ mod tests {
         assert_eq!(display_name(""), "");
     }
 
-    // ========== Composite key (model::provider) handling ==========
-
     #[test]
     fn test_display_name_strips_provider_suffix_gpt() {
-        // Copilot emits composite keys like "gpt-5.3-codex::github-copilot".
-        // The provider suffix must not leak into the friendly name.
         assert_eq!(
             display_name("gpt-5.3-codex::github-copilot"),
             "GPT-5.3 Codex"
@@ -356,11 +331,8 @@ mod tests {
 
     #[test]
     fn test_display_name_no_provider_suffix_unchanged() {
-        // Plain keys keep their existing behavior.
         assert_eq!(display_name("gpt-5-3-codex"), "GPT-5.3 Codex");
     }
-
-    // ========== Dot to hyphen conversion ==========
 
     #[test]
     fn test_dot_to_hyphen_single() {
@@ -371,8 +343,6 @@ mod tests {
     fn test_dot_to_hyphen_multiple() {
         assert_eq!(normalize_model_name("model-1.2.3"), "model-1-2-3");
     }
-
-    // ========== Date suffix removal ==========
 
     #[test]
     fn test_remove_date_suffix_claude_opus() {
@@ -392,14 +362,11 @@ mod tests {
 
     #[test]
     fn test_remove_date_suffix_with_dot_and_date() {
-        // Combined: dot + date
         assert_eq!(
             normalize_model_name("claude-opus-4.5-20251101"),
             "claude-opus-4-5"
         );
     }
-
-    // ========== No-op cases ==========
 
     #[test]
     fn test_normalize_gemini_default() {
@@ -434,11 +401,8 @@ mod tests {
         assert_eq!(normalize_model_name("unknown-model"), "unknown-model");
     }
 
-    // ========== Edge cases ==========
-
     #[test]
     fn test_short_date_not_removed() {
-        // 8-digit number in middle shouldn't be removed
         assert_eq!(
             normalize_model_name("model-12345678-extra"),
             "model-12345678-extra"
@@ -447,7 +411,6 @@ mod tests {
 
     #[test]
     fn test_date_suffix_at_end_only() {
-        // Date must be at end
         assert_eq!(normalize_model_name("20251101-claude"), "20251101-claude");
     }
 }

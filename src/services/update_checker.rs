@@ -114,8 +114,6 @@ pub fn execute_update() -> Result<(), String> {
 mod tests {
     use super::*;
 
-    // ========== is_newer_version tests ==========
-
     #[test]
     fn test_is_newer_version_major() {
         assert!(is_newer_version("2.0.0", "1.0.0"));
@@ -166,8 +164,6 @@ mod tests {
         assert!(!is_newer_version("1.0.0", "invalid"));
         assert!(!is_newer_version("", "1.0.0"));
     }
-
-    // ========== UpdateCheckResult tests ==========
 
     #[test]
     fn test_update_check_result_update_available() {

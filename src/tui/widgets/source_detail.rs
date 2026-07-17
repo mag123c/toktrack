@@ -88,7 +88,6 @@ impl Widget for SourceDetailView<'_> {
         self.render_separator(chunks[2], buf);
         self.render_mode_indicator(chunks[3], buf);
 
-        // Render daily table (header + rows)
         let daily_view = DailyView::new(
             self.daily_data,
             self.scroll_offset,
@@ -448,7 +447,6 @@ mod tests {
         let area = Rect::new(0, 0, 60, 15);
         let mut buf = Buffer::empty(area);
         view.render(area, &mut buf);
-        // Should not panic even on narrow terminal
     }
 
     #[test]
@@ -467,7 +465,6 @@ mod tests {
         let area = Rect::new(0, 0, 120, 20);
         let mut buf = Buffer::empty(area);
         view.render(area, &mut buf);
-        // Should render with selected row without panic
     }
 
     #[test]
@@ -536,7 +533,6 @@ mod tests {
         let area = Rect::new(0, 0, 120, 20);
         let mut buf = Buffer::empty(area);
         view.render(area, &mut buf);
-        // Should render with light theme without panic
     }
 
     #[test]

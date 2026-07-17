@@ -268,7 +268,6 @@ impl DailySummaryCacheService {
             let _ = lf.unlock();
         }
 
-        // Migrate model names: normalize keys in the models HashMap
         let summaries: Vec<DailySummary> = cache
             .summaries
             .into_iter()
@@ -371,7 +370,6 @@ mod tests {
         (service, temp_dir)
     }
 
-    // Test 1: No cache computes all entries
     #[test]
     fn test_no_cache_computes_all_entries() {
         let (service, _temp) = create_test_service();
@@ -390,17 +388,15 @@ mod tests {
         assert_eq!(result[1].total_input_tokens, 200);
     }
 
-    // Test 2: Cache hit recomputes dates with new entries
     #[test]
     fn test_cache_recomputes_dates_with_entries() {
         let (service, _temp) = create_test_service();
         let today = Local::now().date_naive();
         let yesterday = today - chrono::Duration::days(1);
 
-        // Pre-populate cache with yesterday's data
         let cached_summary = DailySummary {
             date: yesterday,
-            total_input_tokens: 999, // Different from entries
+            total_input_tokens: 999,
             total_output_tokens: 999,
             total_cache_read_tokens: 0,
             total_cache_creation_tokens: 0,
@@ -422,7 +418,6 @@ mod tests {
         fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
         fs::write(&cache_path, serde_json::to_string(&cache).unwrap()).unwrap();
 
-        // Entries for yesterday and today
         let entries = vec![
             UsageEntry {
                 timestamp: yesterday.and_hms_opt(12, 0, 0).unwrap().and_utc(),
@@ -468,20 +463,16 @@ mod tests {
 
         let (result, warning) = service.load_or_compute("claude-code", &entries).unwrap();
 
-        // Should have 2 summaries, no warning for valid cache
         assert!(warning.is_none());
         assert_eq!(result.len(), 2);
 
-        // Yesterday should be recomputed from entries (100), not cached (999)
         let yesterday_result = result.iter().find(|s| s.date == yesterday).unwrap();
         assert_eq!(yesterday_result.total_input_tokens, 100);
 
-        // Today should be recomputed (200)
         let today_result = result.iter().find(|s| s.date == today).unwrap();
         assert_eq!(today_result.total_input_tokens, 200);
     }
 
-    // Test 3: Corrupted cache falls back to full recomputation with warning
     #[test]
     fn test_corrupted_cache_falls_back() {
         let (service, _temp) = create_test_service();
@@ -493,13 +484,11 @@ mod tests {
 
         let (result, warning) = service.load_or_compute("claude-code", &entries).unwrap();
 
-        // Should return warning for corrupted cache
         assert!(matches!(warning, Some(CacheWarning::Corrupted(_))));
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].total_input_tokens, 100);
     }
 
-    // Test 4: Empty entries returns empty result
     #[test]
     fn test_empty_entries_returns_empty() {
         let (service, _temp) = create_test_service();
@@ -510,13 +499,11 @@ mod tests {
         assert!(result.is_empty());
     }
 
-    // Test 5: Merge deduplicates by date (new takes precedence)
     #[test]
     fn test_merge_deduplicates_by_date() {
         let (service, _temp) = create_test_service();
         let today = Local::now().date_naive();
 
-        // Pre-populate cache with today's old data
         let cached_summary = DailySummary {
             date: today,
             total_input_tokens: 999,
@@ -541,7 +528,6 @@ mod tests {
         fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
         fs::write(&cache_path, serde_json::to_string(&cache).unwrap()).unwrap();
 
-        // New entry for today
         let entries = vec![UsageEntry {
             timestamp: today.and_hms_opt(12, 0, 0).unwrap().and_utc(),
             model: Some("claude".to_string()),
@@ -565,13 +551,11 @@ mod tests {
 
         let (result, _warning) = service.load_or_compute("claude-code", &entries).unwrap();
 
-        // Should only have one entry for today with the new value
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].date, today);
-        assert_eq!(result[0].total_input_tokens, 100); // New value, not 999
+        assert_eq!(result[0].total_input_tokens, 100);
     }
 
-    // Test 6: Results are sorted ascending by date
     #[test]
     fn test_results_sorted_ascending() {
         let (service, _temp) = create_test_service();
@@ -589,16 +573,14 @@ mod tests {
         assert_eq!(result[2].date.to_string(), "2024-01-20");
     }
 
-    // Test 7: Today is always recalculated even if in cache
     #[test]
     fn test_today_always_recalculated() {
         let (service, _temp) = create_test_service();
         let today = Local::now().date_naive();
 
-        // Pre-populate cache with today
         let cached_summary = DailySummary {
             date: today,
-            total_input_tokens: 50, // Old value
+            total_input_tokens: 50,
             total_output_tokens: 25,
             total_cache_read_tokens: 0,
             total_cache_creation_tokens: 0,
@@ -620,7 +602,6 @@ mod tests {
         fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
         fs::write(&cache_path, serde_json::to_string(&cache).unwrap()).unwrap();
 
-        // New entry for today with different values
         let entries = vec![UsageEntry {
             timestamp: today.and_hms_opt(15, 0, 0).unwrap().and_utc(),
             model: Some("claude".to_string()),
@@ -645,10 +626,9 @@ mod tests {
         let (result, _warning) = service.load_or_compute("claude-code", &entries).unwrap();
 
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].total_input_tokens, 200); // New value, not 50
+        assert_eq!(result[0].total_input_tokens, 200);
     }
 
-    // Test 8: Cache path format is correct
     #[test]
     fn test_cache_path_format() {
         let (service, temp) = create_test_service();
@@ -660,44 +640,36 @@ mod tests {
         assert_eq!(path2, temp.path().join("cursor_daily.json"));
     }
 
-    // Test 9: Clear removes cache file
     #[test]
     fn test_clear_removes_cache_file() {
         let (service, _temp) = create_test_service();
         let cache_path = service.cache_path("claude-code");
 
-        // Create cache file
         fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
         fs::write(&cache_path, "{}").unwrap();
         assert!(cache_path.exists());
 
-        // Clear it
         service.clear("claude-code").unwrap();
 
         assert!(!cache_path.exists());
     }
 
-    // Test 10: CLI isolation - different CLIs have separate caches
     #[test]
     fn test_cli_isolation() {
         let (service, _temp) = create_test_service();
 
-        // Store data for claude-code
         let entries1 = vec![make_entry(2024, 1, 10, Some("claude"), 100, 50, Some(0.01))];
         service.load_or_compute("claude-code", &entries1).unwrap();
 
-        // Store data for cursor
         let entries2 = vec![make_entry(2024, 1, 10, Some("gpt-4"), 500, 250, Some(0.05))];
         service.load_or_compute("cursor", &entries2).unwrap();
 
-        // Verify separate cache files exist
         let claude_cache = service.cache_path("claude-code");
         let cursor_cache = service.cache_path("cursor");
         assert!(claude_cache.exists());
         assert!(cursor_cache.exists());
         assert_ne!(claude_cache, cursor_cache);
 
-        // Verify data is isolated
         let claude_content: DailySummaryCache =
             serde_json::from_str(&fs::read_to_string(&claude_cache).unwrap()).unwrap();
         let cursor_content: DailySummaryCache =
@@ -709,13 +681,11 @@ mod tests {
         assert_eq!(cursor_content.summaries[0].total_input_tokens, 500);
     }
 
-    // Test 11: Cache migrates model names (normalizes keys)
     #[test]
     fn test_cache_migrates_model_names() {
         let (service, _temp) = create_test_service();
         let yesterday = Local::now().date_naive() - chrono::Duration::days(1);
 
-        // Create cache with non-normalized model names (with date suffixes)
         let mut models = HashMap::new();
         models.insert(
             "claude-opus-4-5-20251101".to_string(),
@@ -733,7 +703,7 @@ mod tests {
             },
         );
         models.insert(
-            "claude-opus-4.5".to_string(), // Dot version, same model
+            "claude-opus-4.5".to_string(),
             crate::types::ModelUsage {
                 input_tokens: 200,
                 output_tokens: 100,
@@ -772,32 +742,27 @@ mod tests {
         fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
         fs::write(&cache_path, serde_json::to_string(&cache).unwrap()).unwrap();
 
-        // Load and verify normalization + merging
         let entries: Vec<UsageEntry> = vec![];
         let (result, _warning) = service.load_or_compute("claude-code", &entries).unwrap();
 
         assert_eq!(result.len(), 1);
         let summary = &result[0];
 
-        // Should have only one model key after normalization (merged)
         assert_eq!(summary.models.len(), 1);
         assert!(summary.models.contains_key("claude-opus-4-5"));
 
-        // Values should be merged
         let model = summary.models.get("claude-opus-4-5").unwrap();
-        assert_eq!(model.input_tokens, 300); // 100 + 200
-        assert_eq!(model.output_tokens, 150); // 50 + 100
-        assert!((model.cost_usd - 0.30).abs() < f64::EPSILON); // 0.10 + 0.20
-        assert_eq!(model.count, 3); // 1 + 2
+        assert_eq!(model.input_tokens, 300);
+        assert_eq!(model.output_tokens, 150);
+        assert!((model.cost_usd - 0.30).abs() < f64::EPSILON);
+        assert_eq!(model.count, 3);
     }
 
-    // Test 12: Old cache without version (deserialized as 0) triggers VersionMismatch
     #[test]
     fn test_old_cache_version_mismatch() {
         let (service, _temp) = create_test_service();
         let yesterday = Local::now().date_naive() - chrono::Duration::days(1);
 
-        // Write cache JSON without "version" field (simulates pre-versioning cache)
         let json = serde_json::json!({
             "cli": "claude-code",
             "updated_at": chrono::Utc::now().timestamp(),
@@ -828,14 +793,11 @@ mod tests {
 
         let (result, warning) = service.load_or_compute("claude-code", &entries).unwrap();
 
-        // Should return VersionMismatch warning
         assert!(matches!(warning, Some(CacheWarning::VersionMismatch(_))));
-        // Old cached value (999) should be discarded; recomputed from entries
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].total_input_tokens, 100);
     }
 
-    // Test 13: Matching version loads cache normally
     #[test]
     fn test_matching_version_loads_normally() {
         let (service, _temp) = create_test_service();
@@ -865,7 +827,6 @@ mod tests {
         fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
         fs::write(&cache_path, serde_json::to_string(&cache).unwrap()).unwrap();
 
-        // No entries — should rely entirely on cache
         let entries: Vec<UsageEntry> = vec![];
         let (result, warning) = service.load_or_compute("claude-code", &entries).unwrap();
 
@@ -874,14 +835,12 @@ mod tests {
         assert_eq!(result[0].total_input_tokens, 500);
     }
 
-    // Test 14: Version mismatch preserves cached dates without entries
     #[test]
     fn test_version_mismatch_preserves_old_data_without_entries() {
         let (service, _temp) = create_test_service();
         let old_date = Local::now().date_naive() - chrono::Duration::days(30);
         let yesterday = Local::now().date_naive() - chrono::Duration::days(1);
 
-        // Old cache with two dates: old_date (no entries) + yesterday (has entries)
         let json = serde_json::json!({
             "cli": "claude-code",
             "version": 0,
@@ -913,7 +872,6 @@ mod tests {
         fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
         fs::write(&cache_path, json.to_string()).unwrap();
 
-        // Only provide entries for yesterday (old_date JSONL is gone)
         let entries = vec![make_entry(
             yesterday.year(),
             yesterday.month(),
@@ -929,28 +887,23 @@ mod tests {
         assert!(matches!(warning, Some(CacheWarning::VersionMismatch(_))));
         assert_eq!(result.len(), 2);
 
-        // old_date: preserved from cache (no entries to recompute)
         let old = result.iter().find(|s| s.date == old_date).unwrap();
         assert_eq!(old.total_input_tokens, 500);
 
-        // yesterday: recomputed from entries
         let recent = result.iter().find(|s| s.date == yesterday).unwrap();
         assert_eq!(recent.total_input_tokens, 200);
 
-        // Saved cache should now have CACHE_VERSION
         let saved: DailySummaryCache =
             serde_json::from_str(&fs::read_to_string(&cache_path).unwrap()).unwrap();
         assert_eq!(saved.version, CACHE_VERSION);
     }
 
-    // Test 15: latest_cached_date returns None when no cache exists
     #[test]
     fn test_latest_cached_date_no_cache() {
         let (service, _temp) = create_test_service();
         assert_eq!(service.latest_cached_date("claude-code"), None);
     }
 
-    // Test 16: latest_cached_date returns max date from summaries
     #[test]
     fn test_latest_cached_date_returns_max() {
         let (service, _temp) = create_test_service();
@@ -1013,14 +966,12 @@ mod tests {
         );
     }
 
-    // Test: cached_dates is empty when no cache file exists
     #[test]
     fn test_cached_dates_empty_when_no_file() {
         let (service, _temp) = create_test_service();
         assert!(service.cached_dates("claude-code").is_empty());
     }
 
-    // Test: cached_dates collects every date from the cached summaries
     #[test]
     fn test_cached_dates_collects_all_summary_dates() {
         let (service, _temp) = create_test_service();
@@ -1057,7 +1008,6 @@ mod tests {
         assert!(dates.contains(&NaiveDate::from_ymd_opt(2026, 3, 3).unwrap()));
     }
 
-    // Test: cached_dates returns empty on a corrupted cache file (no panic)
     #[test]
     fn test_cached_dates_empty_on_corrupted_file() {
         let (service, _temp) = create_test_service();
@@ -1067,7 +1017,6 @@ mod tests {
         assert!(service.cached_dates("claude-code").is_empty());
     }
 
-    // Test 17: latest_cached_date returns None for empty summaries
     #[test]
     fn test_latest_cached_date_empty_summaries() {
         let (service, _temp) = create_test_service();
@@ -1084,11 +1033,8 @@ mod tests {
         assert_eq!(service.latest_cached_date("claude-code"), None);
     }
 
-    // ========== Issue #134: composite key normalization ==========
-
     #[test]
     fn test_normalize_composite_key_preserves_provider() {
-        // Only the model part is normalized; the provider must not be touched.
         assert_eq!(
             normalize_composite_key("claude-opus-4.5::anthropic"),
             "claude-opus-4-5::anthropic"
@@ -1111,7 +1057,6 @@ mod tests {
 
     #[test]
     fn test_normalize_composite_key_plain_key_unchanged_behavior() {
-        // Plain (non-composite) keys keep the original normalize_model_name behavior.
         assert_eq!(
             normalize_composite_key("claude-opus-4.5"),
             "claude-opus-4-5"
@@ -1172,7 +1117,6 @@ mod tests {
         fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
         fs::write(&cache_path, serde_json::to_string(&cache).unwrap()).unwrap();
 
-        // With no entries to recompute, load_or_compute returns the cached data as-is.
         let entries: Vec<UsageEntry> = vec![];
         let (result, warning) = service.load_or_compute("codex", &entries).unwrap();
 
@@ -1215,7 +1159,6 @@ mod tests {
             models,
             projects: HashMap::new(),
         };
-        // version=0 triggers the mismatch path which runs normalize_model_keys.
         let cache = serde_json::json!({
             "cli": "codex",
             "version": 0,
@@ -1229,9 +1172,8 @@ mod tests {
         let entries: Vec<UsageEntry> = vec![];
         let (result, warning) = service.load_or_compute("codex", &entries).unwrap();
 
-        assert!(warning.is_some()); // version mismatch warning
+        assert!(warning.is_some());
         assert_eq!(result.len(), 1);
-        // Model normalized (4.5 -> 4-5); provider preserved.
         assert!(result[0].models.contains_key("claude-opus-4-5::anthropic"));
     }
 }

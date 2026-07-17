@@ -274,7 +274,6 @@ impl CLIParser for CodexParser {
 
                     prev_totals = data.total;
 
-                    // Skip zero-delta events
                     if delta_input == 0 && delta_output == 0 && delta_cached == 0 {
                         continue;
                     }
@@ -330,7 +329,6 @@ mod tests {
             .parse_file(&fixture_path("sample-session.jsonl"))
             .unwrap();
 
-        // Two token_count events → two entries (delta per turn)
         assert_eq!(entries.len(), 2);
     }
 
@@ -341,19 +339,15 @@ mod tests {
             .parse_file(&fixture_path("sample-session.jsonl"))
             .unwrap();
 
-        // Entry 1: last_token_usage={input:150, output:75, cached:25}
-        //   normalized input = 150 - 25 = 125
         let e1 = &entries[0];
         assert_eq!(e1.model, Some("o4-mini".to_string()));
-        assert_eq!(e1.input_tokens, 125); // 150 - 25
+        assert_eq!(e1.input_tokens, 125);
         assert_eq!(e1.output_tokens, 75);
         assert_eq!(e1.cache_read_tokens, 25);
 
-        // Entry 2: last_token_usage={input:350, output:125, cached:75}
-        //   normalized input = 350 - 75 = 275
         let e2 = &entries[1];
         assert_eq!(e2.model, Some("gpt-4.1".to_string()));
-        assert_eq!(e2.input_tokens, 275); // 350 - 75
+        assert_eq!(e2.input_tokens, 275);
         assert_eq!(e2.output_tokens, 125);
         assert_eq!(e2.cache_read_tokens, 75);
     }
@@ -365,10 +359,6 @@ mod tests {
             .parse_file(&fixture_path("multi-turn-session.jsonl"))
             .unwrap();
 
-        // Turn 1: last={100,50,20} → input=80, output=50, cached=20
-        // Turn 2: last={200,70,40} → input=160, output=70, cached=40
-        // Turn 3: no last → diff={0,0,0} → SKIP
-        // Turn 4: last={200,80,40} → input=160, output=80, cached=40
         assert_eq!(entries.len(), 3);
 
         assert_eq!(entries[0].input_tokens, 80);
@@ -391,8 +381,6 @@ mod tests {
             .parse_file(&fixture_path("multi-turn-session.jsonl"))
             .unwrap();
 
-        // Turn 3 has zero delta (no last_token_usage, totals unchanged) → skipped
-        // So 3 entries, not 4
         assert_eq!(entries.len(), 3);
     }
 
@@ -403,7 +391,6 @@ mod tests {
             .parse_file(&fixture_path("sample-session.jsonl"))
             .unwrap();
 
-        // Invalid JSON line, null info, and non-token events are skipped
         assert_eq!(entries.len(), 2);
     }
 
@@ -436,7 +423,6 @@ mod tests {
 
     #[test]
     fn test_project_none_when_no_cwd() {
-        // Legacy fixtures without cwd must keep project=None.
         let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
         let entries = parser
             .parse_file(&fixture_path("sample-session.jsonl"))
@@ -480,8 +466,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // ========== Issue #134: provider extraction from session_meta ==========
-
     #[test]
     fn test_provider_extracted_from_session_meta() {
         // Real Codex CLI v0.116+ writes `session_meta.payload.model_provider`
@@ -524,7 +508,6 @@ mod tests {
 
     #[test]
     fn test_provider_none_when_session_meta_lacks_provider() {
-        // Regression: legacy fixture without model_provider must keep provider=None.
         let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
         let entries = parser
             .parse_file(&fixture_path("sample-session.jsonl"))

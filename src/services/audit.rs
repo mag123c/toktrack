@@ -70,7 +70,6 @@ pub fn audit_source(
     let id = id.into();
     let label = label.into();
 
-    // Union of all dates that carry data anywhere; bounds the covered range.
     let all: BTreeSet<NaiveDate> = live.iter().chain(cache.iter()).copied().collect();
     let start = all.iter().next().copied();
     let end = all.iter().next_back().copied();
@@ -179,7 +178,6 @@ mod tests {
 
     #[test]
     fn test_live_takes_precedence_over_cache() {
-        // A day present in BOTH live and cache is reported as live (recoverable).
         let day = d(2026, 3, 1);
         let audit = audit_source("claude-code", "claude-code", &set(&[day]), &set(&[day]));
 
@@ -191,7 +189,6 @@ mod tests {
 
     #[test]
     fn test_cache_only_when_raw_gone() {
-        // In cache but not on disk → preserved-by-toktrack.
         let day = d(2026, 3, 1);
         let audit = audit_source("codex", "codex", &HashSet::new(), &set(&[day]));
 
@@ -202,7 +199,6 @@ mod tests {
 
     #[test]
     fn test_missing_for_gap_days_inside_range() {
-        // Range is 03-01..=03-03; only the endpoints have data, the middle is a gap.
         let live = set(&[d(2026, 3, 1)]);
         let cache = set(&[d(2026, 3, 3)]);
         let audit = audit_source("gemini", "gemini", &live, &cache);
@@ -240,7 +236,6 @@ mod tests {
 
     #[test]
     fn test_counts_sum_to_total_days() {
-        // 03-01 live, 03-02 missing, 03-03 cache_only, 03-04 missing, 03-05 live.
         let live = set(&[d(2026, 3, 1), d(2026, 3, 5)]);
         let cache = set(&[d(2026, 3, 3)]);
         let audit = audit_source("claude-code", "claude-code", &live, &cache);
@@ -301,8 +296,6 @@ mod tests {
         )
         .unwrap();
 
-        // Parser points at a nonexistent dir → no live dates, so every cached
-        // date must be classified cache_only.
         let source = SourceInstance::new(
             "auditsrc",
             "auditsrc",

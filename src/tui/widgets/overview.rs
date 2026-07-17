@@ -66,7 +66,6 @@ impl<'a> Overview<'a> {
 
 impl Widget for Overview<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        // Apply max width constraint and center the content
         let content_width = area.width.min(MAX_CONTENT_WIDTH);
         let x_offset = (area.width.saturating_sub(content_width)) / 2;
         let centered_area = Rect {
@@ -76,11 +75,9 @@ impl Widget for Overview<'_> {
             height: area.height,
         };
 
-        // Determine source section height (1 row per source, 0-4 sources shown)
         let source_rows = self.data.source_usage.len().min(4) as u16;
         let show_sources = source_rows > 0;
 
-        // Build layout constraints dynamically
         let mut constraints = vec![
             Constraint::Length(1), // 0: TabBar
             Constraint::Length(1), // 1: Separator
@@ -121,31 +118,23 @@ impl Widget for Overview<'_> {
 
         let chunks = Layout::vertical(constraints).split(centered_area);
 
-        // Render tab bar
         TabBar::new(self.data.selected_tab, self.theme).render(chunks[0], buf);
 
-        // Render separator
         self.render_separator(chunks[1], buf);
 
-        // Render hero stat
         self.render_hero_stat(chunks[2], buf);
 
-        // Render sub-stats (Cost only)
         self.render_sub_stats(chunks[3], buf);
 
-        // Render sources section if present
         if show_sources {
             self.render_sources_label(chunks[sources_label_idx], buf);
             self.render_source_bars(chunks[sources_bars_idx], buf);
         }
 
-        // Render heatmap with legend
         self.render_heatmap_section(chunks[heatmap_idx], buf);
 
-        // Render separator
         self.render_separator(chunks[sep_idx], buf);
 
-        // Render keybindings
         self.render_keybindings(chunks[keybindings_idx], buf);
     }
 }
@@ -223,7 +212,6 @@ impl Overview<'_> {
             .max()
             .unwrap_or(1);
 
-        // Bar rendering config
         const SOURCE_NAME_WIDTH: usize = 12;
         const BAR_WIDTH: usize = 20;
         const TOTAL_LINE_WIDTH: usize = SOURCE_NAME_WIDTH + 2 + BAR_WIDTH + 2 + 15; // name + "  " + bar + "  " + count
@@ -239,11 +227,9 @@ impl Overview<'_> {
                 break;
             }
 
-            // Selection marker
             let is_selected = self.data.selected_source == Some(i);
             let marker = if is_selected { "▸ " } else { "  " };
 
-            // Source name (left-padded, fixed width)
             let name = if source.source.chars().count() > SOURCE_NAME_WIDTH - 1 {
                 format!(
                     "{}…",
@@ -258,7 +244,6 @@ impl Overview<'_> {
             };
             let name_display = format!("{:>width$}", name, width = SOURCE_NAME_WIDTH);
 
-            // Bar representation
             let ratio = source.total_tokens as f64 / max_tokens as f64;
             let filled = (ratio * BAR_WIDTH as f64).round() as usize;
             let filled = if source.total_tokens > 0 {
@@ -269,7 +254,6 @@ impl Overview<'_> {
             let filled = filled.min(BAR_WIDTH);
             let bar = format!("{}{}", "█".repeat(filled), "░".repeat(BAR_WIDTH - filled));
 
-            // Token count
             let count_str = format_number(source.total_tokens);
 
             // Unsupported sources render as a dimmed, bar-less notice row
@@ -289,7 +273,6 @@ impl Overview<'_> {
                 continue;
             }
 
-            // Build the line
             let name_style = if is_selected {
                 Style::default()
                     .fg(self.theme.accent())
@@ -317,7 +300,6 @@ impl Overview<'_> {
                 ));
             }
 
-            // Render centered
             let line = Line::from(spans);
             buf.set_line(area.x + x_offset, y, &line, area.width - x_offset);
         }
@@ -394,8 +376,6 @@ impl Overview<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ========== format_number tests ==========
 
     #[test]
     fn test_format_number_zero() {

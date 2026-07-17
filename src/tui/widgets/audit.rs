@@ -312,7 +312,6 @@ mod tests {
 
     #[test]
     fn test_segment_widths_split_proportionally() {
-        // 50/50 live vs missing over 48 cells.
         let (l, c, m) = segment_widths(10, 0, 10, 48);
         assert_eq!(c, 0);
         assert_eq!(l + c + m, 48);
@@ -321,7 +320,6 @@ mod tests {
 
     #[test]
     fn test_segment_widths_keeps_single_preserved_day_visible() {
-        // 1 preserved day out of 1000 must still light at least one cell.
         let (_l, c, _m) = segment_widths(999, 1, 0, 48);
         assert!(c >= 1, "preserved segment vanished");
     }

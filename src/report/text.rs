@@ -39,11 +39,9 @@ fn truncate(s: &str, max: usize) -> String {
 fn boxed_line(out: &mut String, w: usize, content: &str) {
     let char_count = content.chars().count();
     if char_count >= w {
-        // Truncate to fit
         let truncated: String = content.chars().take(w).collect();
         out.push_str(&format!("\u{2502}{}\u{2502}\n", truncated));
     } else {
-        // Pad with spaces
         out.push_str(&format!(
             "\u{2502}{}{}\u{2502}\n",
             content,
@@ -203,7 +201,6 @@ fn center_line(out: &mut String, w: usize, text: &str) {
 }
 
 fn kv_line(out: &mut String, w: usize, key: &str, value: &str) {
-    // " key............ value"
     let key_len = key.len();
     let val_len = value.len();
     let dots = w.saturating_sub(key_len + val_len + 2); // 1 leading space + 1 trailing space

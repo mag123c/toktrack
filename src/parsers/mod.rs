@@ -103,9 +103,7 @@ pub trait CLIParser: Send + Sync {
                 if seen.insert(hash) {
                     deduped.push(entry);
                 }
-                // Skip duplicate (hash already in set)
             } else {
-                // No hash (missing message_id or request_id) - keep entry
                 deduped.push(entry);
             }
         }
@@ -307,8 +305,6 @@ mod tests {
         let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
         let result = parser.parse_all().unwrap();
         assert!(!result.is_empty());
-        // claude-sample.jsonl (4) + empty.jsonl (0) + multi/*.jsonl (2)
-        //   + claude/real-shape-session.jsonl (1) = 7
         assert_eq!(result.len(), 7);
     }
 
@@ -316,33 +312,26 @@ mod tests {
     fn test_parse_all_multiple_files() {
         let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures/multi"));
         let result = parser.parse_all().unwrap();
-        // 2 files × 1 entry each = 2 entries
         assert_eq!(result.len(), 2);
     }
 
     #[test]
     fn test_parse_all_with_empty_file() {
-        // tests/fixtures has claude-sample.jsonl (3), empty.jsonl (0), multi/*.jsonl (2)
         let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
         let result = parser.parse_all().unwrap();
-        // empty.jsonl contributes 0 entries, total = 7
         assert_eq!(result.len(), 7);
     }
 
     #[test]
     fn test_parse_recent_files_includes_all_recent() {
-        // All fixture files were modified recently (exist on disk now)
-        // Using epoch as since → all files should be included
         let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
         let since = std::time::UNIX_EPOCH;
         let result = parser.parse_recent_files(since).unwrap();
-        // Same as parse_all: all files are "recent" relative to epoch
         assert_eq!(result.len(), 7);
     }
 
     #[test]
     fn test_parse_recent_files_filters_old() {
-        // Using a future time as since → no files should match
         let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
         let since = SystemTime::now() + std::time::Duration::from_secs(3600);
         let result = parser.parse_recent_files(since).unwrap();
@@ -361,20 +350,6 @@ mod tests {
     fn test_collect_files() {
         let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
         let files = parser.collect_files();
-        // claude-sample.jsonl, empty.jsonl, multi/file1.jsonl, multi/file2.jsonl,
-        // codex/sample-session.jsonl, codex/multi-turn-session.jsonl,
-        // codex/openai-session.jsonl, codex/multi-session-meta.jsonl,
-        // codex/cwd-session.jsonl,
-        // pi_agent/sample-session.jsonl,
-        // gemini/tmp_jsonl/chats/session-*.jsonl,
-        // gemini/tmp_jsonl/chats/parent-session-xyz/sub-abc.jsonl,
-        // gemini/tmp_jsonl_malformed/chats/session-bad.jsonl,
-        // gemini/tmp_jsonl_no_meta/chats/session-*.jsonl
-        // claude/real-shape-session.jsonl
-        // qwen/proj/chats/session-*.jsonl
-        // qwen_v2/projects/g--scripts-test-qwen/chats/sess-new.jsonl
-        // qwen_v2/tmp/hash1/chats/session-*.jsonl
-        // (claude parser uses `**/*.jsonl`; gemini/qwen-format files parse to 0 entries.)
         assert_eq!(files.len(), 18);
     }
 }

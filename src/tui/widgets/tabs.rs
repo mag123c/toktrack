@@ -96,7 +96,6 @@ impl Widget for TabBar {
             return;
         }
 
-        // Calculate total width of all tabs for centering
         let total_width: u16 = Tab::all()
             .iter()
             .map(|tab| {
@@ -111,7 +110,6 @@ impl Widget for TabBar {
             .sum::<u16>()
             .saturating_sub(2); // Remove trailing spacing
 
-        // Center the tabs
         let start_x = area.x + (area.width.saturating_sub(total_width)) / 2;
         let mut x = start_x;
 
@@ -119,7 +117,6 @@ impl Widget for TabBar {
             let is_selected = *tab == self.selected;
             let label = tab.label();
 
-            // Calculate display string
             let display = if is_selected {
                 format!("[{}]", label)
             } else {
@@ -131,7 +128,6 @@ impl Widget for TabBar {
                 break;
             }
 
-            // Style based on selection
             let style = if is_selected {
                 Style::default()
                     .fg(self.theme.accent())

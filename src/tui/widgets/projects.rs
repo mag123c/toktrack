@@ -68,7 +68,6 @@ impl ProjectsData {
             .filter(|p| p.total_tokens > 0)
             .collect();
 
-        // Sort by cost descending (NaN-safe), tie-break by tokens.
         projects.sort_by(|a, b| {
             b.cost_usd
                 .partial_cmp(&a.cost_usd)
@@ -196,7 +195,6 @@ impl ProjectsView<'_> {
             return;
         }
 
-        // Auto-scroll so the selected row stays visible.
         let selected = self.selected.unwrap_or(0);
         let scroll = if selected >= height {
             selected + 1 - height
@@ -300,9 +298,7 @@ mod tests {
 
     #[test]
     fn test_project_display_name_two_segments() {
-        // Forward slashes (POSIX-style).
         assert_eq!(project_display_name("/srv/work/alpha/beta"), "alpha/beta");
-        // Backslashes (Windows-style) — synthetic placeholder, not a real path.
         assert_eq!(project_display_name("Z:\\work\\alpha\\beta"), "alpha/beta");
     }
 

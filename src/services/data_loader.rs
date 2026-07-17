@@ -161,7 +161,6 @@ impl DataLoaderService {
             let entries = if has_source_cache {
                 let latest = cache_service.latest_cached_date(&source.id);
                 if has_date_gap(latest, yesterday) {
-                    // Gap detected: full re-parse to fill missing dates
                     match parser.parse_all() {
                         Ok(e) => e,
                         Err(e) => {
@@ -251,7 +250,6 @@ impl DataLoaderService {
 
     /// Cold path: full parse_all() per source + build cache
     fn load_cold_path(&self) -> Result<LoadResult> {
-        // Try network pricing if cache-only failed
         let fallback_pricing;
         let pricing_ref = match &self.pricing {
             Some(p) => Some(p),
@@ -292,7 +290,6 @@ impl DataLoaderService {
             let entries = Self::assign_source_id(entries, &source.id);
             let entries = self.apply_pricing_with_ref(entries, pricing_ref);
 
-            // Try to use cache service
             if let Some(cs) = &self.cache_service {
                 match cs.load_or_compute(&source.id, &entries) {
                     Ok((summaries, warning)) => {
@@ -316,7 +313,6 @@ impl DataLoaderService {
                 }
             }
 
-            // Cache unavailable: compute summaries directly
             let summaries = Aggregator::daily(&entries);
             self.collect_source_stats(&summaries, &source.id, &mut source_stats);
             source_summaries
@@ -423,7 +419,6 @@ impl DataLoaderService {
                 total_cost_usd,
             })
             .collect();
-        // Sort by total_tokens descending
         result.sort_by_key(|b| std::cmp::Reverse(b.total_tokens));
         result
     }
@@ -441,8 +436,6 @@ mod tests {
 
     use super::*;
     use std::path::PathBuf;
-
-    // ========== build_source_usage tests ==========
 
     #[test]
     fn test_build_source_usage_empty() {
@@ -493,9 +486,7 @@ mod tests {
             provider: provider.map(String::from),
             project: None,
         };
-        // upstream cost present → not estimated
         assert!(!DataLoaderService::batch_estimated(&[mk(Some(0.1), None)]));
-        // calculated (no upstream cost) → estimated
         assert!(DataLoaderService::batch_estimated(&[mk(None, None)]));
     }
 
@@ -517,8 +508,6 @@ mod tests {
         assert_eq!(result[2].total_tokens, 500);
     }
 
-    // ========== warm_path_since tests ==========
-
     use chrono::Timelike;
 
     #[test]
@@ -529,7 +518,6 @@ mod tests {
             .unwrap();
         let since_secs = since_duration.as_secs() as i64;
 
-        // Expected: yesterday 00:00:00 in local timezone
         let yesterday = chrono::Local::now().date_naive() - chrono::Duration::days(1);
         let yesterday_midnight = yesterday.and_hms_opt(0, 0, 0).unwrap();
         let expected_utc = chrono::Local
@@ -558,18 +546,14 @@ mod tests {
 
         let dt = chrono::DateTime::from_timestamp(since_secs, 0).unwrap();
         let local_dt = dt.with_timezone(&chrono::Local);
-        // Must be exactly 00:00:00 in local time
         assert_eq!(local_dt.hour(), 0);
         assert_eq!(local_dt.minute(), 0);
         assert_eq!(local_dt.second(), 0);
     }
 
-    // ========== DataLoaderService::new tests ==========
-
     #[test]
     fn test_data_loader_service_new() {
         let service = DataLoaderService::new();
-        // Just verify it can be constructed
         assert!(!service.registry.sources().is_empty());
     }
 
@@ -724,8 +708,6 @@ mod tests {
         );
     }
 
-    // ========== apply_pricing tests ==========
-
     fn make_entry(cost_usd: Option<f64>, provider: Option<&str>) -> UsageEntry {
         UsageEntry {
             timestamp: chrono::Utc::now(),
@@ -754,7 +736,6 @@ mod tests {
         let service = DataLoaderService::new();
         let entries = vec![make_entry(Some(0.0), Some("anthropic"))];
         let result = service.apply_pricing(entries);
-        // Some(0.0) is a legitimate cost (e.g. free-tier providers) — trust it as-is
         assert_eq!(result[0].cost_usd, Some(0.0));
     }
 
@@ -763,7 +744,6 @@ mod tests {
         let service = DataLoaderService::new();
         let entries = vec![make_entry(None, Some("anthropic"))];
         let result = service.apply_pricing(entries);
-        // None should trigger recalculation
         assert_ne!(result[0].cost_usd, None);
     }
 
@@ -790,13 +770,10 @@ mod tests {
     #[test]
     fn test_apply_pricing_copilot_existing_cost_preserved() {
         let service = DataLoaderService::new();
-        // A cost parsed from JSONL is trusted as-is.
         let entries = vec![make_entry(Some(0.10), Some("github-copilot"))];
         let result = service.apply_pricing(entries);
         assert_eq!(result[0].cost_usd, Some(0.10));
     }
-
-    // ========== warm path filtering tests ==========
 
     #[test]
     fn test_warm_path_filters_old_date_entries() {
@@ -870,7 +847,6 @@ mod tests {
 
         let all_entries = vec![old_entry, yesterday_entry, today_entry];
 
-        // Apply the same filter used in load_warm_path
         let filtered: Vec<UsageEntry> = all_entries
             .into_iter()
             .filter(|entry| entry.local_date() >= yesterday)
@@ -879,7 +855,6 @@ mod tests {
         assert_eq!(filtered.len(), 2);
         assert_eq!(filtered[0].local_date(), yesterday);
         assert_eq!(filtered[1].local_date(), today);
-        // The old entry with massive tokens should be gone
         assert!(filtered.iter().all(|e| e.input_tokens < 50_000_000));
     }
 
@@ -931,29 +906,24 @@ mod tests {
         assert!(needs_full_reparse(true, &[old, recent], yesterday));
     }
 
-    // ========== gap detection tests ==========
-
     #[test]
     fn test_has_date_gap_no_gap() {
-        // latest_cached = yesterday - 1 → warm path covers [yesterday, today] → no gap
         let today = Local::now().date_naive();
-        let latest_cached = today - chrono::Duration::days(2); // day before yesterday
+        let latest_cached = today - chrono::Duration::days(2);
         let yesterday = today - chrono::Duration::days(1);
         assert!(!has_date_gap(Some(latest_cached), yesterday));
     }
 
     #[test]
     fn test_has_date_gap_with_gap() {
-        // latest_cached = yesterday - 2 → gap of 1 day between cache and warm path
         let today = Local::now().date_naive();
-        let latest_cached = today - chrono::Duration::days(3); // 2 days before yesterday
+        let latest_cached = today - chrono::Duration::days(3);
         let yesterday = today - chrono::Duration::days(1);
         assert!(has_date_gap(Some(latest_cached), yesterday));
     }
 
     #[test]
     fn test_has_date_gap_none_latest() {
-        // No cached date → no gap to detect (cold path handles this)
         let today = Local::now().date_naive();
         let yesterday = today - chrono::Duration::days(1);
         assert!(!has_date_gap(None, yesterday));
@@ -961,7 +931,6 @@ mod tests {
 
     #[test]
     fn test_has_date_gap_latest_is_yesterday() {
-        // latest_cached = yesterday → warm path covers [yesterday, today] → no gap
         let today = Local::now().date_naive();
         let yesterday = today - chrono::Duration::days(1);
         assert!(!has_date_gap(Some(yesterday), yesterday));

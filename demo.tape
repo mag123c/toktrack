@@ -4,12 +4,12 @@ Set Height 600
 Set FontSize 14
 Set Theme "Homebrew"
 
-# 실행
+# Launch
 Type "toktrack"
 Enter
 Sleep 1500ms
 
-# Overview: 소스 탐색 (j로 이동)
+# Overview: move through sources with j
 Type "j"
 Sleep 300ms
 Type "j"
@@ -17,7 +17,7 @@ Sleep 300ms
 Type "j"
 Sleep 1000ms
 
-# 첫 번째 소스로 돌아가서 SourceDetail 진입
+# Return to the first source and open SourceDetail
 Type "k"
 Sleep 200ms
 Type "k"
@@ -27,7 +27,7 @@ Sleep 200ms
 Enter
 Sleep 1500ms
 
-# SourceDetail: Daily 스크롤
+# SourceDetail: scroll Daily
 Type "k"
 Sleep 200ms
 Type "k"
@@ -45,29 +45,29 @@ Sleep 2000ms
 Escape
 Sleep 500ms
 
-# Weekly 뷰
+# Weekly view
 Type "w"
 Sleep 1500ms
 
-# Monthly 뷰
+# Monthly view
 Type "m"
 Sleep 1500ms
 
-# Overview로 돌아가기
+# Return to Overview
 Escape
 Sleep 1000ms
 
-# 두 번째 소스(Codex)로 이동 후 진입
+# Open the second source (Codex)
 Type "j"
 Sleep 300ms
 Enter
 Sleep 500ms
 
-# Monthly 상태이므로 Daily로 전환
+# Switch from Monthly to Daily
 Type "d"
 Sleep 1500ms
 
-# Codex Daily 스크롤
+# Scroll Codex Daily
 Type "k"
 Sleep 200ms
 Type "k"
@@ -81,7 +81,7 @@ Sleep 2000ms
 Escape
 Sleep 500ms
 
-# Overview로 돌아가기
+# Return to Overview
 Escape
 Sleep 1000ms
 
@@ -93,7 +93,7 @@ Sleep 1500ms
 Type "3"
 Sleep 1500ms
 
-# 종료 (Ctrl+C → y)
+# Quit (Ctrl+C, then y)
 Ctrl+C
 Sleep 500ms
 Type "y"

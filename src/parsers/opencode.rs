@@ -354,8 +354,6 @@ mod tests {
         )
     }
 
-    // ===== Existing JSON-mode tests (regression coverage) =====
-
     #[test]
     fn parses_single_json_message() {
         let parser = OpenCodeParser::with_data_dir(fixture_dir());
@@ -441,7 +439,6 @@ mod tests {
     fn computes_total_tokens_for_json_entry() {
         let parser = OpenCodeParser::with_data_dir(fixture_dir());
         let entries = parser.parse_file(&fixture_path("msg_001.json")).unwrap();
-        // 1000 + 500 + 100 + 50 + 0 = 1650
         assert_eq!(entries[0].total_tokens(), 1650);
     }
 
@@ -449,11 +446,8 @@ mod tests {
     fn computes_total_tokens_with_reasoning() {
         let parser = OpenCodeParser::with_data_dir(fixture_dir());
         let entries = parser.parse_file(&fixture_path("msg_002.json")).unwrap();
-        // 2000 + 800 + 200 + 100 + 150 = 3250
         assert_eq!(entries[0].total_tokens(), 3250);
     }
-
-    // ===== New SQLite-mode tests =====
 
     #[test]
     fn reads_from_sqlite_when_db_exists() {
@@ -486,7 +480,6 @@ mod tests {
 
     #[test]
     fn falls_back_to_json_when_db_missing() {
-        // Re-uses existing JSON fixtures; no SQLite db present.
         let parser = OpenCodeParser::with_base_dir(
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("tests")
@@ -494,7 +487,6 @@ mod tests {
                 .join("opencode"),
         );
         let entries = parser.parse_all().unwrap();
-        // msg_001 + msg_002 yield entries; msg_003_no_tokens is skipped.
         assert_eq!(entries.len(), 2);
     }
 
@@ -503,7 +495,6 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let base = tmp.path().to_path_buf();
 
-        // Seed JSON files that should be ignored when the db is present.
         let json_dir = base.join("storage").join("message").join("ses_legacy");
         fs::create_dir_all(&json_dir).unwrap();
         fs::write(
@@ -649,7 +640,6 @@ mod tests {
     fn sqlite_open_failure_returns_empty() {
         let tmp = TempDir::new().unwrap();
         let base = tmp.path().to_path_buf();
-        // Write a non-sqlite file at the db path so opening fails after the existence check.
         fs::write(base.join("opencode.db"), b"not a real sqlite file").unwrap();
 
         let parser = OpenCodeParser::with_base_dir(base);
@@ -671,7 +661,6 @@ mod tests {
                 &assistant_data("opus-4", 1_700_000_000_000, 100, 50),
             )],
         );
-        // Add the `session` table (new OpenCode schema) with a directory.
         let conn = Connection::open(&db).unwrap();
         conn.execute_batch(
             "CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT NOT NULL);\n\

@@ -116,7 +116,6 @@ impl ReportData {
 
         daily.sort_by_key(|d| d.date);
 
-        // Build model reports
         let owned_filtered: Vec<DailySummary> = filtered.into_iter().cloned().collect();
         let model_map = Aggregator::by_model_from_daily(&owned_filtered);
         let mut by_model: Vec<ModelReport> = model_map
@@ -131,7 +130,6 @@ impl ReportData {
             .collect();
         by_model.sort_by(|a, b| b.cost_usd.total_cmp(&a.cost_usd));
 
-        // Build source reports (filtered to period)
         let mut by_source: Vec<SourceReport> = source_summaries
             .iter()
             .filter_map(|(source_name, daily_summaries)| {
@@ -354,7 +352,7 @@ mod tests {
             NaiveDate::from_ymd_opt(2024, 1, 7).unwrap(),
         );
         assert_eq!(data.by_source.len(), 2);
-        // claude: only the in-range entry ($3.00), not the $50 one
+        // Only Claude's in-range entry contributes, not the $50 entry.
         assert_eq!(data.by_source[0].name, "claude");
         assert!((data.by_source[0].cost_usd - 3.00).abs() < f64::EPSILON);
         assert_eq!(data.by_source[1].name, "codex");

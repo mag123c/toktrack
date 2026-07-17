@@ -48,10 +48,8 @@ impl Default for HelpPopup {
 
 impl Widget for HelpPopup {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        // Clear the area first (for overlay effect)
         Clear.render(area, buf);
 
-        // Create block with border
         let title = format!(" toktrack v{} ", VERSION);
         let block = Block::default()
             .title(title)
@@ -62,7 +60,6 @@ impl Widget for HelpPopup {
         let inner = block.inner(area);
         block.render(area, buf);
 
-        // Layout for content
         let chunks = Layout::vertical([
             Constraint::Length(1), // [0] Padding
             Constraint::Length(1), // [1] Navigation header
@@ -87,7 +84,6 @@ impl Widget for HelpPopup {
         ])
         .split(inner);
 
-        // Navigation section
         let nav_header = Line::from(vec![Span::styled(
             "Navigation",
             Style::default()
@@ -98,7 +94,6 @@ impl Widget for HelpPopup {
             .alignment(Alignment::Left)
             .render(chunks[1], buf);
 
-        // Separator
         let sep = "─".repeat(inner.width as usize);
         buf.set_string(
             chunks[2].x,
@@ -107,7 +102,6 @@ impl Widget for HelpPopup {
             Style::default().fg(self.theme.muted()),
         );
 
-        // Keybindings
         render_keybinding(chunks[3], buf, "Tab / Shift+Tab", "Switch view", self.theme);
         render_keybinding(
             chunks[4],
@@ -135,7 +129,6 @@ impl Widget for HelpPopup {
             self.theme,
         );
 
-        // General section
         let gen_header = Line::from(vec![Span::styled(
             "General",
             Style::default()
@@ -146,7 +139,6 @@ impl Widget for HelpPopup {
             .alignment(Alignment::Left)
             .render(chunks[12], buf);
 
-        // Separator
         buf.set_string(
             chunks[13].x,
             chunks[13].y,
@@ -158,7 +150,6 @@ impl Widget for HelpPopup {
         render_keybinding(chunks[15], buf, "Ctrl+C", "Quit", self.theme);
         render_keybinding(chunks[16], buf, "?", "Toggle help", self.theme);
 
-        // Close hint
         let hint = Line::from(vec![Span::styled(
             "Press ? to close",
             Style::default().fg(self.theme.muted()),
@@ -192,7 +183,6 @@ mod tests {
         let area = Rect::new(0, 0, 100, 50);
         let popup_area = HelpPopup::centered_area(area);
 
-        // Should be centered
         assert_eq!(popup_area.width, POPUP_WIDTH);
         assert_eq!(popup_area.height, POPUP_HEIGHT);
         assert_eq!(popup_area.x, (100 - POPUP_WIDTH) / 2);
@@ -222,11 +212,9 @@ mod tests {
 
     #[test]
     fn test_help_popup_small_terminal() {
-        // Terminal smaller than popup
         let area = Rect::new(0, 0, 30, 10);
         let popup_area = HelpPopup::centered_area(area);
 
-        // Should clamp to terminal size
         assert_eq!(popup_area.width, 30);
         assert_eq!(popup_area.height, 10);
     }
