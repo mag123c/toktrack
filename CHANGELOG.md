@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.16.0](https://github.com/mag123c/toktrack/compare/v2.15.0...v2.16.0) (2026-07-17)
+
+
+### Features
+
+* **main:** Add copilot usage tracking ([#211](https://github.com/mag123c/toktrack/issues/211)) ([6916b77](https://github.com/mag123c/toktrack/commit/6916b771591b453582f647ebb3e680131872ace1))
+
+
+### Bug Fixes
+
+* **parser:** Resolve gemini-default by timestamp ([#209](https://github.com/mag123c/toktrack/issues/209)) ([89a4de0](https://github.com/mag123c/toktrack/commit/89a4de047f40ea8a9ab2d2e2d5fd4696d9792cc9))
+* **parser:** stop silent token loss and stale cache in copilot sessions ([#213](https://github.com/mag123c/toktrack/issues/213)) ([e7c1753](https://github.com/mag123c/toktrack/commit/e7c17539f24054ba5d3397da88512cb1b248383d))
+
+
+### Refactoring
+
+* **cli:** remove redundant comments ([#214](https://github.com/mag123c/toktrack/issues/214)) ([62864b6](https://github.com/mag123c/toktrack/commit/62864b6859ff8588f7efcfa81fc40927b7a96f4a))
+* **parser:** dedupe gemini-default resolver, pin boundaries ([efc2f34](https://github.com/mag123c/toktrack/commit/efc2f34f4e26d3795e5323dc9d9f0692f5a86bce))
+
 ## [2.15.0](https://github.com/mag123c/toktrack/compare/v2.14.1...v2.15.0) (2026-07-08)
 
 
