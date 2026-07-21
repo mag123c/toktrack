@@ -107,6 +107,10 @@ toktrack weekly --json
 toktrack monthly --json
 toktrack stats --json
 
+# JSON output for a single source CLI (ids as shown by `toktrack audit`)
+toktrack daily --json --source codex
+toktrack monthly --json --source claude-code
+
 # Usage report (shareable receipt)
 toktrack report              # Last 7 days (text)
 toktrack report --month      # Last 30 days
