@@ -124,6 +124,7 @@ impl ModelPricing {
             || self.output_cost_per_token.is_some()
             || self.cache_read_input_token_cost.is_some()
             || self.cache_creation_input_token_cost.is_some()
+            || self.cache_creation_input_token_cost_above_1hr.is_some()
             || self.output_cost_per_reasoning_token.is_some()
             || self
                 .search_context_cost_per_query
@@ -207,16 +208,11 @@ fn tiered_cost(tokens: u64, base_price: f64, tier: Option<(u64, f64)>) -> f64 {
 /// `usage.speed`, and LiteLLM carries the matching multiplier under
 /// `provider_specific_entry.fast` (2.0 for claude-opus-5, matching its $10/$50
 /// fast pricing against a $5/$25 base). Anything else bills at 1x.
-fn speed_multiplier(entry: &UsageEntry, pricing: &ModelPricing) -> f64 {
+fn speed_multiplier(entry: &UsageEntry, rates: Option<&HashMap<String, f64>>) -> f64 {
     if !entry.fast_speed {
         return 1.0;
     }
-    pricing
-        .provider_specific_entry
-        .as_ref()
-        .and_then(|m| m.get("fast"))
-        .copied()
-        .unwrap_or(1.0)
+    rates.and_then(|m| m.get("fast")).copied().unwrap_or(1.0)
 }
 
 /// Custom pricing configuration from ~/.toktrack/pricing.toml
@@ -634,8 +630,15 @@ impl PricingService {
         let web_fetch_cost = self.get_web_fetch_cost(entry);
 
         // Fast mode multiplies the token rates; per-request tool charges are flat.
+        // Custom pricing replaces the rate table wholesale but has no way to
+        // express a speed multiplier, so fall back to LiteLLM's for it — otherwise
+        // overriding a base rate would silently drop fast-mode billing.
+        let speed_rates = pricing
+            .provider_specific_entry
+            .as_ref()
+            .or_else(|| litellm.and_then(|l| l.provider_specific_entry.as_ref()));
         let token_cost = (input + output + cache_read + cache_creation + reasoning)
-            * speed_multiplier(entry, pricing);
+            * speed_multiplier(entry, speed_rates);
 
         token_cost + web_search_cost + web_fetch_cost
     }
@@ -2398,6 +2401,50 @@ web_search_per_request = 0.01
         assert!(
             (cost - expected).abs() < 1e-9,
             "Per-query search cost must stay outside the speed multiplier: expected {}, got {}",
+            expected,
+            cost
+        );
+    }
+
+    #[test]
+    fn test_custom_pricing_keeps_litellm_fast_multiplier() {
+        let (base, temp_dir) = create_test_service();
+        drop(base);
+        let cache_path = temp_dir.path().join("pricing.json");
+
+        let custom = CustomPricingConfig {
+            models: Some(HashMap::from([(
+                "claude-opus-5".to_string(),
+                CustomModelPricing {
+                    input: Some(4.0), // user tweaks only the base input rate
+                    output: None,
+                    cache_creation: None,
+                    cache_read: None,
+                    cache_creation_5m: None,
+                    cache_creation_1h: None,
+                    input_above_200k: None,
+                    output_above_200k: None,
+                    cache_read_above_200k: None,
+                    cache_creation_above_200k: None,
+                },
+            )])),
+            global: None,
+        };
+
+        let service = PricingService::from_cache_only_with_path(&cache_path)
+            .unwrap()
+            .with_custom_pricing(Some(custom));
+
+        let mut entry = make_entry(Some("claude-opus-5"), 1_000_000, 0, 0, 0, None);
+        entry.fast_speed = true;
+
+        let cost = service.calculate_cost(&entry);
+
+        // Custom $4/1M input, still doubled by LiteLLM's fast multiplier
+        let expected = 1_000_000.0 * 0.000004 * 2.0;
+        assert!(
+            (cost - expected).abs() < 1e-9,
+            "A custom rate must not drop fast-mode billing: expected {}, got {}",
             expected,
             cost
         );

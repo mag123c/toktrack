@@ -7,6 +7,8 @@ license = "MIT"
 repository = "https://github.com/mag123c/toktrack"
 keywords = ["claude-code", "token-tracker", "ai-cost", "tui", "llm"]
 categories = ["command-line-utilities"]
+# Without this, the gated snapshot bin makes bare `cargo run` ambiguous.
+default-run = "toktrack"
 
 [dependencies]
 # JSON parsing (SIMD optimized)

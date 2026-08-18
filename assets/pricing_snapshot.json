@@ -3079,8 +3079,8 @@
       "search_context_size_high": 0.01
     },
     "provider_specific_entry": {
-      "fast": 6.0,
-      "us": 1.1
+      "us": 1.1,
+      "fast": 6.0
     }
   },
   "claude-opus-4-7-20260416": {
@@ -3127,8 +3127,8 @@
       "search_context_size_high": 0.01
     },
     "provider_specific_entry": {
-      "fast": 2.0,
-      "us": 1.1
+      "us": 1.1,
+      "fast": 2.0
     }
   },
   "claude-sonnet-4-20250514": {

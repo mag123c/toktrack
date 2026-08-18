@@ -48,7 +48,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          BRANCH="chore/pricing-snapshot-$(date -u +%Y%m%d)"
+          # Run id keeps a same-day manual re-run from colliding with the scheduled branch.
+          BRANCH="chore/pricing-snapshot-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$BRANCH"

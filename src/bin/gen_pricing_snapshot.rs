@@ -32,12 +32,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .json()?;
 
     let mut snapshot: BTreeMap<String, ModelPricing> = BTreeMap::new();
+    let mut skipped = 0usize;
     for (model, raw) in fetched {
         // `sample_spec` and friends are documentation entries, not models.
         if !raw.is_object() {
             continue;
         }
-        let pricing: ModelPricing = serde_json::from_value(raw)?;
+        // One malformed upstream entry must not block the whole refresh.
+        let pricing: ModelPricing = match serde_json::from_value(raw) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("[gen_pricing_snapshot] skipping {model}: {e}");
+                skipped += 1;
+                continue;
+            }
+        };
         if pricing.has_any_pricing() {
             snapshot.insert(model, pricing);
         }
@@ -54,9 +63,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(&out_path, json)?;
 
     println!(
-        "wrote {} priced models to {}",
+        "wrote {} priced models to {} ({} skipped)",
         snapshot.len(),
-        out_path.display()
+        out_path.display(),
+        skipped
     );
     Ok(())
 }
