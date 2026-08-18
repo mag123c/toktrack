@@ -473,7 +473,8 @@ mod tests {
         let Some(dir) = directories::BaseDirs::new().map(|d| d.home_dir().join(".claude")) else {
             return Vec::new();
         };
-        let pattern = dir.join("projects").join("*").join("*.jsonl");
+        // Same recursion as `file_pattern`: subagent transcripts nest deeper.
+        let pattern = dir.join("projects").join("**").join("*.jsonl");
         let Ok(paths) = glob::glob(&pattern.to_string_lossy()) else {
             return Vec::new();
         };
