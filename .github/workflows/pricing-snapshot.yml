@@ -1,0 +1,62 @@
+name: Pricing Snapshot
+
+# The vendored snapshot is the only price list an offline first run has, so it
+# goes stale silently. Regenerate it monthly and open a PR when LiteLLM moved.
+
+on:
+  schedule:
+    - cron: "0 3 1 * *" # 1st of the month, 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    name: Refresh vendored pricing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Regenerate snapshot
+        run: cargo run --features snapshot-tool --bin gen_pricing_snapshot
+
+      - name: Check for changes
+        id: diff
+        run: |
+          if git diff --quiet -- assets/pricing_snapshot.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A PR opened with GITHUB_TOKEN does not trigger the CI workflow, so the
+      # snapshot is validated here instead.
+      - name: Test
+        if: steps.diff.outputs.changed == 'true'
+        run: cargo test
+
+      - name: Open pull request
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          BRANCH="chore/pricing-snapshot-$(date -u +%Y%m%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add assets/pricing_snapshot.json
+          git commit -m "chore(services): refresh vendored pricing snapshot"
+          git push -u origin "$BRANCH"
+          gh pr create \
+            --title "chore(services): refresh vendored pricing snapshot" \
+            --body "Automated monthly regeneration from LiteLLM via \`gen_pricing_snapshot\`. Offline first runs read this file, so a stale snapshot prices new models at \$0. Tests ran in the generating job." \
+            --base main \
+            --head "$BRANCH"

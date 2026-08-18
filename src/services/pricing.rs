@@ -31,11 +31,11 @@ const REQUEST_TIMEOUT_SECS: u64 = 10;
 /// Tiers are per-query USD; many models set all three equal (Claude = 0.01).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SearchContextCost {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub search_context_size_low: Option<f64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub search_context_size_medium: Option<f64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub search_context_size_high: Option<f64>,
 }
 
@@ -51,56 +51,75 @@ impl SearchContextCost {
 /// Pricing information for a model
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ModelPricing {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_cost_per_token: Option<f64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_cost_per_token: Option<f64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_read_input_token_cost: Option<f64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_creation_input_token_cost: Option<f64>,
     // Tiered pricing fields. A model carries at most one breakpoint per token
     // kind; LiteLLM uses 128k / 200k / 256k / 272k variants.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_cost_per_token_above_128k_tokens: Option<f64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_cost_per_token_above_200k_tokens: Option<f64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_cost_per_token_above_256k_tokens: Option<f64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_cost_per_token_above_272k_tokens: Option<f64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_cost_per_token_above_128k_tokens: Option<f64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_cost_per_token_above_200k_tokens: Option<f64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_cost_per_token_above_256k_tokens: Option<f64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_cost_per_token_above_272k_tokens: Option<f64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_read_input_token_cost_above_200k_tokens: Option<f64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_read_input_token_cost_above_272k_tokens: Option<f64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_creation_input_token_cost_above_200k_tokens: Option<f64>,
     // 1h ephemeral cache writes. LiteLLM prices the longer TTL under its own
     // `_above_1hr` keys (Claude Code writes 1h caches by default), with an
     // optional 200k breakpoint on top.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_creation_input_token_cost_above_1hr: Option<f64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_creation_input_token_cost_above_1hr_above_200k_tokens: Option<f64>,
     // Cache TTL-specific pricing (for Bedrock/Vertex)
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_creation_5m_token_cost: Option<f64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_creation_1h_token_cost: Option<f64>,
     // Web search pricing (LiteLLM nested object `search_context_cost_per_query`)
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub search_context_cost_per_query: Option<SearchContextCost>,
     // Reasoning/thinking token cost; falls back to the output rate when absent
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_cost_per_reasoning_token: Option<f64>,
+}
+
+impl ModelPricing {
+    /// Whether this entry prices anything at all. LiteLLM carries many entries
+    /// that only describe capabilities, and those are dropped from the vendored
+    /// snapshot.
+    #[allow(dead_code)] // Used by the gen_pricing_snapshot tool and tests
+    pub fn has_any_pricing(&self) -> bool {
+        self.input_cost_per_token.is_some()
+            || self.output_cost_per_token.is_some()
+            || self.cache_read_input_token_cost.is_some()
+            || self.cache_creation_input_token_cost.is_some()
+            || self.output_cost_per_reasoning_token.is_some()
+            || self
+                .search_context_cost_per_query
+                .as_ref()
+                .and_then(SearchContextCost::per_query_cost)
+                .is_some()
+    }
 }
 
 /// Cached pricing data
@@ -2228,6 +2247,46 @@ web_search_per_request = 0.01
             "Custom 1h pricing must win over LiteLLM: expected {}, got {}",
             expected,
             cost
+        );
+    }
+
+    #[test]
+    fn test_model_pricing_skips_none_fields_on_serialize() {
+        let pricing = ModelPricing {
+            input_cost_per_token: Some(0.000005),
+            ..Default::default()
+        };
+
+        let json = serde_json::to_string(&pricing).unwrap();
+
+        assert_eq!(
+            json, r#"{"input_cost_per_token":5e-6}"#,
+            "Unset fields must not be serialized: {}",
+            json
+        );
+    }
+
+    #[test]
+    fn test_has_any_pricing() {
+        assert!(
+            !ModelPricing::default().has_any_pricing(),
+            "An all-None entry carries no pricing"
+        );
+        assert!(ModelPricing {
+            input_cost_per_token: Some(0.000005),
+            ..Default::default()
+        }
+        .has_any_pricing());
+        assert!(
+            ModelPricing {
+                search_context_cost_per_query: Some(SearchContextCost {
+                    search_context_size_medium: Some(0.01),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }
+            .has_any_pricing(),
+            "Web-search-only entries still price something"
         );
     }
 }
