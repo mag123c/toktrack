@@ -30,6 +30,10 @@ pub struct ModelSummary {
     pub name: String,
     pub total_tokens: u64,
     pub cost_usd: f64,
+    /// Tokens were counted but no cost came out: either LiteLLM has no entry for
+    /// the model (Codex's `codex-auto-review`, provider-internal ids) or the
+    /// model is free. Either way the total under-reports, so say so.
+    pub unpriced: bool,
 }
 
 /// Data for the models view
@@ -57,6 +61,7 @@ impl ModelsData {
                     name: name.clone(),
                     total_tokens,
                     cost_usd: usage.cost_usd,
+                    unpriced: total_tokens > 0 && usage.cost_usd == 0.0,
                 }
             })
             .filter(|m| m.total_tokens > 0)
@@ -118,6 +123,7 @@ impl Widget for ModelsView<'_> {
             Constraint::Length(1),              // Header
             Constraint::Length(max_model_rows), // Model rows
             Constraint::Length(1),              // Separator
+            Constraint::Length(1),              // Unpriced legend (blank when unused)
             Constraint::Length(1),              // Keybindings
             Constraint::Min(0),                 // Remaining space
         ])
@@ -133,7 +139,9 @@ impl Widget for ModelsView<'_> {
 
         self.render_separator(chunks[4], buf);
 
-        self.render_keybindings(chunks[5], buf);
+        self.render_unpriced_legend(chunks[5], buf);
+
+        self.render_keybindings(chunks[6], buf);
     }
 }
 
@@ -235,8 +243,19 @@ impl ModelsView<'_> {
                     Style::default().fg(self.theme.text()),
                 ),
                 Span::styled(
-                    format!("{:>12}", format!("${:.2}", model.cost_usd)),
-                    Style::default().fg(self.theme.cost()),
+                    format!(
+                        "{:>12}",
+                        if model.unpriced {
+                            "?".to_string()
+                        } else {
+                            format!("${:.2}", model.cost_usd)
+                        }
+                    ),
+                    Style::default().fg(if model.unpriced {
+                        self.theme.muted()
+                    } else {
+                        self.theme.cost()
+                    }),
                 ),
                 Span::styled(
                     format!("{:>18}", bar),
@@ -255,6 +274,19 @@ impl ModelsView<'_> {
                 buf,
             );
         }
+    }
+
+    /// Legend for the `?` cost marker, rendered only when a model carries it.
+    fn render_unpriced_legend(&self, area: Rect, buf: &mut Buffer) {
+        if !self.data.models.iter().any(|m| m.unpriced) {
+            return;
+        }
+        let legend = Paragraph::new(Line::from(Span::styled(
+            "? = no cost counted for this model (no pricing data, or free)",
+            Style::default().fg(self.theme.muted()),
+        )))
+        .alignment(Alignment::Center);
+        legend.render(area, buf);
     }
 
     fn render_keybindings(&self, area: Rect, buf: &mut Buffer) {
@@ -434,5 +466,45 @@ mod tests {
         let data = ModelsData::from_model_usage(&model_map);
 
         assert!((data.total_cost - 0.30).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_model_with_tokens_and_zero_cost_is_unpriced() {
+        let mut map = HashMap::new();
+        map.insert(
+            "codex-auto-review".to_string(),
+            ModelUsage {
+                input_tokens: 1_000,
+                output_tokens: 500,
+                cost_usd: 0.0,
+                ..Default::default()
+            },
+        );
+
+        let data = ModelsData::from_model_usage(&map);
+
+        assert_eq!(data.models.len(), 1);
+        assert!(
+            data.models[0].unpriced,
+            "A model with tokens but no cost must be flagged"
+        );
+    }
+
+    #[test]
+    fn test_priced_model_is_not_marked_unpriced() {
+        let mut map = HashMap::new();
+        map.insert(
+            "claude-opus-5".to_string(),
+            ModelUsage {
+                input_tokens: 1_000,
+                output_tokens: 500,
+                cost_usd: 0.02,
+                ..Default::default()
+            },
+        );
+
+        let data = ModelsData::from_model_usage(&map);
+
+        assert!(!data.models[0].unpriced);
     }
 }
