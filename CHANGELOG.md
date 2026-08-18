@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.16.1](https://github.com/mag123c/toktrack/compare/v2.16.0...v2.16.1) (2026-08-18)
+
+
+### Bug Fixes
+
+* **services:** correct cache and fast-mode pricing ([#232](https://github.com/mag123c/toktrack/issues/232)) ([3d3ecfc](https://github.com/mag123c/toktrack/commit/3d3ecfc5513ece83041b5a6e2ed0b61989678482))
+
 ## [2.16.0](https://github.com/mag123c/toktrack/compare/v2.15.0...v2.16.0) (2026-07-17)
 
 
