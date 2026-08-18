@@ -66,8 +66,9 @@ fn normalize_model_keys(models: HashMap<String, ModelUsage>) -> HashMap<String, 
 /// warning is surfaced, and every date whose raw files still exist is recomputed
 /// so the new shape is populated. v14 added per-project breakdown
 /// (`DailySummary.projects`). v15 resolves gemini-default / missing-model
-/// records by timestamp so they no longer appear as "unknown".
-const CACHE_VERSION: u32 = 15;
+/// records by timestamp so they no longer appear as "unknown". v16 prices 1h
+/// ephemeral cache writes at LiteLLM's `_above_1hr` rate.
+const CACHE_VERSION: u32 = 16;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DailySummaryCache {

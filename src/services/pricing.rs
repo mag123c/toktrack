@@ -83,6 +83,13 @@ pub struct ModelPricing {
     pub cache_read_input_token_cost_above_272k_tokens: Option<f64>,
     #[serde(default)]
     pub cache_creation_input_token_cost_above_200k_tokens: Option<f64>,
+    // 1h ephemeral cache writes. LiteLLM prices the longer TTL under its own
+    // `_above_1hr` keys (Claude Code writes 1h caches by default), with an
+    // optional 200k breakpoint on top.
+    #[serde(default)]
+    pub cache_creation_input_token_cost_above_1hr: Option<f64>,
+    #[serde(default)]
+    pub cache_creation_input_token_cost_above_1hr_above_200k_tokens: Option<f64>,
     // Cache TTL-specific pricing (for Bedrock/Vertex)
     #[serde(default)]
     pub cache_creation_5m_token_cost: Option<f64>,
@@ -338,6 +345,10 @@ impl PricingService {
             cache_creation_input_token_cost_above_200k_tokens: to_per_token(
                 custom_model.cache_creation_above_200k,
             ),
+            // Custom pricing expresses the 1h rate through `cache_creation_1h`,
+            // so the LiteLLM-shaped `_above_1hr` keys stay unset.
+            cache_creation_input_token_cost_above_1hr: None,
+            cache_creation_input_token_cost_above_1hr_above_200k_tokens: None,
             search_context_cost_per_query: None,
             output_cost_per_reasoning_token: None,
         })
@@ -486,21 +497,51 @@ impl PricingService {
             ),
         );
 
-        // Cache creation: use TTL-specific pricing only when entry has TTL breakdown
-        let has_ttl_pricing = pricing.cache_creation_5m_token_cost.is_some()
+        // Cache creation: use TTL-aware pricing only when the entry carries a TTL
+        // breakdown. Two shapes provide it — the user's own `cache_creation_5m`/
+        // `cache_creation_1h` overrides, and LiteLLM's `_above_1hr` keys — and the
+        // user's override wins.
+        let has_custom_ttl_pricing = pricing.cache_creation_5m_token_cost.is_some()
             || pricing.cache_creation_1h_token_cost.is_some();
+        let has_litellm_ttl_pricing = pricing.cache_creation_input_token_cost_above_1hr.is_some();
         let has_ttl_tokens =
             entry.cache_creation_5m_tokens > 0 || entry.cache_creation_1h_tokens > 0;
 
-        let cache_creation = if has_ttl_pricing && has_ttl_tokens {
+        let base_cache_creation_rate = pricing.cache_creation_input_token_cost.unwrap_or(0.0);
+
+        let cache_creation = if has_custom_ttl_pricing && has_ttl_tokens {
             let cost_5m = entry.cache_creation_5m_tokens as f64
                 * pricing
                     .cache_creation_5m_token_cost
-                    .unwrap_or(pricing.cache_creation_input_token_cost.unwrap_or(0.0));
+                    .unwrap_or(base_cache_creation_rate);
             let cost_1h = entry.cache_creation_1h_tokens as f64
                 * pricing
                     .cache_creation_1h_token_cost
-                    .unwrap_or(pricing.cache_creation_input_token_cost.unwrap_or(0.0));
+                    .unwrap_or(base_cache_creation_rate);
+            cost_5m + cost_1h
+        } else if has_litellm_ttl_pricing && has_ttl_tokens {
+            let cost_5m = tiered_cost(
+                entry.cache_creation_5m_tokens,
+                base_cache_creation_rate,
+                tier(
+                    None,
+                    pricing.cache_creation_input_token_cost_above_200k_tokens,
+                    None,
+                    None,
+                ),
+            );
+            let cost_1h = tiered_cost(
+                entry.cache_creation_1h_tokens,
+                pricing
+                    .cache_creation_input_token_cost_above_1hr
+                    .unwrap_or(base_cache_creation_rate),
+                tier(
+                    None,
+                    pricing.cache_creation_input_token_cost_above_1hr_above_200k_tokens,
+                    None,
+                    None,
+                ),
+            );
             cost_5m + cost_1h
         } else {
             tiered_cost(
@@ -712,6 +753,29 @@ mod tests {
                 output_cost_per_token_above_200k_tokens: Some(0.00015), // $150 per 1M tokens
                 cache_read_input_token_cost_above_200k_tokens: Some(0.000003), // $3 per 1M tokens
                 cache_creation_input_token_cost_above_200k_tokens: Some(0.0000375), // $37.50 per 1M tokens
+                ..Default::default()
+            },
+        );
+        models.insert(
+            "claude-opus-5".to_string(),
+            ModelPricing {
+                input_cost_per_token: Some(0.000005),         // $5 per 1M tokens
+                output_cost_per_token: Some(0.000025),        // $25 per 1M tokens
+                cache_read_input_token_cost: Some(0.0000005), // $0.50 per 1M tokens
+                cache_creation_input_token_cost: Some(0.00000625), // $6.25 per 1M tokens (5m)
+                cache_creation_input_token_cost_above_1hr: Some(0.00001), // $10 per 1M tokens (1h)
+                ..Default::default()
+            },
+        );
+        models.insert(
+            "claude-sonnet-4-5".to_string(),
+            ModelPricing {
+                input_cost_per_token: Some(0.000003),
+                output_cost_per_token: Some(0.000015),
+                cache_read_input_token_cost: Some(0.0000003),
+                cache_creation_input_token_cost: Some(0.00000375), // $3.75 per 1M (5m)
+                cache_creation_input_token_cost_above_1hr: Some(0.000006), // $6 per 1M (1h)
+                cache_creation_input_token_cost_above_1hr_above_200k_tokens: Some(0.000012), // $12 per 1M
                 ..Default::default()
             },
         );
@@ -1032,7 +1096,7 @@ mod tests {
     fn test_model_count() {
         let (service, _temp) = create_test_service();
 
-        assert_eq!(service.model_count(), 3);
+        assert_eq!(service.model_count(), 5);
     }
 
     #[test]
@@ -1065,7 +1129,7 @@ mod tests {
 
         let service = PricingService::from_cache_only_with_path(&cache_path);
         assert!(service.is_some());
-        assert_eq!(service.unwrap().model_count(), 3);
+        assert_eq!(service.unwrap().model_count(), 5);
     }
 
     #[test]
@@ -2025,6 +2089,144 @@ web_search_per_request = 0.01
         assert!(
             (cost - 0.0).abs() < f64::EPSILON,
             "expected 0.0, got {}",
+            cost
+        );
+    }
+
+    #[test]
+    fn test_cache_creation_1h_uses_above_1hr_rate() {
+        let (service, _temp) = create_test_service();
+
+        let mut entry = make_entry(Some("claude-opus-5"), 0, 0, 0, 100_000, None);
+        entry.cache_creation_1h_tokens = 100_000;
+
+        let cost = service.calculate_cost(&entry);
+
+        // 100k * $10/1M = $1.00 (above_1hr), not 100k * $6.25/1M = $0.625
+        let expected = 100_000.0 * 0.00001;
+        assert!(
+            (cost - expected).abs() < 1e-9,
+            "1h cache writes must use the above_1hr rate: expected {}, got {}",
+            expected,
+            cost
+        );
+    }
+
+    #[test]
+    fn test_cache_creation_5m_uses_base_rate_when_above_1hr_present() {
+        let (service, _temp) = create_test_service();
+
+        let mut entry = make_entry(Some("claude-opus-5"), 0, 0, 0, 150_000, None);
+        entry.cache_creation_5m_tokens = 100_000;
+        entry.cache_creation_1h_tokens = 50_000;
+
+        let cost = service.calculate_cost(&entry);
+
+        // 5m: 100k * $6.25/1M = $0.625, 1h: 50k * $10/1M = $0.50
+        let expected = 100_000.0 * 0.00000625 + 50_000.0 * 0.00001;
+        assert!(
+            (cost - expected).abs() < 1e-9,
+            "Mixed TTL split mispriced: expected {}, got {}",
+            expected,
+            cost
+        );
+    }
+
+    #[test]
+    fn test_cache_creation_1h_without_above_1hr_rate_uses_base() {
+        let (service, _temp) = create_test_service();
+
+        // claude-sonnet-4 carries no above_1hr rate in the test cache
+        let mut entry = make_entry(Some("claude-sonnet-4"), 0, 0, 0, 100_000, None);
+        entry.cache_creation_1h_tokens = 100_000;
+
+        let cost = service.calculate_cost(&entry);
+
+        let expected = 100_000.0 * 0.00000375;
+        assert!(
+            (cost - expected).abs() < 1e-9,
+            "Without an above_1hr rate the base rate applies: expected {}, got {}",
+            expected,
+            cost
+        );
+    }
+
+    #[test]
+    fn test_cache_creation_without_ttl_breakdown_uses_base_rate() {
+        let (service, _temp) = create_test_service();
+
+        // Historical entry: cache_creation_tokens with no 5m/1h split
+        let entry = make_entry(Some("claude-opus-5"), 0, 0, 0, 100_000, None);
+
+        let cost = service.calculate_cost(&entry);
+
+        let expected = 100_000.0 * 0.00000625;
+        assert!(
+            (cost - expected).abs() < 1e-9,
+            "Entries without a TTL split must keep the flat rate: expected {}, got {}",
+            expected,
+            cost
+        );
+    }
+
+    #[test]
+    fn test_cache_creation_1h_above_200k_tier() {
+        let (service, _temp) = create_test_service();
+
+        let mut entry = make_entry(Some("claude-sonnet-4-5"), 0, 0, 0, 300_000, None);
+        entry.cache_creation_1h_tokens = 300_000;
+
+        let cost = service.calculate_cost(&entry);
+
+        // Split at the breakpoint: 200k at the 1h rate ($6/1M), 100k above it ($12/1M)
+        let expected = 200_000.0 * 0.000006 + 100_000.0 * 0.000012;
+        assert!(
+            (cost - expected).abs() < 1e-9,
+            "1h cache above 200k must use the tiered rate: expected {}, got {}",
+            expected,
+            cost
+        );
+    }
+
+    #[test]
+    fn test_custom_1h_pricing_overrides_litellm_above_1hr() {
+        let temp_dir = TempDir::new().unwrap();
+        let cache_path = temp_dir.path().join("pricing.json");
+        create_mock_cache(&cache_path);
+
+        let custom = CustomPricingConfig {
+            models: Some(HashMap::from([(
+                "claude-sonnet-4".to_string(),
+                CustomModelPricing {
+                    input: Some(3.0),
+                    output: Some(15.0),
+                    cache_creation: Some(3.75),
+                    cache_read: Some(0.30),
+                    cache_creation_5m: Some(3.75),
+                    cache_creation_1h: Some(9.0),
+                    input_above_200k: None,
+                    output_above_200k: None,
+                    cache_read_above_200k: None,
+                    cache_creation_above_200k: None,
+                },
+            )])),
+            global: None,
+        };
+
+        let service = PricingService::from_cache_only_with_path(&cache_path)
+            .unwrap()
+            .with_custom_pricing(Some(custom));
+
+        let mut entry = make_entry(Some("claude-sonnet-4"), 0, 0, 0, 100_000, None);
+        entry.cache_creation_1h_tokens = 100_000;
+
+        let cost = service.calculate_cost(&entry);
+
+        let expected = 100_000.0 * (9.0 / 1_000_000.0);
+        assert!(
+            (cost - expected).abs() < 1e-9,
+            "Custom 1h pricing must win over LiteLLM: expected {}, got {}",
+            expected,
             cost
         );
     }
