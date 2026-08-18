@@ -350,6 +350,6 @@ mod tests {
     fn test_collect_files() {
         let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
         let files = parser.collect_files();
-        assert_eq!(files.len(), 18);
+        assert_eq!(files.len(), 19);
     }
 }

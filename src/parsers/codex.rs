@@ -518,4 +518,97 @@ mod tests {
             assert_eq!(entry.provider, None);
         }
     }
+
+    /// Upstream schema canary. Codex has grown `reasoning_output_tokens` and
+    /// `cache_write_input_tokens` inside `token_count` since this parser was
+    /// written, and serde drops unknown fields silently. This mirror declares
+    /// what we have seen and rejects the rest, over the fixture always and over
+    /// the newest real session files when this machine has them.
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    #[allow(dead_code)] // Fields exist to declare the accepted schema, not to be read
+    struct KnownInfo {
+        total_token_usage: Option<KnownTokenUsage>,
+        last_token_usage: Option<KnownTokenUsage>,
+        model_context_window: Option<serde_json::Value>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    #[allow(dead_code)] // Fields exist to declare the accepted schema, not to be read
+    struct KnownTokenUsage {
+        input_tokens: Option<u64>,
+        output_tokens: Option<u64>,
+        cached_input_tokens: Option<u64>,
+        cache_write_input_tokens: Option<u64>,
+        reasoning_output_tokens: Option<u64>,
+        total_tokens: Option<u64>,
+    }
+
+    /// Newest `count` rollout files on this machine, empty when Codex has never
+    /// run here (CI).
+    fn recent_local_sessions(count: usize) -> Vec<PathBuf> {
+        let Some(dir) = directories::BaseDirs::new().map(|d| d.home_dir().join(".codex")) else {
+            return Vec::new();
+        };
+        let pattern = dir.join("sessions").join("**").join("*.jsonl");
+        let Ok(paths) = glob::glob(&pattern.to_string_lossy()) else {
+            return Vec::new();
+        };
+        let mut files: Vec<(std::time::SystemTime, PathBuf)> = paths
+            .filter_map(|p| p.ok())
+            .filter_map(|p| {
+                let mtime = p.metadata().and_then(|m| m.modified()).ok()?;
+                Some((mtime, p))
+            })
+            .collect();
+        files.sort_by_key(|(mtime, _)| std::cmp::Reverse(*mtime));
+        files.into_iter().take(count).map(|(_, p)| p).collect()
+    }
+
+    /// Rollout files reach hundreds of MB, so stream and cap instead of reading
+    /// the whole file: drift shows up in the first lines just as well.
+    const CANARY_LINE_LIMIT: usize = 2_000;
+
+    fn assert_token_count_shape_known(path: &Path) {
+        let file = File::open(path).unwrap();
+        for (i, line) in BufReader::new(file)
+            .lines()
+            .take(CANARY_LINE_LIMIT)
+            .enumerate()
+        {
+            let Ok(line) = line else { continue };
+            if !line.contains("token_count") {
+                continue;
+            }
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else {
+                continue;
+            };
+            let Some(info) = value
+                .get("payload")
+                .filter(|p| p.get("type").and_then(|t| t.as_str()) == Some("token_count"))
+                .and_then(|p| p.get("info"))
+                .filter(|info| !info.is_null())
+            else {
+                continue;
+            };
+            if let Err(e) = serde_json::from_value::<KnownInfo>(info.clone()) {
+                panic!(
+                    "Codex token_count schema drifted at {}:{} — {}. Decide whether the new field \
+                     affects cost, then add it here (and to CodexInfo/CodexTokenUsage if it does).",
+                    path.display(),
+                    i + 1,
+                    e
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_codex_token_usage_schema_has_no_unknown_fields() {
+        assert_token_count_shape_known(&fixture_path("real-shape-token-count.jsonl"));
+        for path in recent_local_sessions(5) {
+            assert_token_count_shape_known(&path);
+        }
+    }
 }
