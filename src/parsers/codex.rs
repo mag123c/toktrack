@@ -282,6 +282,7 @@ impl CLIParser for CodexParser {
                     let non_cached_input = delta_input.saturating_sub(delta_cached);
 
                     entries.push(UsageEntry {
+                        fast_speed: false,
                         timestamp: data.timestamp,
                         model: current_model.clone(),
                         input_tokens: non_cached_input,

@@ -501,6 +501,7 @@ mod tests {
         cost: Option<f64>,
     ) -> UsageEntry {
         UsageEntry {
+            fast_speed: false,
             timestamp: Utc.with_ymd_and_hms(year, month, day, 12, 0, 0).unwrap(),
             model: model.map(String::from),
             input_tokens: input,
@@ -718,6 +719,7 @@ mod tests {
         cost: Option<f64>,
     ) -> UsageEntry {
         UsageEntry {
+            fast_speed: false,
             timestamp: Utc.with_ymd_and_hms(year, month, day, 12, 0, 0).unwrap(),
             model: model.map(String::from),
             input_tokens: input,
@@ -1564,6 +1566,7 @@ mod tests {
         source: Option<&str>,
     ) -> UsageEntry {
         UsageEntry {
+            fast_speed: false,
             timestamp: Utc.with_ymd_and_hms(year, month, day, 12, 0, 0).unwrap(),
             model: model.map(String::from),
             input_tokens: input,
@@ -1594,6 +1597,7 @@ mod tests {
         let early_utc = Utc.with_ymd_and_hms(2024, 2, 6, 1, 0, 0).unwrap();
 
         let entry_late = UsageEntry {
+            fast_speed: false,
             timestamp: late_utc,
             model: Some("claude".into()),
             input_tokens: 100,
@@ -1614,6 +1618,7 @@ mod tests {
             project: None,
         };
         let entry_early = UsageEntry {
+            fast_speed: false,
             timestamp: early_utc,
             model: Some("claude".into()),
             input_tokens: 200,
@@ -1666,6 +1671,7 @@ mod tests {
 
         let entries = vec![
             UsageEntry {
+                fast_speed: false,
                 timestamp: ts1,
                 model: Some("claude".into()),
                 input_tokens: 100,
@@ -1686,6 +1692,7 @@ mod tests {
                 project: None,
             },
             UsageEntry {
+                fast_speed: false,
                 timestamp: ts2,
                 model: Some("claude".into()),
                 input_tokens: 200,
@@ -1915,6 +1922,7 @@ mod tests {
         cost: Option<f64>,
     ) -> UsageEntry {
         UsageEntry {
+            fast_speed: false,
             timestamp: Utc.with_ymd_and_hms(year, month, day, 12, 0, 0).unwrap(),
             model: model.map(String::from),
             input_tokens: input,

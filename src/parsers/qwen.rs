@@ -152,6 +152,7 @@ impl QwenParser {
             };
 
             entries.push(UsageEntry {
+                fast_speed: false,
                 timestamp,
                 model: parsed.model.map(String::from),
                 // `promptTokenCount` (Gemini semantics) INCLUDES cached tokens;

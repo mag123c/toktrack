@@ -156,6 +156,8 @@ zsh/bash/fish 몇 줄이면 됩니다 — **[셸 통합 가이드](docs/shell-in
 > [LiteLLM](https://github.com/BerriAI/litellm) API 단가 추정치로 계산되며 `~` 마커(추정치)로 표시됩니다.
 > GitHub Copilot CLI의 경우, 표시되는 값은 실제 구독료나 크레딧 소모량이 아니라 API 상응 비용입니다.
 > 네트워크가 없을 때도 번들된 스냅샷으로 가격 계산이 동작합니다.
+> 1시간 캐시 쓰기는 별도의 높은 단가로, Claude Code의 fast 모드(`/fast`) 요청은 제공사 fast 배수로 계산됩니다.
+> LiteLLM에 가격이 없는 모델은 비용 자리에 `?`가 떠서 $0을 무료 사용으로 오해하지 않게 합니다.
 
 ### 환경 변수
 

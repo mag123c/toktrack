@@ -463,6 +463,7 @@ impl CLIParser for CopilotParser {
                         output_sum += output;
 
                         distributed.push(UsageEntry {
+                            fast_speed: false,
                             timestamp: m.timestamp,
                             model: m_model.clone(),
                             input_tokens: input,
@@ -523,6 +524,7 @@ impl CLIParser for CopilotParser {
                         m_model.as_deref().unwrap_or("unknown")
                     ));
                     entries.push(UsageEntry {
+                        fast_speed: false,
                         timestamp: entry_ts,
                         model: m_model,
                         input_tokens: metric.input_tokens,
@@ -549,6 +551,7 @@ impl CLIParser for CopilotParser {
             for m in post_shutdown {
                 let m_model = m.model.clone().or_else(|| current_model.clone());
                 entries.push(UsageEntry {
+                    fast_speed: false,
                     timestamp: m.timestamp,
                     model: m_model,
                     input_tokens: 0,
@@ -574,6 +577,7 @@ impl CLIParser for CopilotParser {
             for m in messages {
                 let m_model = m.model.clone().or_else(|| current_model.clone());
                 entries.push(UsageEntry {
+                    fast_speed: false,
                     timestamp: m.timestamp,
                     model: m_model,
                     input_tokens: 0,

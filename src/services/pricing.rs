@@ -101,6 +101,17 @@ pub struct ModelPricing {
     // Reasoning/thinking token cost; falls back to the output rate when absent
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_cost_per_reasoning_token: Option<f64>,
+    /// Provider-specific rate multipliers keyed by mode (LiteLLM ships `fast`
+    /// and `us`). Only `fast` is applied: Claude Code records the speed per
+    /// request, while `inference_geo` reads `not_available` in practice. The
+    /// same LiteLLM key also carries non-numeric provider metadata on other
+    /// models, so anything that is not a number is dropped.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_numeric_map",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_specific_entry: Option<HashMap<String, f64>>,
 }
 
 impl ModelPricing {
@@ -120,6 +131,23 @@ impl ModelPricing {
                 .and_then(SearchContextCost::per_query_cost)
                 .is_some()
     }
+}
+
+/// Keeps only the numeric members of a LiteLLM map. `provider_specific_entry`
+/// mixes rate multipliers with provider metadata such as
+/// `{"bedrock_invocation_schema": "titan_v2"}`.
+fn deserialize_numeric_map<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<HashMap<String, f64>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw: Option<HashMap<String, serde_json::Value>> = Option::deserialize(deserializer)?;
+    Ok(raw.map(|m| {
+        m.into_iter()
+            .filter_map(|(k, v)| v.as_f64().map(|f| (k, f)))
+            .collect()
+    }))
 }
 
 /// Cached pricing data
@@ -173,6 +201,22 @@ fn tiered_cost(tokens: u64, base_price: f64, tier: Option<(u64, f64)>) -> f64 {
         }
         _ => tokens as f64 * base_price,
     }
+}
+
+/// Rate multiplier for the speed the request ran at. Claude Code records
+/// `usage.speed`, and LiteLLM carries the matching multiplier under
+/// `provider_specific_entry.fast` (2.0 for claude-opus-5, matching its $10/$50
+/// fast pricing against a $5/$25 base). Anything else bills at 1x.
+fn speed_multiplier(entry: &UsageEntry, pricing: &ModelPricing) -> f64 {
+    if !entry.fast_speed {
+        return 1.0;
+    }
+    pricing
+        .provider_specific_entry
+        .as_ref()
+        .and_then(|m| m.get("fast"))
+        .copied()
+        .unwrap_or(1.0)
 }
 
 /// Custom pricing configuration from ~/.toktrack/pricing.toml
@@ -368,6 +412,7 @@ impl PricingService {
             // so the LiteLLM-shaped `_above_1hr` keys stay unset.
             cache_creation_input_token_cost_above_1hr: None,
             cache_creation_input_token_cost_above_1hr_above_200k_tokens: None,
+            provider_specific_entry: None,
             search_context_cost_per_query: None,
             output_cost_per_reasoning_token: None,
         })
@@ -588,7 +633,11 @@ impl PricingService {
         let web_search_cost = self.get_web_search_cost(entry, pricing);
         let web_fetch_cost = self.get_web_fetch_cost(entry);
 
-        input + output + cache_read + cache_creation + reasoning + web_search_cost + web_fetch_cost
+        // Fast mode multiplies the token rates; per-request tool charges are flat.
+        let token_cost = (input + output + cache_read + cache_creation + reasoning)
+            * speed_multiplier(entry, pricing);
+
+        token_cost + web_search_cost + web_fetch_cost
     }
 
     /// Web fetch cost. No LiteLLM source exists, so this is priced only via the
@@ -690,6 +739,7 @@ mod tests {
         cost_usd: Option<f64>,
     ) -> UsageEntry {
         UsageEntry {
+            fast_speed: false,
             timestamp: Utc::now(),
             model: model.map(String::from),
             input_tokens: input,
@@ -783,6 +833,15 @@ mod tests {
                 cache_read_input_token_cost: Some(0.0000005), // $0.50 per 1M tokens
                 cache_creation_input_token_cost: Some(0.00000625), // $6.25 per 1M tokens (5m)
                 cache_creation_input_token_cost_above_1hr: Some(0.00001), // $10 per 1M tokens (1h)
+                provider_specific_entry: Some(HashMap::from([
+                    ("fast".to_string(), 2.0),
+                    ("us".to_string(), 1.1),
+                ])),
+                search_context_cost_per_query: Some(SearchContextCost {
+                    search_context_size_low: Some(0.01),
+                    search_context_size_medium: Some(0.01),
+                    search_context_size_high: Some(0.01),
+                }),
                 ..Default::default()
             },
         );
@@ -2287,6 +2346,60 @@ web_search_per_request = 0.01
             }
             .has_any_pricing(),
             "Web-search-only entries still price something"
+        );
+    }
+
+    #[test]
+    fn test_fast_speed_applies_multiplier() {
+        let (service, _temp) = create_test_service();
+
+        let mut entry = make_entry(Some("claude-opus-5"), 1_000_000, 0, 0, 0, None);
+        let standard = service.calculate_cost(&entry);
+        entry.fast_speed = true;
+        let fast = service.calculate_cost(&entry);
+
+        // claude-opus-5 in the test cache carries provider_specific_entry.fast = 2.0
+        assert!(
+            (fast - standard * 2.0).abs() < 1e-9,
+            "fast mode must bill at 2x: standard {}, fast {}",
+            standard,
+            fast
+        );
+    }
+
+    #[test]
+    fn test_fast_speed_without_multiplier_is_unchanged() {
+        let (service, _temp) = create_test_service();
+
+        // claude-sonnet-4 has no provider_specific_entry
+        let mut entry = make_entry(Some("claude-sonnet-4"), 1_000_000, 0, 0, 0, None);
+        let standard = service.calculate_cost(&entry);
+        entry.fast_speed = true;
+        let fast = service.calculate_cost(&entry);
+
+        assert!(
+            (fast - standard).abs() < 1e-9,
+            "A model without a fast rate must not change price"
+        );
+    }
+
+    #[test]
+    fn test_fast_multiplier_excludes_web_search_cost() {
+        let (service, _temp) = create_test_service();
+
+        let mut entry = make_entry(Some("claude-opus-5"), 1_000_000, 0, 0, 0, None);
+        entry.web_search_requests = 10;
+        entry.fast_speed = true;
+
+        let cost = service.calculate_cost(&entry);
+
+        // tokens double, the $0.01/query search rate does not
+        let expected = 1_000_000.0 * 0.000005 * 2.0 + 10.0 * 0.01;
+        assert!(
+            (cost - expected).abs() < 1e-9,
+            "Per-query search cost must stay outside the speed multiplier: expected {}, got {}",
+            expected,
+            cost
         );
     }
 }

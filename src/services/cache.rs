@@ -344,6 +344,7 @@ mod tests {
         cost: Option<f64>,
     ) -> UsageEntry {
         UsageEntry {
+            fast_speed: false,
             timestamp: Utc.with_ymd_and_hms(year, month, day, 12, 0, 0).unwrap(),
             model: model.map(String::from),
             input_tokens: input,
@@ -421,6 +422,7 @@ mod tests {
 
         let entries = vec![
             UsageEntry {
+                fast_speed: false,
                 timestamp: yesterday.and_hms_opt(12, 0, 0).unwrap().and_utc(),
                 model: Some("claude".to_string()),
                 input_tokens: 100,
@@ -441,6 +443,7 @@ mod tests {
                 project: None,
             },
             UsageEntry {
+                fast_speed: false,
                 timestamp: today.and_hms_opt(12, 0, 0).unwrap().and_utc(),
                 model: Some("claude".to_string()),
                 input_tokens: 200,
@@ -530,6 +533,7 @@ mod tests {
         fs::write(&cache_path, serde_json::to_string(&cache).unwrap()).unwrap();
 
         let entries = vec![UsageEntry {
+            fast_speed: false,
             timestamp: today.and_hms_opt(12, 0, 0).unwrap().and_utc(),
             model: Some("claude".to_string()),
             input_tokens: 100,
@@ -604,6 +608,7 @@ mod tests {
         fs::write(&cache_path, serde_json::to_string(&cache).unwrap()).unwrap();
 
         let entries = vec![UsageEntry {
+            fast_speed: false,
             timestamp: today.and_hms_opt(15, 0, 0).unwrap().and_utc(),
             model: Some("claude".to_string()),
             input_tokens: 200,

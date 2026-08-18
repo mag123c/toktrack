@@ -119,6 +119,10 @@ pub struct UsageEntry {
     /// `None` for sources that do not record a project (Codex, Gemini, etc.).
     #[serde(default)]
     pub project: Option<String>,
+    /// Request served in fast mode (Claude Code `usage.speed == "fast"`), which
+    /// bills at the provider's fast multiplier. Only Claude records a speed.
+    #[serde(default)]
+    pub fast_speed: bool,
 }
 
 impl UsageEntry {
@@ -540,6 +544,7 @@ mod tests {
     #[test]
     fn test_usage_entry_total_tokens() {
         let entry = UsageEntry {
+            fast_speed: false,
             timestamp: Utc::now(),
             model: Some("claude-sonnet-4".into()),
             input_tokens: 100,
@@ -565,6 +570,7 @@ mod tests {
     #[test]
     fn test_usage_entry_total_tokens_with_thinking() {
         let entry = UsageEntry {
+            fast_speed: false,
             timestamp: Utc::now(),
             model: Some("gemini-2.5-pro".into()),
             input_tokens: 100,
@@ -590,6 +596,7 @@ mod tests {
     #[test]
     fn test_usage_entry_dedup_hash() {
         let entry = UsageEntry {
+            fast_speed: false,
             timestamp: Utc::now(),
             model: None,
             input_tokens: 0,
@@ -615,6 +622,7 @@ mod tests {
     #[test]
     fn test_usage_entry_dedup_hash_missing() {
         let entry = UsageEntry {
+            fast_speed: false,
             timestamp: Utc::now(),
             model: None,
             input_tokens: 0,
@@ -640,6 +648,7 @@ mod tests {
     #[test]
     fn test_usage_entry_dedup_hash_fallback_message_only() {
         let entry = UsageEntry {
+            fast_speed: false,
             timestamp: Utc::now(),
             model: Some("gpt-4".into()),
             input_tokens: 100,
@@ -670,6 +679,7 @@ mod tests {
         // but the point is local_date() uses Local timezone conversion
         let utc_ts = Utc.with_ymd_and_hms(2024, 2, 6, 3, 0, 0).unwrap();
         let entry = UsageEntry {
+            fast_speed: false,
             timestamp: utc_ts,
             model: Some("claude".into()),
             input_tokens: 100,
@@ -699,6 +709,7 @@ mod tests {
         // may map to the next day in local time
         let late_utc = Utc.with_ymd_and_hms(2024, 2, 5, 23, 0, 0).unwrap();
         let late_entry = UsageEntry {
+            fast_speed: false,
             timestamp: late_utc,
             model: None,
             input_tokens: 0,
@@ -731,6 +742,7 @@ mod tests {
     fn test_model_usage_add() {
         let mut usage = ModelUsage::default();
         let entry = UsageEntry {
+            fast_speed: false,
             timestamp: Utc::now(),
             model: Some("claude".into()),
             input_tokens: 100,

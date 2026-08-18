@@ -160,6 +160,7 @@ impl GeminiParser {
             };
 
             entries.push(UsageEntry {
+                fast_speed: false,
                 timestamp,
                 model: msg.model.clone().or_else(|| session.model.clone()),
                 // Gemini's `input` (promptTokenCount) INCLUDES cached tokens; subtract
@@ -254,6 +255,7 @@ impl GeminiParser {
 
             let cached = tokens.cached.unwrap_or(0);
             entries.push(UsageEntry {
+                fast_speed: false,
                 timestamp,
                 model: parsed.model.map(String::from),
                 // Gemini's `input` (promptTokenCount) INCLUDES cached; subtract it so

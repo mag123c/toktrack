@@ -220,6 +220,7 @@ fn to_usage_entry(id: String, session_id: String, msg: OpenCodeMessageData) -> O
     };
 
     Some(UsageEntry {
+        fast_speed: false,
         timestamp,
         model: msg.model_id,
         input_tokens: tokens.input,

@@ -223,6 +223,7 @@ impl CLIParser for PiAgentParser {
                 }
                 ParseResult::Usage(event) => {
                     entries.push(UsageEntry {
+                        fast_speed: false,
                         timestamp: event.timestamp,
                         model: event.model,
                         input_tokens: event.usage.input,

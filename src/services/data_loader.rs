@@ -467,6 +467,7 @@ mod tests {
     fn test_batch_estimated() {
         use chrono::Utc;
         let mk = |cost: Option<f64>, provider: Option<&str>| UsageEntry {
+            fast_speed: false,
             timestamp: Utc::now(),
             model: Some("m".into()),
             input_tokens: 1,
@@ -710,6 +711,7 @@ mod tests {
 
     fn make_entry(cost_usd: Option<f64>, provider: Option<&str>) -> UsageEntry {
         UsageEntry {
+            fast_speed: false,
             timestamp: chrono::Utc::now(),
             model: Some("claude-sonnet-4-5-20250514".to_string()),
             input_tokens: 1000,
@@ -785,6 +787,7 @@ mod tests {
         let five_days_ago = today - chrono::Duration::days(5);
 
         let old_entry = UsageEntry {
+            fast_speed: false,
             timestamp: five_days_ago.and_hms_opt(23, 0, 0).unwrap().and_utc(),
             model: Some("claude".to_string()),
             input_tokens: 50_000_000,
@@ -805,6 +808,7 @@ mod tests {
             project: None,
         };
         let yesterday_entry = UsageEntry {
+            fast_speed: false,
             timestamp: yesterday.and_hms_opt(12, 0, 0).unwrap().and_utc(),
             model: Some("claude".to_string()),
             input_tokens: 1000,
@@ -825,6 +829,7 @@ mod tests {
             project: None,
         };
         let today_entry = UsageEntry {
+            fast_speed: false,
             timestamp: today.and_hms_opt(10, 0, 0).unwrap().and_utc(),
             model: Some("claude".to_string()),
             input_tokens: 2000,
@@ -865,6 +870,7 @@ mod tests {
         let two_days_ago = today - chrono::Duration::days(2);
 
         let dated = |d: NaiveDate| UsageEntry {
+            fast_speed: false,
             timestamp: d.and_hms_opt(12, 0, 0).unwrap().and_utc(),
             model: Some("gpt-5.3-codex".to_string()),
             input_tokens: 1,

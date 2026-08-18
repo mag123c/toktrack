@@ -79,7 +79,8 @@
   },
   "amazon.titan-embed-text-v2:0": {
     "input_cost_per_token": 2e-8,
-    "output_cost_per_token": 0.0
+    "output_cost_per_token": 0.0,
+    "provider_specific_entry": {}
   },
   "amazon.titan-text-express-v1": {
     "input_cost_per_token": 1.3e-6,
@@ -2931,6 +2932,9 @@
       "search_context_size_low": 0.01,
       "search_context_size_medium": 0.01,
       "search_context_size_high": 0.01
+    },
+    "provider_specific_entry": {
+      "us": 1.1
     }
   },
   "claude-haiku-4-5": {
@@ -3041,6 +3045,10 @@
       "search_context_size_low": 0.01,
       "search_context_size_medium": 0.01,
       "search_context_size_high": 0.01
+    },
+    "provider_specific_entry": {
+      "fast": 6.0,
+      "us": 1.1
     }
   },
   "claude-opus-4-6-20260205": {
@@ -3053,6 +3061,10 @@
       "search_context_size_low": 0.01,
       "search_context_size_medium": 0.01,
       "search_context_size_high": 0.01
+    },
+    "provider_specific_entry": {
+      "fast": 6.0,
+      "us": 1.1
     }
   },
   "claude-opus-4-7": {
@@ -3065,6 +3077,10 @@
       "search_context_size_low": 0.01,
       "search_context_size_medium": 0.01,
       "search_context_size_high": 0.01
+    },
+    "provider_specific_entry": {
+      "fast": 6.0,
+      "us": 1.1
     }
   },
   "claude-opus-4-7-20260416": {
@@ -3077,6 +3093,10 @@
       "search_context_size_low": 0.01,
       "search_context_size_medium": 0.01,
       "search_context_size_high": 0.01
+    },
+    "provider_specific_entry": {
+      "us": 1.1,
+      "fast": 6.0
     }
   },
   "claude-opus-4-8": {
@@ -3089,6 +3109,10 @@
       "search_context_size_low": 0.01,
       "search_context_size_medium": 0.01,
       "search_context_size_high": 0.01
+    },
+    "provider_specific_entry": {
+      "us": 1.1,
+      "fast": 2.0
     }
   },
   "claude-opus-5": {
@@ -3101,6 +3125,10 @@
       "search_context_size_low": 0.01,
       "search_context_size_medium": 0.01,
       "search_context_size_high": 0.01
+    },
+    "provider_specific_entry": {
+      "fast": 2.0,
+      "us": 1.1
     }
   },
   "claude-sonnet-4-20250514": {
@@ -3187,6 +3215,9 @@
       "search_context_size_low": 0.01,
       "search_context_size_medium": 0.01,
       "search_context_size_high": 0.01
+    },
+    "provider_specific_entry": {
+      "us": 1.1
     }
   },
   "cloudflare/@cf/aisingapore/gemma-sea-lion-v4-27b-it": {

@@ -270,6 +270,7 @@ fn decode_entry(
     };
 
     Some(UsageEntry {
+        fast_speed: false,
         timestamp,
         model,
         // `input_tokens` is already the non-cached input (cache reads are a

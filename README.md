@@ -217,6 +217,9 @@ existing snapshot/cache for that remote.
 > are computed from [LiteLLM](https://github.com/BerriAI/litellm) API list-price estimates and shown with a `~` marker
 > (estimated). For GitHub Copilot CLI, the displayed value is the API-equivalent cost rather than your actual subscription/credit spend.
 > Pricing works offline via a bundled snapshot when the network is unavailable.
+> 1h ephemeral cache writes are billed at their own higher rate, and Claude Code requests made in
+> fast mode (`/fast`) are billed at the provider's fast multiplier. A model LiteLLM has no price for
+> shows `?` instead of a cost, so a $0 row is never mistaken for free usage.
 
 ### Environment Variables
 

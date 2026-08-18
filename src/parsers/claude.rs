@@ -26,7 +26,7 @@ struct ClaudeJsonLine<'a> {
 struct ClaudeMessage<'a> {
     model: Option<&'a str>,
     id: Option<&'a str>,
-    usage: Option<ClaudeUsage>,
+    usage: Option<ClaudeUsage<'a>>,
 }
 
 #[derive(Deserialize, Default)]
@@ -42,13 +42,16 @@ struct ServerToolUse {
 }
 
 #[derive(Deserialize)]
-struct ClaudeUsage {
+struct ClaudeUsage<'a> {
     input_tokens: u64,
     output_tokens: u64,
     cache_creation_input_tokens: Option<u64>,
     cache_read_input_tokens: Option<u64>,
     cache_creation: Option<CacheCreationDetail>,
     server_tool_use: Option<ServerToolUse>,
+    /// "standard" or "fast" — fast mode bills at the provider's fast multiplier.
+    #[serde(borrow)]
+    speed: Option<&'a str>,
 }
 
 /// Parser for Claude Code usage data
@@ -111,6 +114,7 @@ impl ClaudeCodeParser {
         let tool_use = usage.server_tool_use.as_ref();
 
         Some(UsageEntry {
+            fast_speed: usage.speed == Some("fast"),
             timestamp,
             model: message.model.map(String::from),
             input_tokens: usage.input_tokens,
@@ -523,5 +527,27 @@ mod tests {
         for path in recent_local_sessions(5) {
             assert_usage_shape_known(&path);
         }
+    }
+
+    #[test]
+    fn test_claude_parses_fast_speed() {
+        let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("/tmp"));
+        let line = r#"{"type":"assistant","timestamp":"2026-08-18T10:00:00.000Z","message":{"model":"claude-opus-5","id":"msg-fast","usage":{"input_tokens":10,"output_tokens":5,"speed":"fast"}}}"#;
+        let mut bytes = line.as_bytes().to_vec();
+
+        let entry = parser.parse_line(&mut bytes).unwrap();
+
+        assert!(entry.fast_speed, "speed=fast must mark the entry");
+    }
+
+    #[test]
+    fn test_claude_standard_speed_is_not_fast() {
+        let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("/tmp"));
+        let line = r#"{"type":"assistant","timestamp":"2026-08-18T10:00:00.000Z","message":{"model":"claude-opus-5","id":"msg-std","usage":{"input_tokens":10,"output_tokens":5,"speed":"standard"}}}"#;
+        let mut bytes = line.as_bytes().to_vec();
+
+        let entry = parser.parse_line(&mut bytes).unwrap();
+
+        assert!(!entry.fast_speed);
     }
 }
