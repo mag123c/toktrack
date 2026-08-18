@@ -139,7 +139,7 @@ impl Widget for ModelsView<'_> {
 
         self.render_separator(chunks[4], buf);
 
-        self.render_unpriced_legend(chunks[5], buf);
+        self.render_unpriced_legend(chunks[5], buf, max_model_rows as usize);
 
         self.render_keybindings(chunks[6], buf);
     }
@@ -276,9 +276,17 @@ impl ModelsView<'_> {
         }
     }
 
-    /// Legend for the `?` cost marker, rendered only when a model carries it.
-    fn render_unpriced_legend(&self, area: Rect, buf: &mut Buffer) {
-        if !self.data.models.iter().any(|m| m.unpriced) {
+    /// Legend for the `?` cost marker, rendered only when a *visible* row carries
+    /// it. Unpriced models sort last (cost 0), so an off-screen one would
+    /// otherwise explain a marker the user cannot see.
+    fn render_unpriced_legend(&self, area: Rect, buf: &mut Buffer, visible_rows: usize) {
+        if !self
+            .data
+            .models
+            .iter()
+            .take(visible_rows)
+            .any(|m| m.unpriced)
+        {
             return;
         }
         let legend = Paragraph::new(Line::from(Span::styled(
