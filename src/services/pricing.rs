@@ -1180,6 +1180,67 @@ mod tests {
         assert_eq!(service.model_count(), 5);
     }
 
+    /// Guards the reason `GrokParser` sets `cost_usd` itself instead of relying
+    /// on this table: LiteLLM ships Grok only under provider-prefixed keys, and
+    /// `get_pricing`'s substring fallback deliberately skips keys containing
+    /// `/`, so a bare `grok-4.6` resolves to nothing and would be priced at $0.
+    /// If LiteLLM ever adds a bare key, this fails and `D1` should be revisited.
+    #[test]
+    fn test_bare_grok_id_is_unreachable_in_pricing_table() {
+        let cache = PricingService::snapshot_cache();
+        let service = PricingService {
+            cache,
+            cache_path: PathBuf::from("/dev/null"),
+            custom: None,
+        };
+
+        // The provider-prefixed key exists and prices.
+        assert!(
+            service.get_pricing("xai/grok-4.6").is_some(),
+            "snapshot should carry xai/grok-4.6"
+        );
+        // The id Grok actually reports does not resolve, in either spelling.
+        assert!(
+            service.get_pricing("grok-4.6").is_none(),
+            "bare grok-4.6 unexpectedly resolved - revisit D1 (cost_usd from ticks)"
+        );
+        assert!(
+            service.get_pricing("grok-4-6").is_none(),
+            "normalized grok-4-6 unexpectedly resolved - revisit D1"
+        );
+
+        // ...which is why the table path would report $0.00 for a real entry.
+        let entry = UsageEntry {
+            timestamp: Utc::now(),
+            model: Some("grok-4.6".to_string()),
+            input_tokens: 21214,
+            output_tokens: 1841,
+            cache_read_tokens: 205824,
+            cache_creation_tokens: 0,
+            reasoning_tokens: 612,
+            cache_creation_5m_tokens: 0,
+            cache_creation_1h_tokens: 0,
+            web_search_requests: 0,
+            web_fetch_requests: 0,
+            reported_total_tokens: Some(229491),
+            cost_usd: None,
+            message_id: None,
+            request_id: None,
+            source: Some("grok".into()),
+            provider: Some("xai".into()),
+            project: None,
+            fast_speed: false,
+        };
+        assert_eq!(service.calculate_cost(&entry), 0.0);
+
+        // The parser-supplied figure is used instead, and is the exact amount.
+        let priced = UsageEntry {
+            cost_usd: Some(0.160058),
+            ..entry
+        };
+        assert!((service.get_or_calculate_cost(&priced) - 0.160058).abs() < 1e-9);
+    }
+
     #[test]
     fn test_vendored_snapshot_parses_and_prices_known_models() {
         let cache = PricingService::snapshot_cache();
