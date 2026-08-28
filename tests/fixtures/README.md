@@ -34,6 +34,7 @@ structure is preserved.
 | Qwen | `qwen/proj/chats/*.jsonl` | Gemini CLI fork — identical format; parsed by the same parser with source "qwen" |
 | OpenCode | `opencode/...`, in-test SQLite | message rows with reasoning + cache + cost |
 | PI Agent | `pi_agent/*.jsonl` | assistant usage; nested `cost.total` |
+| Grok | `grok/sessions/*/*/updates.jsonl` | real-shape from `~/.grok` (grok 1.0.5, sanitized ids/paths, token+cost values verbatim); only `_x.ai/session/update` + `sessionUpdate == "turn_completed"` is usage. Includes `session/update` noise lines whose `_meta.totalTokens` (4146/13497/71784) is a **running context-window size, not usage** — a canary against summing it. Also covers the three project-attribution paths (`summary.json` cwd, `.cwd` sidecar, percent-decoded dir name) and multi-model `modelUsage` fan-out |
 
 ## Schema drift canary
 
@@ -47,6 +48,12 @@ data) still checks the fixtures. A failure names the new field; decide whether i
 affects cost, then add it to the mirror and, if it does, to the parser struct.
 
 ## Notes
+- Grok `costUsdTicks` is cost in units of 1e-10 USD. The parser sets `cost_usd`
+  from it directly (the only parser that does): the bare id `grok-4.6` is absent
+  from the LiteLLM snapshot (only `xai/grok-4.6`, which `get_pricing`'s fallback
+  scan skips for containing `/`), and xAI applies its above-200k tier per API
+  call whereas `tiered_cost` applies it per entry. Fixture costs
+  ($0.110870/$0.132250/$0.160058) reproduce the LiteLLM `xai/grok-4.6` rates exactly.
 - Claude `usage.server_tool_use.web_fetch_requests` — captured into
   `UsageEntry.web_fetch_requests`. No LiteLLM price exists, so it is priced only
   via a custom `global.web_fetch_per_request` override (else $0).

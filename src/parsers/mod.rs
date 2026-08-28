@@ -6,6 +6,7 @@ mod codex;
 mod copilot;
 pub mod discovery;
 mod gemini;
+mod grok;
 mod opencode;
 mod pi_agent;
 mod qwen;
@@ -15,6 +16,7 @@ pub use claude::ClaudeCodeParser;
 pub use codex::CodexParser;
 pub use copilot::CopilotParser;
 pub use gemini::GeminiParser;
+pub use grok::GrokParser;
 pub use opencode::OpenCodeParser;
 pub use pi_agent::PiAgentParser;
 pub use qwen::QwenParser;
@@ -171,6 +173,7 @@ impl ParserRegistry {
                 SourceInstance::local(Box::new(OpenCodeParser::new())),
                 SourceInstance::local(Box::new(PiAgentParser::new())),
                 SourceInstance::local(Box::new(AntigravityParser::new())),
+                SourceInstance::local(Box::new(GrokParser::new())),
             ],
         }
     }
@@ -219,7 +222,7 @@ mod tests {
     #[test]
     fn test_registry_default_parsers() {
         let registry = ParserRegistry::new();
-        assert_eq!(registry.sources().len(), 8);
+        assert_eq!(registry.sources().len(), 9);
         assert!(registry.get("claude-code").is_some());
         assert!(registry.get("copilot").is_some());
         assert!(registry.get("codex").is_some());
@@ -228,6 +231,7 @@ mod tests {
         assert!(registry.get("opencode").is_some());
         assert!(registry.get("pi-agent").is_some());
         assert!(registry.get("antigravity").is_some());
+        assert!(registry.get("grok").is_some());
     }
 
     #[test]
@@ -283,8 +287,8 @@ mod tests {
             ))),
         )]);
 
-        assert_eq!(registry.sources().len(), 9);
-        assert_eq!(registry.sources()[8].id, "codex@testbox");
+        assert_eq!(registry.sources().len(), 10);
+        assert_eq!(registry.sources()[9].id, "codex@testbox");
     }
 
     #[test]
@@ -350,6 +354,7 @@ mod tests {
     fn test_collect_files() {
         let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
         let files = parser.collect_files();
-        assert_eq!(files.len(), 19);
+        // Every `**/*.jsonl` under tests/fixtures, all sources included.
+        assert_eq!(files.len(), 22);
     }
 }

@@ -44,6 +44,10 @@ pub fn display_name(normalized: &str) -> String {
         return parse_codex_name(rest);
     }
 
+    if let Some(rest) = model.strip_prefix("grok-") {
+        return parse_grok_name(rest);
+    }
+
     if let Some(rest) = model.strip_prefix('o') {
         if rest.starts_with(|c: char| c.is_ascii_digit()) {
             return parse_o_series(model);
@@ -97,6 +101,32 @@ fn parse_gpt_name(rest: &str) -> String {
 }
 
 /// Parse Gemini model name: {version}-{tier} → Gemini {version} {Tier}
+/// Grok ids normalize dots to dashes (`grok-4.6` -> `grok-4-6`), so rejoin the
+/// leading numeric run as a version and title-case any trailing tier words:
+/// `4-6` -> "Grok 4.6", `code-fast-1` -> "Grok Code Fast 1".
+fn parse_grok_name(rest: &str) -> String {
+    let mut version_parts = Vec::new();
+    let mut tier_parts = Vec::new();
+
+    for part in rest.split('-') {
+        if part.chars().all(|c| c.is_ascii_digit()) && tier_parts.is_empty() {
+            version_parts.push(part);
+        } else {
+            tier_parts.push(capitalize(part));
+        }
+    }
+
+    let version = version_parts.join(".");
+    let tier = tier_parts.join(" ");
+
+    match (version.is_empty(), tier.is_empty()) {
+        (false, true) => format!("Grok {}", version),
+        (true, false) => format!("Grok {}", tier),
+        (false, false) => format!("Grok {} {}", version, tier),
+        (true, true) => "Grok".to_string(),
+    }
+}
+
 fn parse_gemini_name(rest: &str) -> String {
     let parts: Vec<&str> = rest.split('-').collect();
     if parts.len() < 2 {
@@ -202,6 +232,17 @@ pub fn normalize_model_name(model: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_display_name_grok() {
+        assert_eq!(display_name("grok-4-6"), "Grok 4.6");
+        assert_eq!(display_name("grok-4"), "Grok 4");
+        assert_eq!(display_name("grok-code-fast-1"), "Grok Code Fast 1");
+        assert_eq!(
+            display_name("grok-4-1-fast-reasoning"),
+            "Grok 4.1 Fast Reasoning"
+        );
+    }
 
     #[test]
     fn test_display_name_claude_opus_4_5() {

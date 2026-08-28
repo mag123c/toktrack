@@ -4,7 +4,7 @@
 [![npm](https://img.shields.io/npm/v/toktrack)](https://www.npmjs.com/package/toktrack)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/mag123c/toktrack/blob/main/LICENSE)
 
-Ultra-fast token & cost tracker for Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, and Antigravity. Built with Rust for ultra-fast performance (simd-json + rayon).
+Ultra-fast token & cost tracker for Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, Antigravity, and Grok CLI. Built with Rust for ultra-fast performance (simd-json + rayon).
 
 > **⚠️ Did you know?** Claude Code **deletes your session data after 30 days** by default. Once deleted, your token usage and cost history are gone forever — unless you preserve them.
 
@@ -40,7 +40,7 @@ brew install toktrack
 - **Ultra-Fast Parsing** — simd-json + rayon parallel processing (~3 GiB/s throughput)
 - **TUI Dashboard** — 5 tabs (Overview, Stats, Models, Projects, Audit) with daily/weekly/monthly views
 - **Per-Project Breakdown** — the Projects tab shows token & cost usage per project (the session working directory), for CLIs that record one. Drill into any project for its day-by-day, per-model breakdown. Usage from CLIs that don't record a project is grouped under `(no project)`. Project details are cached, so they survive past the CLI's 30-day deletion
-- **Multi-CLI Support** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, Antigravity
+- **Multi-CLI Support** — Claude Code, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, Antigravity, Grok CLI
 - **CLI Commands** — `daily`, `weekly`, `monthly`, `stats` with JSON output
 - **Data Preservation** — Cached daily summaries survive CLI data deletion
 
@@ -55,6 +55,7 @@ brew install toktrack
 | OpenCode | `~/.local/share/opencode/storage/message/` |
 | PI Agent | `~/.pi/agent/sessions/` |
 | Antigravity | `~/.gemini/antigravity-{ide,cli}/conversations/*.db` |
+| Grok CLI | `~/.grok/sessions/*/*/updates.jsonl` |
 
 ## Supported Platforms
 

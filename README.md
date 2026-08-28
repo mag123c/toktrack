@@ -14,7 +14,7 @@
 
 **The token & cost tracker that never loses your history.** Most tools re-read your CLI's session files on every run — so when Claude Code deletes them after 30 days, your cost history goes with them. toktrack keeps a **persistent cache**, so your history survives.
 
-Track usage across **all your AI coding CLIs** — Claude Code, GitHub Copilot CLI, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, and Antigravity — in one dashboard. Built in Rust, so it stays fast even on huge histories (simd-json + rayon).
+Track usage across **all your AI coding CLIs** — Claude Code, GitHub Copilot CLI, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, Antigravity, and Grok CLI — in one dashboard. Built in Rust, so it stays fast even on huge histories (simd-json + rayon).
 
 ![toktrack overview](assets/demo.gif)
 
@@ -23,13 +23,13 @@ Track usage across **all your AI coding CLIs** — Claude Code, GitHub Copilot C
 | Problem | Solution |
 |---------|----------|
 | 🗑️ **Claude Code deletes data after 30 days** — your cost history disappears | 💾 **Persistent cache** — history survives even after the CLI deletes its files |
-| 📊 **No unified view** — each CLI keeps its own separate data | 🎯 **One dashboard** — Claude Code, Copilot, Codex, Gemini, Qwen, OpenCode, PI Agent in one place |
+| 📊 **No unified view** — each CLI keeps its own separate data | 🎯 **One dashboard** — Claude Code, Copilot, Codex, Gemini, Qwen, OpenCode, PI Agent, Grok in one place |
 | 🐌 **Re-scanning big histories is slow** | ⚡ **Cached queries in ~0.04s** — instant on every run |
 
 ## Features
 
 - **Data Preservation** — Persistent cache keeps your cost history even after a CLI deletes its own session files
-- **Multi-CLI Support** — Claude Code, GitHub Copilot CLI, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, Antigravity in one place
+- **Multi-CLI Support** — Claude Code, GitHub Copilot CLI, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, Antigravity, Grok CLI in one place
 - **TUI Dashboard** — 5 tabs (Overview, Stats, Models, Projects, Audit) with daily/weekly/monthly views
 - **Per-Project Breakdown** — the Projects tab shows token & cost usage per project (the session working directory), for CLIs that record one. Drill into any project for its day-by-day, per-model breakdown. Usage from CLIs that don't record a project is grouped under `(no project)`. Project details are cached, so they survive past the CLI's 30-day deletion
 - **CLI Commands** — `daily`, `weekly`, `monthly`, `stats` with JSON output support
@@ -212,10 +212,13 @@ existing snapshot/cache for that remote.
 | OpenCode | ✅ | `~/.local/share/opencode/storage/message/` |
 | PI Agent | ✅ | `~/.pi/agent/sessions/` |
 | Antigravity | ✅ | `~/.gemini/antigravity-{ide,cli}/conversations/*.db` |
+| Grok CLI | ✅ | `~/.grok/sessions/*/*/updates.jsonl` |
 
 > Costs from sources that don't record their own price (Gemini, Qwen, Codex, Antigravity, GitHub Copilot, and modern Claude logs)
 > are computed from [LiteLLM](https://github.com/BerriAI/litellm) API list-price estimates and shown with a `~` marker
 > (estimated). For GitHub Copilot CLI, the displayed value is the API-equivalent cost rather than your actual subscription/credit spend.
+> Grok CLI is the exception: it records its own per-turn cost, which toktrack uses verbatim, so its
+> figures are exact rather than estimated.
 > Pricing works offline via a bundled snapshot when the network is unavailable.
 > 1h ephemeral cache writes are billed at their own higher rate, and Claude Code requests made in
 > fast mode (`/fast`) are billed at the provider's fast multiplier. A model LiteLLM has no price for
@@ -234,6 +237,7 @@ Each source's data directory can be overridden (matching the upstream CLI's own 
 | `QWEN_HOME` | Qwen Code | `~/.qwen` (+ `/tmp`) |
 | `OPENCODE_DATA_DIR` / `XDG_DATA_HOME` | OpenCode | `~/.local/share/opencode` |
 | `PI_CODING_AGENT_SESSION_DIR` (then `PI_AGENT_DIR`) | PI Agent | `~/.pi/agent/sessions` |
+| `GROK_HOME` | Grok CLI | `~/.grok` (+ `/sessions`) |
 
 ```bash
 export CLAUDE_CONFIG_DIR="/path/to/.claude"

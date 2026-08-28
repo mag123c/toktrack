@@ -8,6 +8,7 @@
 //! - Gemini: `GEMINI_CLI_HOME` (home root; data under `$GEMINI_CLI_HOME/.gemini/tmp`)
 //! - OpenCode: `OPENCODE_DATA_DIR` (full data dir) / `XDG_DATA_HOME` (base)
 //! - PI Agent: `PI_CODING_AGENT_SESSION_DIR` (== `--session-dir`) then `PI_AGENT_DIR`
+//! - Grok: `GROK_HOME` (root; sessions under `$GROK_HOME/sessions`)
 
 use std::path::PathBuf;
 

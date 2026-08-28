@@ -54,6 +54,7 @@ trait CLIParser: Send + Sync {
 | OpenCodeParser | SQLite (v1.2.0+) + JSON fallback | ~/.local/share/opencode/{opencode.db, storage/message/} | ✅ |
 | PiAgentParser | JSONL | ~/.pi/agent/sessions/ | ✅ |
 | AntigravityParser | SQLite + protobuf blobs | ~/.gemini/antigravity-{ide,cli}/conversations/*.db | ✅ (gen_metadata → ChatModelMetadata/ModelUsageStats) |
+| GrokParser | JSONL | ~/.grok/sessions/*/*/updates.jsonl | ✅ (`_x.ai/session/update` + `sessionUpdate == turn_completed` → `usage.modelUsage`; cost from `costUsdTicks`, the only parser setting `cost_usd`) |
 
 ## Data Flow
 ```
