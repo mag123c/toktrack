@@ -52,6 +52,11 @@ failure. Distinguish intent: a source the user selected **explicitly** may fail
 loudly, but a source pulled in **implicitly** (e.g. a configured default) must not
 break a plain command — degrade to local-only and warn.
 
+A panic bypasses all of the above: parsers run under `rayon`'s `par_iter`, so one
+panic takes down every source at once. Numbers read from a session file are
+untrusted input — use `saturating_add`/`saturating_sub` on them, never bare
+`+`/`-` (which panics in debug and wraps silently in release).
+
 ## Commits
 ```
 type(scope): description

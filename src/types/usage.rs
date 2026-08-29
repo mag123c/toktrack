@@ -129,10 +129,10 @@ impl UsageEntry {
     #[allow(dead_code)]
     pub fn total_tokens(&self) -> u64 {
         self.input_tokens
-            + self.output_tokens
-            + self.cache_read_tokens
-            + self.cache_creation_tokens
-            + self.reasoning_tokens
+            .saturating_add(self.output_tokens)
+            .saturating_add(self.cache_read_tokens)
+            .saturating_add(self.cache_creation_tokens)
+            .saturating_add(self.reasoning_tokens)
     }
 
     /// Convert UTC timestamp to local timezone date.

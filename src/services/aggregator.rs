@@ -424,11 +424,15 @@ impl Aggregator {
 
         for entry in entries {
             let source = entry.source.as_deref().unwrap_or("unknown").to_string();
-            let total_tokens = entry.input_tokens
-                + entry.output_tokens
-                + entry.cache_read_tokens
-                + entry.cache_creation_tokens
-                + entry.reasoning_tokens;
+            // Counts come from parsed session files, so a corrupt record must
+            // not overflow the sum: that panics in debug and silently wraps in
+            // release, and this runs over every source at once.
+            let total_tokens = entry
+                .input_tokens
+                .saturating_add(entry.output_tokens)
+                .saturating_add(entry.cache_read_tokens)
+                .saturating_add(entry.cache_creation_tokens)
+                .saturating_add(entry.reasoning_tokens);
             let cost = entry.cost_usd.unwrap_or(0.0);
 
             let entry_stats = source_map.entry(source).or_insert((0, 0.0));
