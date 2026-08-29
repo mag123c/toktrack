@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.17.0](https://github.com/mag123c/toktrack/compare/v2.16.1...v2.17.0) (2026-08-29)
+
+
+### Features
+
+* **parser:** add Grok CLI token tracking ([#235](https://github.com/mag123c/toktrack/issues/235)) ([f5e0227](https://github.com/mag123c/toktrack/commit/f5e022747ad3f6cc79796a6d5a87ab97894c6053))
+
+
+### Bug Fixes
+
+* **parser:** keep Grok cost and dropped turns honest ([#237](https://github.com/mag123c/toktrack/issues/237)) ([723432a](https://github.com/mag123c/toktrack/commit/723432aeee78651a89e170d6b7f34d465b614a53))
+
 ## [2.16.1](https://github.com/mag123c/toktrack/compare/v2.16.0...v2.16.1) (2026-08-18)
 
 
