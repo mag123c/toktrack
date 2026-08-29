@@ -156,7 +156,10 @@ zsh/bash/fish 몇 줄이면 됩니다 — **[셸 통합 가이드](docs/shell-in
 > 자체 비용을 기록하지 않는 소스(Gemini, Qwen, Codex, Antigravity, GitHub Copilot, 최신 Claude 로그)의 비용은
 > [LiteLLM](https://github.com/BerriAI/litellm) API 단가 추정치로 계산되며 `~` 마커(추정치)로 표시됩니다.
 > GitHub Copilot CLI의 경우, 표시되는 값은 실제 구독료나 크레딧 소모량이 아니라 API 상응 비용입니다.
-> Grok CLI는 예외입니다. 턴별 비용을 자체 기록하므로 toktrack이 그 값을 그대로 사용하며, 추정치가 아닌 정확한 값입니다.
+> 자체 비용을 기록하는 소스(Grok CLI, OpenCode, PI Agent, 구버전 Claude 로그)는 그 값을 그대로 사용하므로
+> 추정치가 아닙니다. `~` 마커는 엔트리 단위가 아니라 소스 단위라서, 한 소스 안에서 상위 비용이 없는 엔트리가
+> 하나라도 있으면 그 소스 전체가 추정치로 표시됩니다. 자체 비용을 보고하지 않은 Grok 턴은 가격표로 폴백하는데
+> 가격표에 `grok-4.6` 키가 없어서 합계에 $0으로 들어갑니다.
 > 네트워크가 없을 때도 번들된 스냅샷으로 가격 계산이 동작합니다.
 > 1시간 캐시 쓰기는 별도의 높은 단가로, Claude Code의 fast 모드(`/fast`) 요청은 제공사 fast 배수로 계산됩니다.
 > LiteLLM에 가격이 없는 모델은 비용 자리에 `?`가 떠서 $0을 무료 사용으로 오해하지 않게 합니다.

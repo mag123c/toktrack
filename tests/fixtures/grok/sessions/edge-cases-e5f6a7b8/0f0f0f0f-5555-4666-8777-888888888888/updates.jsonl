@@ -1,0 +1,4 @@
+{"jsonrpc":"2.0","method":"_x.ai/session/update","params":{"update":{"sessionUpdate":"turn_completed","prompt_id":"aaaa1111-2222-4333-8444-555566667777","usage":null},"_meta":{"eventId":"evt-null-usage"}},"timestamp":1756454400}
+{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"tool_call","content":{"type":"text","text":"grep found the string turn_completed in the log"}},"_meta":{"totalTokens":8000}},"timestamp":1756454410}
+{"jsonrpc":"2.0","method":"_x.ai/session/update","params":{"update":{"sessionUpdate":"turn_completed","prompt_id":"bbbb1111-
+{"jsonrpc":"2.0","method":"_x.ai/session/update","params":{"update":{"sessionUpdate":"turn_completed","prompt_id":"cccc1111-2222-4333-8444-555566667777","usage":{"inputTokens":900,"outputTokens":40,"totalTokens":940,"costUsdTicks":410000}}}}

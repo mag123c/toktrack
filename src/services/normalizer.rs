@@ -100,7 +100,6 @@ fn parse_gpt_name(rest: &str) -> String {
     }
 }
 
-/// Parse Gemini model name: {version}-{tier} → Gemini {version} {Tier}
 /// Grok ids normalize dots to dashes (`grok-4.6` -> `grok-4-6`), so rejoin the
 /// leading numeric run as a version and title-case any trailing tier words:
 /// `4-6` -> "Grok 4.6", `code-fast-1` -> "Grok Code Fast 1".
@@ -127,6 +126,7 @@ fn parse_grok_name(rest: &str) -> String {
     }
 }
 
+/// Parse Gemini model name: {version}-{tier} → Gemini {version} {Tier}
 fn parse_gemini_name(rest: &str) -> String {
     let parts: Vec<&str> = rest.split('-').collect();
     if parts.len() < 2 {

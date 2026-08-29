@@ -217,8 +217,11 @@ existing snapshot/cache for that remote.
 > Costs from sources that don't record their own price (Gemini, Qwen, Codex, Antigravity, GitHub Copilot, and modern Claude logs)
 > are computed from [LiteLLM](https://github.com/BerriAI/litellm) API list-price estimates and shown with a `~` marker
 > (estimated). For GitHub Copilot CLI, the displayed value is the API-equivalent cost rather than your actual subscription/credit spend.
-> Grok CLI is the exception: it records its own per-turn cost, which toktrack uses verbatim, so its
-> figures are exact rather than estimated.
+> Sources that do record their own cost (Grok CLI, OpenCode, PI Agent, and older Claude logs) have it
+> used verbatim rather than estimated. The `~` marker is per source, not per entry: if any one entry in
+> a source lacks an upstream cost, the whole source is marked estimated. A Grok turn that reports no
+> cost of its own falls back to the pricing table, which has no bare `grok-4.6` key, so it contributes
+> $0 to the totals.
 > Pricing works offline via a bundled snapshot when the network is unavailable.
 > 1h ephemeral cache writes are billed at their own higher rate, and Claude Code requests made in
 > fast mode (`/fast`) are billed at the provider's fast multiplier. A model LiteLLM has no price for

@@ -1184,7 +1184,9 @@ mod tests {
     /// on this table: LiteLLM ships Grok only under provider-prefixed keys, and
     /// `get_pricing`'s substring fallback deliberately skips keys containing
     /// `/`, so a bare `grok-4.6` resolves to nothing and would be priced at $0.
-    /// If LiteLLM ever adds a bare key, this fails and `D1` should be revisited.
+    /// If LiteLLM ever adds a bare key, this fails and the parser could go back to
+    /// the pricing table — except for the per-call tier split, which it still cannot
+    /// reproduce.
     #[test]
     fn test_bare_grok_id_is_unreachable_in_pricing_table() {
         let cache = PricingService::snapshot_cache();
@@ -1202,11 +1204,11 @@ mod tests {
         // The id Grok actually reports does not resolve, in either spelling.
         assert!(
             service.get_pricing("grok-4.6").is_none(),
-            "bare grok-4.6 unexpectedly resolved - revisit D1 (cost_usd from ticks)"
+            "bare grok-4.6 unexpectedly resolved - recheck whether GrokParser still needs to set cost_usd from ticks"
         );
         assert!(
             service.get_pricing("grok-4-6").is_none(),
-            "normalized grok-4-6 unexpectedly resolved - revisit D1"
+            "normalized grok-4-6 unexpectedly resolved - recheck whether GrokParser still needs to set cost_usd from ticks"
         );
 
         // ...which is why the table path would report $0.00 for a real entry.

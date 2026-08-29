@@ -48,12 +48,26 @@ data) still checks the fixtures. A failure names the new field; decide whether i
 affects cost, then add it to the mirror and, if it does, to the parser struct.
 
 ## Notes
-- Grok `costUsdTicks` is cost in units of 1e-10 USD. The parser sets `cost_usd`
-  from it directly (the only parser that does): the bare id `grok-4.6` is absent
-  from the LiteLLM snapshot (only `xai/grok-4.6`, which `get_pricing`'s fallback
-  scan skips for containing `/`), and xAI applies its above-200k tier per API
-  call whereas `tiered_cost` applies it per entry. Fixture costs
-  ($0.110870/$0.132250/$0.160058) reproduce the LiteLLM `xai/grok-4.6` rates exactly.
+- Grok `costUsdTicks` is cost in units of 1e-10 USD; see `COST_USD_TICKS_PER_USD`
+  in `src/parsers/grok.rs` for why the reported figure is preferred over the
+  pricing table. Fixture costs ($0.110870/$0.132250/$0.160058) reproduce the
+  LiteLLM `xai/grok-4.6` rates exactly. The field is optional: a record without
+  it must stay unpriced rather than become an exact $0.00.
+- The Grok fixture set also covers a POSIX-encoded session directory
+  (`%2Fhome%2Fme%2Fproj`, the macOS/Linux shape), a turn with no `_meta` so the
+  dedup hash falls back to `prompt_id`, a turn whose `usage` omits
+  `costUsdTicks`, a half-written final line, a malformed mid-file line,
+  `usage: null`, an empty session file, and a session whose final line is both
+  malformed and newline-terminated. The trailing newline is load-bearing: the
+  POSIX fixture deliberately has **none** (its last line is still being
+  written), the corrupt-final-line fixture deliberately has **one** (its last
+  line is lost usage). Re-saving either with the opposite terminator changes
+  what the parser reports.
+  Cost figures across the Grok fixtures are not uniform: the three real-session
+  turns and the two added later (the POSIX one and the corrupt-final-line one)
+  are derived from the snapshot rates, while the older synthetic turns in
+  `D%3A%5Cproj%5Cbeta` and the multi-model session carry arbitrary tick values.
+  Do not read rates back out of the fixture set as a whole.
 - Claude `usage.server_tool_use.web_fetch_requests` — captured into
   `UsageEntry.web_fetch_requests`. No LiteLLM price exists, so it is priced only
   via a custom `global.web_fetch_per_request` override (else $0).

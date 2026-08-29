@@ -109,8 +109,12 @@ struct GrokTokens {
     cache_creation_tokens: u64,
     #[serde(default)]
     reasoning_tokens: u64,
+    /// `None` when the record carries no `costUsdTicks`. A missing figure must
+    /// stay unknown rather than collapse to a confident $0.00: `cost_usd` is
+    /// treated downstream as upstream-priced, so a defaulted zero would be
+    /// reported as exact spend and would suppress the estimated-cost fallback.
     #[serde(default)]
-    cost_usd_ticks: u64,
+    cost_usd_ticks: Option<u64>,
 }
 
 /// `params.update.usage` — turn totals plus an optional per-model breakdown.
@@ -130,7 +134,7 @@ struct GrokUsage {
     #[serde(default)]
     reasoning_tokens: u64,
     #[serde(default)]
-    cost_usd_ticks: u64,
+    cost_usd_ticks: Option<u64>,
     /// Keyed by model id (e.g. `grok-4.6`). Absent on older records.
     #[serde(default)]
     model_usage: Option<HashMap<String, GrokTokens>>,
@@ -267,27 +271,24 @@ impl GrokParser {
         &self,
         tokens: &GrokTokens,
         model: Option<&str>,
-        timestamp: DateTime<Utc>,
-        event_id: Option<&str>,
-        prompt_id: Option<&str>,
-        project: Option<&str>,
+        ctx: &TurnContext<'_>,
     ) -> UsageEntry {
+        let mapped = map_tokens(tokens, model, ctx.path);
+
+        // `eventId` is unique per session. When the record carries no `_meta`,
+        // fall back to `prompt_id` so the turn is dedupable at all: entries
+        // without a hash bypass the dedup set entirely. One `turn_completed`
+        // per `prompt_id` is the documented shape but is assumed here, not
+        // enforced — if it ever fails, two turns collide and one is dropped.
+        // A record with neither seed stays undedupable.
+        let dedup_seed = ctx.event_id.or(ctx.prompt_id);
+
         UsageEntry {
             fast_speed: false,
-            timestamp,
+            timestamp: ctx.timestamp,
             model: model.map(String::from),
-            // `inputTokens` INCLUDES `cachedReadTokens`; subtract so
-            // `input_tokens` is billable non-cached input and cached reads are
-            // not charged twice. `cacheCreationTokens` was 0 in every observed
-            // sample, so its nesting is unverified — saturating subtraction
-            // keeps a wrong assumption from breaking the total invariant.
-            input_tokens: tokens
-                .input_tokens
-                .saturating_sub(tokens.cached_read_tokens)
-                .saturating_sub(tokens.cache_creation_tokens),
-            // `outputTokens` INCLUDES `reasoningTokens`; subtract so
-            // `output_tokens` is visible output only.
-            output_tokens: tokens.output_tokens.saturating_sub(tokens.reasoning_tokens),
+            input_tokens: mapped.input_tokens,
+            output_tokens: mapped.output_tokens,
             cache_read_tokens: tokens.cached_read_tokens,
             cache_creation_tokens: tokens.cache_creation_tokens,
             reasoning_tokens: tokens.reasoning_tokens,
@@ -295,19 +296,128 @@ impl GrokParser {
             cache_creation_1h_tokens: 0,
             web_search_requests: 0,
             web_fetch_requests: 0,
-            reported_total_tokens: Some(tokens.total_tokens),
-            cost_usd: Some(tokens.cost_usd_ticks as f64 / COST_USD_TICKS_PER_USD),
-            // `eventId` is unique per session; the model is appended so a
-            // multi-model turn fans out into entries with distinct dedup hashes.
-            message_id: event_id.map(|e| match model {
+            reported_total_tokens: mapped.reported_total_tokens,
+            cost_usd: tokens
+                .cost_usd_ticks
+                .map(|t| t as f64 / COST_USD_TICKS_PER_USD),
+            // The model is appended so a multi-model turn fans out into entries
+            // with distinct dedup hashes.
+            message_id: dedup_seed.map(|e| match model {
                 Some(m) => format!("{}#{}", e, m),
                 None => e.to_string(),
             }),
-            request_id: prompt_id.map(String::from),
+            request_id: ctx.prompt_id.map(String::from),
             source: Some("grok".into()),
             provider: Some("xai".into()),
-            project: project.map(String::from),
+            project: ctx.project.map(String::from),
         }
+    }
+}
+
+/// Everything about a `turn_completed` record that every model slice shares.
+struct TurnContext<'a> {
+    timestamp: DateTime<Utc>,
+    event_id: Option<&'a str>,
+    prompt_id: Option<&'a str>,
+    project: Option<&'a str>,
+    /// Only used to name the file in drift warnings.
+    path: &'a Path,
+}
+
+/// The v2 fields derived from one `GrokTokens`, plus the upstream total when it
+/// still reconciles with them.
+struct MappedTokens {
+    input_tokens: u64,
+    output_tokens: u64,
+    reported_total_tokens: Option<u64>,
+}
+
+/// Which nesting assumption a record contradicted. Two different upstream
+/// shapes reach the same fallback, and naming the wrong one in the warning
+/// sends a bug report down the wrong path.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum NestingDrift {
+    /// `cachedReadTokens` alone exceeds `inputTokens`.
+    CachedReadExceedsInput,
+    /// Cache writes appear to be additional rather than nested.
+    CacheCreationNotNested,
+}
+
+/// Map Grok's nested counts onto the v2 contract.
+///
+/// `inputTokens` includes `cachedReadTokens` and `outputTokens` includes
+/// `reasoningTokens`, both proven by `totalTokens == inputTokens +
+/// outputTokens` holding exactly on every sampled turn. `cacheCreationTokens`
+/// is assumed to nest the same way, which no sampled turn could confirm because
+/// all of them reported 0.
+///
+/// When that assumption fails the counts cannot all be satisfied at once: cache
+/// writes would live outside `inputTokens` while `totalTokens` still excludes
+/// them, so no mapping reconciles. Rather than clamp to a number that quietly
+/// violates the documented invariant, keep the counts truthful and drop the
+/// reconciliation total, which exists only to be compared against.
+/// Which nesting assumption a record contradicts, if any. Split out so the
+/// branch is assertable without capturing stderr.
+fn nesting_drift(tokens: &GrokTokens) -> Option<NestingDrift> {
+    // Saturating: these are numbers from a file on disk, and a parser panic
+    // propagates out of the rayon pool in `parse_and_dedup` and takes every
+    // other source down with it.
+    let nested = tokens
+        .cached_read_tokens
+        .saturating_add(tokens.cache_creation_tokens);
+    if nested <= tokens.input_tokens {
+        return None;
+    }
+    Some(if tokens.cached_read_tokens > tokens.input_tokens {
+        NestingDrift::CachedReadExceedsInput
+    } else {
+        NestingDrift::CacheCreationNotNested
+    })
+}
+
+fn map_tokens(tokens: &GrokTokens, model: Option<&str>, path: &Path) -> MappedTokens {
+    let visible_output = tokens.output_tokens.saturating_sub(tokens.reasoning_tokens);
+
+    let Some(drift) = nesting_drift(tokens) else {
+        let nested = tokens
+            .cached_read_tokens
+            .saturating_add(tokens.cache_creation_tokens);
+        return MappedTokens {
+            input_tokens: tokens.input_tokens - nested,
+            output_tokens: visible_output,
+            reported_total_tokens: Some(tokens.total_tokens),
+        };
+    };
+
+    match drift {
+        NestingDrift::CachedReadExceedsInput => eprintln!(
+            "[toktrack] Warning: Grok cachedReadTokens ({}) exceeds inputTokens ({}) \
+             for model {:?} in {:?}, which contradicts the documented nesting. \
+             Dropping the reconciliation total for this turn.",
+            tokens.cached_read_tokens,
+            tokens.input_tokens,
+            model.unwrap_or("unknown"),
+            path
+        ),
+        NestingDrift::CacheCreationNotNested => eprintln!(
+            "[toktrack] Warning: Grok cacheCreationTokens ({}) is not nested inside \
+             inputTokens ({}, cachedRead {}) for model {:?} in {:?}. Counting cache \
+             writes as additional tokens and dropping the reconciliation total — \
+             please report this session shape.",
+            tokens.cache_creation_tokens,
+            tokens.input_tokens,
+            tokens.cached_read_tokens,
+            model.unwrap_or("unknown"),
+            path
+        ),
+    }
+
+    MappedTokens {
+        input_tokens: tokens
+            .input_tokens
+            .saturating_sub(tokens.cached_read_tokens),
+        output_tokens: visible_output,
+        reported_total_tokens: None,
     }
 }
 
@@ -331,16 +441,51 @@ impl CLIParser for GrokParser {
     }
 
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>> {
+        let (entries, dropped) = self.parse_entries(path)?;
+
+        // Every dropped turn is usage the user spent and will never see again,
+        // which is the worst failure mode for a cost tracker — the timestamp
+        // path warns for the same reason. Reported once per file so a
+        // systematically drifted schema is loud without becoming per-line spam.
+        if dropped > 0 {
+            eprintln!(
+                "[toktrack] Warning: {} Grok turn-completion line(s) in {:?} could not be \
+                 parsed and were skipped; their tokens and cost are missing from the totals",
+                dropped, path
+            );
+        }
+
+        Ok(entries)
+    }
+}
+
+impl GrokParser {
+    /// `parse_file`'s body, additionally returning how many `turn_completed`
+    /// lines were unreadable, so the warning is observable to tests.
+    fn parse_entries(&self, path: &Path) -> Result<(Vec<UsageEntry>, usize)> {
         let file = File::open(path).map_err(ToktrackError::Io)?;
-        let reader = BufReader::new(file);
+        let mut reader = BufReader::new(file);
         let (project, fallback_model) = self.session_context(path);
         let mut entries = Vec::new();
+        let mut dropped = 0usize;
 
-        for line_result in reader.lines() {
-            let line = match line_result {
-                Ok(l) => l,
-                Err(_) => continue,
-            };
+        // `read_line` keeps the terminator, so the last line read tells us
+        // whether it was complete. Sampling the file's last byte separately
+        // would race the CLI appending between the sample and EOF.
+        let mut last_line_terminated = true;
+        let mut last_dropped_was_final = false;
+        let mut raw = String::new();
+
+        loop {
+            raw.clear();
+            match reader.read_line(&mut raw) {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(_) => break,
+            }
+            last_line_terminated = raw.ends_with('\n');
+            last_dropped_was_final = false;
+            let line = raw.trim_end_matches(['\n', '\r']).to_string();
             if line.trim().is_empty() {
                 continue;
             }
@@ -359,7 +504,11 @@ impl CLIParser for GrokParser {
             let mut bytes = line.into_bytes();
             let parsed: GrokLine = match simd_json::from_slice(&mut bytes) {
                 Ok(v) => v,
-                Err(_) => continue,
+                Err(_) => {
+                    dropped += 1;
+                    last_dropped_was_final = true;
+                    continue;
+                }
             };
 
             // Usage lives only on the xAI-private turn-completion notification.
@@ -409,6 +558,14 @@ impl CLIParser for GrokParser {
                 }
             };
 
+            let ctx = TurnContext {
+                timestamp,
+                event_id,
+                prompt_id: update.prompt_id,
+                project: project.as_deref(),
+                path,
+            };
+
             match &usage.model_usage {
                 // Per-model breakdown present: one entry per model, which keeps
                 // attribution (and cost) exact for turns that switch models.
@@ -416,29 +573,26 @@ impl CLIParser for GrokParser {
                     let mut models: Vec<&String> = map.keys().collect();
                     models.sort(); // deterministic order across runs
                     for model in models {
-                        entries.push(self.entry_for_model(
-                            &map[model],
-                            Some(model.as_str()),
-                            timestamp,
-                            event_id,
-                            update.prompt_id,
-                            project.as_deref(),
-                        ));
+                        entries.push(self.entry_for_model(&map[model], Some(model.as_str()), &ctx));
                     }
                 }
                 // No breakdown: attribute the turn totals to the session model.
                 _ => entries.push(self.entry_for_model(
                     &usage.totals(),
                     fallback_model.as_deref(),
-                    timestamp,
-                    event_id,
-                    update.prompt_id,
-                    project.as_deref(),
+                    &ctx,
                 )),
             }
         }
 
-        Ok(entries)
+        // Grok appends to this file while the CLI runs, so the last line is
+        // routinely half-written. An unterminated final line was still being
+        // written; a terminated one that will not parse is real lost usage.
+        if !last_line_terminated && last_dropped_was_final {
+            dropped -= 1;
+        }
+
+        Ok((entries, dropped))
     }
 }
 
@@ -455,6 +609,22 @@ mod tests {
 
     fn parser() -> GrokParser {
         GrokParser::with_data_dir(root())
+    }
+
+    fn posix_session() -> PathBuf {
+        root()
+            .join("sessions")
+            .join("%2Fhome%2Fme%2Fproj")
+            .join("0f0f0f0f-4444-4555-8666-777777777777")
+            .join("updates.jsonl")
+    }
+
+    fn edge_case_session() -> PathBuf {
+        root()
+            .join("sessions")
+            .join("edge-cases-e5f6a7b8")
+            .join("0f0f0f0f-5555-4666-8777-888888888888")
+            .join("updates.jsonl")
     }
 
     fn real_session() -> PathBuf {
@@ -506,26 +676,163 @@ mod tests {
         assert_eq!(e.provider.as_deref(), Some("xai"));
     }
 
-    /// v2 invariant: the upstream total must reconcile with the mapped fields.
+    /// The upstream totals must survive the mapping verbatim. Asserting
+    /// `reported_total_tokens == total_tokens()` here would prove nothing: that
+    /// identity holds for any record whose nested subtractions do not clamp.
     #[test]
-    fn test_reported_total_reconciles() {
+    fn test_reported_totals_are_carried_verbatim() {
         let entries = parser().parse_file(&real_session()).unwrap();
-        for e in &entries {
-            assert_eq!(
-                e.reported_total_tokens,
-                Some(e.total_tokens()),
-                "reported_total_tokens must equal total_tokens()"
-            );
-        }
-        let reported: u64 = entries.iter().filter_map(|e| e.reported_total_tokens).sum();
-        assert_eq!(reported, 83703 + 125879 + 229491);
+        let reported: Vec<Option<u64>> = entries.iter().map(|e| e.reported_total_tokens).collect();
+        assert_eq!(
+            reported,
+            vec![Some(83703), Some(125879), Some(229491)],
+            "each turn's upstream totalTokens, in file order"
+        );
+    }
+
+    /// Cache writes nesting inside `inputTokens` is assumed, not proven — every
+    /// sampled turn reported 0. If a real session ever contradicts it, the counts
+    /// must stay truthful and the reconciliation total must be withdrawn rather
+    /// than clamped into a number that violates the documented v2 invariant.
+    #[test]
+    fn test_additive_cache_creation_drops_reconciliation() {
+        let tokens = GrokTokens {
+            input_tokens: 100,
+            output_tokens: 10,
+            total_tokens: 110,
+            cached_read_tokens: 60,
+            cache_creation_tokens: 80,
+            reasoning_tokens: 4,
+            cost_usd_ticks: Some(1_000),
+        };
+        let ctx = TurnContext {
+            timestamp: DateTime::from_timestamp(1_756_454_400, 0).unwrap(),
+            event_id: Some("evt-additive"),
+            prompt_id: Some("prompt-additive"),
+            project: None,
+            path: Path::new("synthetic"),
+        };
+        let e = parser().entry_for_model(&tokens, Some("grok-4.6"), &ctx);
+
+        // cachedRead stays nested (proven); cacheCreation is counted on top.
+        assert_eq!(e.input_tokens, 40);
+        assert_eq!(e.cache_read_tokens, 60);
+        assert_eq!(e.cache_creation_tokens, 80);
+        assert_eq!(e.output_tokens, 6);
+        assert_eq!(e.reasoning_tokens, 4);
+        assert_eq!(e.total_tokens(), 190);
+        assert_eq!(
+            e.reported_total_tokens, None,
+            "an unreconcilable upstream total must be withdrawn, not clamped"
+        );
+        assert_eq!(
+            nesting_drift(&tokens),
+            Some(NestingDrift::CacheCreationNotNested)
+        );
+    }
+
+    /// The nested case must keep reporting the total, so the withdrawal above is
+    /// a genuine branch rather than the parser giving up everywhere.
+    #[test]
+    fn test_nested_cache_creation_keeps_reconciliation() {
+        let tokens = GrokTokens {
+            input_tokens: 100,
+            output_tokens: 10,
+            total_tokens: 110,
+            cached_read_tokens: 60,
+            cache_creation_tokens: 30,
+            reasoning_tokens: 4,
+            cost_usd_ticks: Some(1_000),
+        };
+        let ctx = TurnContext {
+            timestamp: DateTime::from_timestamp(1_756_454_400, 0).unwrap(),
+            event_id: Some("evt-nested"),
+            prompt_id: Some("prompt-nested"),
+            project: None,
+            path: Path::new("synthetic"),
+        };
+        let e = parser().entry_for_model(&tokens, Some("grok-4.6"), &ctx);
+
+        assert_eq!(e.input_tokens, 10);
+        assert_eq!(e.reported_total_tokens, Some(110));
+        assert_eq!(e.total_tokens(), 110);
+        assert_eq!(nesting_drift(&tokens), None);
+    }
+
+    /// These counts come off disk, so any arithmetic on them must survive
+    /// absurd values. `parse_and_dedup` runs parsers under `par_iter`, so a
+    /// panic here would abort the load for every other source too.
+    #[test]
+    fn test_absurd_token_counts_do_not_panic() {
+        let tokens = GrokTokens {
+            input_tokens: 100,
+            output_tokens: 10,
+            total_tokens: 110,
+            cached_read_tokens: u64::MAX,
+            cache_creation_tokens: u64::MAX,
+            reasoning_tokens: u64::MAX,
+            cost_usd_ticks: Some(u64::MAX),
+        };
+        let ctx = TurnContext {
+            timestamp: DateTime::from_timestamp(1_756_454_400, 0).unwrap(),
+            event_id: Some("evt-absurd"),
+            prompt_id: Some("prompt-absurd"),
+            project: None,
+            path: Path::new("synthetic"),
+        };
+        let e = parser().entry_for_model(&tokens, Some("grok-4.6"), &ctx);
+        assert_eq!(e.input_tokens, 0);
+        assert_eq!(e.output_tokens, 0);
+        assert_eq!(e.reported_total_tokens, None);
+        // The raw counts pass through unclamped, so the aggregation the entry
+        // feeds has to survive them too.
+        assert_eq!(e.total_tokens(), u64::MAX);
+        assert_eq!(
+            nesting_drift(&tokens),
+            Some(NestingDrift::CachedReadExceedsInput)
+        );
+    }
+
+    /// A record without `costUsdTicks` is unpriced, not free. Defaulting it to
+    /// `Some(0.0)` would be reported as exact upstream spend and would suppress
+    /// the estimated-pricing fallback.
+    #[test]
+    fn test_missing_cost_ticks_is_unknown_not_zero() {
+        let tokens = GrokTokens {
+            input_tokens: 500,
+            output_tokens: 20,
+            total_tokens: 520,
+            cached_read_tokens: 0,
+            cache_creation_tokens: 0,
+            reasoning_tokens: 0,
+            cost_usd_ticks: None,
+        };
+        let ctx = TurnContext {
+            timestamp: DateTime::from_timestamp(1_756_454_400, 0).unwrap(),
+            event_id: Some("evt-nocost"),
+            prompt_id: Some("prompt-nocost"),
+            project: None,
+            path: Path::new("synthetic"),
+        };
+        let e = parser().entry_for_model(&tokens, Some("grok-4.6"), &ctx);
+        assert_eq!(e.cost_usd, None);
+
+        // A genuine zero still reports as zero, so the two stay distinguishable.
+        let free = GrokTokens {
+            cost_usd_ticks: Some(0),
+            ..tokens
+        };
+        let e = parser().entry_for_model(&free, Some("grok-4.6"), &ctx);
+        assert_eq!(e.cost_usd, Some(0.0));
     }
 
     #[test]
     fn test_cost_from_ticks() {
         let entries = parser().parse_file(&real_session()).unwrap();
         let costs: Vec<f64> = entries.iter().map(|e| e.cost_usd.unwrap()).collect();
-        for (got, want) in costs.iter().zip([0.110870, 0.132250, 0.160058]) {
+        let want = [0.110870, 0.132250, 0.160058];
+        assert_eq!(costs.len(), want.len(), "one cost per turn");
+        for (got, want) in costs.iter().zip(want) {
             assert!((got - want).abs() < 1e-9, "cost {} != {}", got, want);
         }
     }
@@ -589,16 +896,124 @@ mod tests {
     #[test]
     fn test_parse_all_collects_every_session() {
         let entries = parser().parse_all().unwrap();
-        assert_eq!(entries.len(), 6, "3 + 2 (multi-model) + 1");
+        assert_eq!(
+            entries.len(),
+            9,
+            "3 + 2 (multi-model) + 1 + 2 (POSIX-encoded) + 1 (corrupt final \
+             line); the edge-case and empty sessions contribute none"
+        );
+    }
+
+    /// Session directories whose name is a POSIX path are the common shape on
+    /// macOS and Linux, where the Windows-style fixtures say nothing.
+    #[test]
+    fn test_project_from_posix_encoded_dir() {
+        let entries = parser().parse_file(&posix_session()).unwrap();
+        assert_eq!(entries.len(), 2);
+        for e in &entries {
+            assert_eq!(e.project.as_deref(), Some("/home/me/proj"));
+        }
+        assert_eq!(entries[0].model.as_deref(), Some("grok-4.6"));
+        assert_eq!(entries[0].input_tokens, 3000);
+        let cost = entries[0].cost_usd.unwrap();
+        assert!((cost - 0.0153).abs() < 1e-9, "cost {} != 0.0153", cost);
+    }
+
+    /// The `Option<u64>` on `costUsdTicks` has to survive deserialization, not
+    /// just direct construction: an absent field must reach the entry as `None`.
+    #[test]
+    fn test_absent_cost_ticks_survives_deserialization() {
+        let entries = parser().parse_file(&posix_session()).unwrap();
+        let unpriced = &entries[1];
+        assert_eq!(
+            unpriced.request_id.as_deref(),
+            Some("1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d")
+        );
+        assert_eq!(
+            unpriced.cost_usd, None,
+            "a turn whose usage omits costUsdTicks must stay unpriced"
+        );
+        // The turn's tokens are still counted.
+        assert_eq!(unpriced.input_tokens, 1500);
+        assert_eq!(unpriced.cache_read_tokens, 500);
+        // No summary.json and no modelUsage, so the model is unknown and the
+        // dedup seed carries no model suffix.
+        assert_eq!(unpriced.model, None);
+        assert_eq!(
+            unpriced.message_id.as_deref(),
+            Some("1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d")
+        );
+    }
+
+    /// Corrupt, empty, and half-written sessions must degrade to "no entries"
+    /// rather than panicking or aborting the whole load.
+    #[test]
+    fn test_corrupt_and_empty_sessions_yield_no_entries() {
+        assert!(
+            parser()
+                .parse_file(&edge_case_session())
+                .unwrap()
+                .is_empty(),
+            "no entry may be derived from a session of unusable records"
+        );
+
+        let empty = root()
+            .join("sessions")
+            .join("empty-session-c9d0e1f2")
+            .join("0f0f0f0f-6666-4777-8888-999999999999")
+            .join("updates.jsonl");
+        assert!(parser().parse_file(&empty).unwrap().is_empty());
+    }
+
+    /// A half-written final line is normal (Grok appends live), so it must not
+    /// be reported as lost usage. The fixture genuinely lacks a trailing
+    /// newline, which is what distinguishes a write in progress from a corrupt
+    /// record.
+    #[test]
+    fn test_truncated_final_line_is_not_reported_as_dropped() {
+        let (entries, dropped) = parser().parse_entries(&posix_session()).unwrap();
+        assert_eq!(entries.len(), 2, "completed turns survive truncation");
+        assert_eq!(dropped, 0, "a line still being written is not lost usage");
+    }
+
+    /// A malformed line that is not the one in flight is a turn whose tokens and
+    /// cost are gone, and the user has to be told.
+    #[test]
+    fn test_unparsable_turn_is_counted_as_dropped() {
+        let (entries, dropped) = parser().parse_entries(&edge_case_session()).unwrap();
+        assert!(entries.is_empty());
+        assert_eq!(
+            dropped, 1,
+            "the malformed mid-file turn_completed line must be reported"
+        );
+    }
+
+    /// The distinction that decides whether a broken final line is reported is
+    /// the newline: this fixture's last line is malformed *and* terminated, so
+    /// nothing is being written and the turn is genuinely lost.
+    #[test]
+    fn test_terminated_but_corrupt_final_line_is_counted_as_dropped() {
+        let path = root()
+            .join("sessions")
+            .join("corrupt-final-line-b3c4d5e6")
+            .join("0f0f0f0f-7777-4888-8999-aaaabbbbcccc")
+            .join("updates.jsonl");
+        let (entries, dropped) = parser().parse_entries(&path).unwrap();
+        assert_eq!(entries.len(), 1, "the completed turn is still counted");
+        assert_eq!(
+            dropped, 1,
+            "a terminated final line that will not parse is lost usage, not a \
+             write in progress"
+        );
     }
 
     /// The v2 invariant must hold on *every* fixture, not just the real session.
     ///
     /// This is the only test exercising a non-zero `cacheCreationTokens` (50, in
     /// the multi-model fixture), because all three real sampled turns had 0.
-    /// NOTE: it proves the mapping is self-consistent under assumption A1
-    /// (`cacheCreationTokens` nested inside `inputTokens`); it cannot confirm
-    /// A1 itself, since that fixture's `totalTokens` was authored to match.
+    /// NOTE: it proves the mapping is self-consistent under the assumption that
+    /// `cacheCreationTokens` nests inside `inputTokens`; it cannot confirm that
+    /// assumption, since the fixture's `totalTokens` was authored to match.
     /// Re-check against a real session that performs cache writes.
     #[test]
     fn test_reported_total_reconciles_across_all_fixtures() {
@@ -607,13 +1022,22 @@ mod tests {
             entries.iter().any(|e| e.cache_creation_tokens > 0),
             "fixture set must exercise a non-zero cache_creation_tokens"
         );
+        assert!(
+            entries.iter().any(|e| e.reported_total_tokens.is_some()),
+            "the check below is vacuous if no fixture reports a total"
+        );
+        // `None` is legal: `map_tokens` withdraws the total when the upstream
+        // counts cannot reconcile, so assert the invariant where it applies
+        // rather than forbidding a fixture that exercises the other branch.
         for e in &entries {
-            assert_eq!(
-                e.reported_total_tokens,
-                Some(e.total_tokens()),
-                "invariant broken for model {:?}",
-                e.model
-            );
+            if let Some(reported) = e.reported_total_tokens {
+                assert_eq!(
+                    reported,
+                    e.total_tokens(),
+                    "invariant broken for model {:?}",
+                    e.model
+                );
+            }
         }
     }
 
@@ -621,15 +1045,58 @@ mod tests {
     /// Grok appends to a live session file, so the warm path re-reads it whole.
     #[test]
     fn test_entries_are_dedupable_and_reparse_is_idempotent() {
-        let entries = parser().parse_all().unwrap();
-        let mut hashes: Vec<String> = entries
+        let first: Vec<String> = parser()
+            .parse_all()
+            .unwrap()
             .iter()
             .map(|e| e.dedup_hash().expect("every entry needs a dedup hash"))
             .collect();
-        hashes.sort();
-        let before = hashes.len();
-        hashes.dedup();
-        assert_eq!(hashes.len(), before, "dedup hashes must be unique");
+
+        let mut unique: Vec<String> = first.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), first.len(), "dedup hashes must be unique");
+
+        // Re-read the same files the way the warm path does: the second pass
+        // must produce hashes the first pass already claimed, so the loader's
+        // `seen` set collapses them instead of counting the turns twice.
+        let second: Vec<String> = parser()
+            .parse_all()
+            .unwrap()
+            .iter()
+            .map(|e| e.dedup_hash().expect("every entry needs a dedup hash"))
+            .collect();
+        assert_eq!(first, second, "re-parsing must reproduce the same hashes");
+    }
+
+    /// `_meta.eventId` is the usual dedup seed, but it is absent on some records.
+    /// Falling through to `None` there would make the turn undedupable, and the
+    /// loader keeps unhashed entries — so a re-read would double-count it.
+    #[test]
+    fn test_dedup_hash_falls_back_to_prompt_id_without_meta() {
+        let entries = parser().parse_file(&posix_session()).unwrap();
+        let e = &entries[0];
+        assert_eq!(
+            e.message_id.as_deref(),
+            Some("9c1d2e3f-4a5b-4c6d-8e7f-0a1b2c3d4e5f#grok-4.6"),
+            "prompt_id seeds the hash when the record carries no _meta"
+        );
+        assert!(e.dedup_hash().is_some());
+    }
+
+    /// `recent_local_sessions` reads `GROK_HOME` too and cargo runs tests in
+    /// parallel, so this points the override at the fixture root: a canary that
+    /// observes it mid-run still scans real sessions instead of an empty dir.
+    #[test]
+    fn test_grok_home_env_override() {
+        let saved = std::env::var("GROK_HOME").ok();
+        std::env::set_var("GROK_HOME", root().as_os_str());
+        let got = GrokParser::new().data_dir().to_path_buf();
+        match saved {
+            Some(v) => std::env::set_var("GROK_HOME", v),
+            None => std::env::remove_var("GROK_HOME"),
+        }
+        assert_eq!(got, root());
     }
 
     #[test]
@@ -729,8 +1196,20 @@ mod tests {
     /// scan — drift shows up in the first turns just as well.
     const CANARY_LINE_LIMIT: usize = 5_000;
 
-    fn assert_usage_shape_known(path: &Path) {
-        let Ok(file) = File::open(path) else { return };
+    /// Returns how many `turn_completed` usage objects were actually inspected,
+    /// so a caller can tell "the schema is unchanged" apart from "nothing was
+    /// looked at". `required` marks the checked-in fixture, whose absence must
+    /// fail: a moved or renamed path would otherwise turn this canary into a
+    /// permanently-green no-op. Real machine sessions stay optional (CI has none).
+    fn assert_usage_shape_known(path: &Path, required: bool) -> usize {
+        let file = match File::open(path) {
+            Ok(f) => f,
+            Err(e) if required => {
+                panic!("canary fixture {:?} could not be opened: {}", path, e)
+            }
+            Err(_) => return 0,
+        };
+        let mut inspected = 0usize;
         for (i, line) in BufReader::new(file)
             .lines()
             .take(CANARY_LINE_LIMIT)
@@ -764,14 +1243,25 @@ mod tests {
                     e
                 );
             }
+            inspected += 1;
         }
+        inspected
     }
 
     #[test]
     fn test_grok_usage_schema_has_no_unknown_fields() {
-        assert_usage_shape_known(&real_session());
+        let inspected = assert_usage_shape_known(&real_session(), true);
+        // The canary reaches records through the same prefilter and
+        // `sessionUpdate` value the parser uses. If xAI renames either, the
+        // parser silently yields nothing for every Grok session — and without
+        // this assertion the canary would iterate nothing and agree.
+        assert!(
+            inspected > 0,
+            "canary inspected no turn_completed usage records in the fixture; \
+             the prefilter or the sessionUpdate value has drifted"
+        );
         for path in recent_local_sessions(5) {
-            assert_usage_shape_known(&path);
+            assert_usage_shape_known(&path, false);
         }
     }
 

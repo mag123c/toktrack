@@ -355,6 +355,6 @@ mod tests {
         let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
         let files = parser.collect_files();
         // Every `**/*.jsonl` under tests/fixtures, all sources included.
-        assert_eq!(files.len(), 22);
+        assert_eq!(files.len(), 26);
     }
 }
