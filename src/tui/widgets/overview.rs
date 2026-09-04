@@ -55,11 +55,6 @@ const MAX_CONTENT_WIDTH: u16 = 170;
 /// through the existing Up/Down selection, which scrolls the list window.
 const MAX_VISIBLE_SOURCES: usize = 4;
 
-/// Minimum rows reserved for the heatmap so short terminals keep context.
-/// Matches `REQUIRED_HEIGHT` in `render_heatmap_section` (grid + labels +
-/// blank + legend).
-const HEATMAP_MIN_HEIGHT: u16 = 10;
-
 /// Fixed non-fill rows around the sources section when sources are shown:
 /// tab bar, separators, hero stat, sub-stats, blanks, label, keybindings.
 const OVERVIEW_FIXED_ROWS: u16 = 11;
@@ -72,7 +67,7 @@ struct SourceWindow {
     visible: usize,
     /// Whether the estimated-cost legend row is rendered.
     show_legend: bool,
-    /// Total sources left out of view (drives the "N more" hint).
+    /// Sources outside the rendered window. Non-zero draws the pager hint.
     hidden: usize,
 }
 
@@ -171,9 +166,7 @@ impl Overview<'_> {
     /// Slice of the sources list shown in one frame. At most
     /// `MAX_VISIBLE_SOURCES` rows render at once; anything past that (or
     /// past what fits on a short terminal) stays reachable through the
-    /// existing Up/Down selection, which scrolls the window. The heatmap
-    /// floor is reserved first so short terminals shrink the list instead
-    /// of the heatmap.
+    /// existing Up/Down selection, which scrolls the window.
     fn source_window(&self, term_height: u16, show_legend: bool) -> SourceWindow {
         let total = self.data.source_usage.len();
         if total == 0 {
@@ -184,14 +177,15 @@ impl Overview<'_> {
                 hidden: 0,
             };
         }
-        let reserved = OVERVIEW_FIXED_ROWS + HEATMAP_MIN_HEIGHT + u16::from(show_legend);
-        // Rows available for the source rows plus the truncation hint.
-        let fit = term_height.saturating_sub(reserved) as usize;
+        // Rows left for the source rows plus the pager hint. The heatmap is
+        // `Constraint::Fill(1)`, so it yields space on its own; reserving a
+        // floor for it here would cost source rows on an 80x24 terminal.
+        let avail =
+            term_height.saturating_sub(OVERVIEW_FIXED_ROWS + u16::from(show_legend)) as usize;
         let mut visible = total.min(MAX_VISIBLE_SOURCES);
-        if visible + usize::from(total > visible) > fit {
-            // Short terminal: shrink the list (keeping at least one source
-            // reachable) instead of squeezing the heatmap.
-            visible = fit.saturating_sub(1).max(1).min(total);
+        if visible + usize::from(total > visible) > avail {
+            // Keep at least one source reachable even when nothing fits.
+            visible = avail.saturating_sub(1).max(1).min(total);
         }
         let selected = self
             .data
@@ -703,7 +697,7 @@ mod tests {
     #[test]
     fn test_short_terminal_truncates_with_range_hint() {
         let sources = make_sources(&["claude", "copilot", "codex", "gemini", "qwen", "opencode"]);
-        let text = render_overview_text(&sources, None, 120, 24);
+        let text = render_overview_text(&sources, None, 120, 14);
         assert!(
             text.contains("1–2 of 6"),
             "short overview should show a position range for the visible window, got:\n{text}"
@@ -725,6 +719,56 @@ mod tests {
         assert!(
             !text.contains("claude"),
             "short overview should scroll the first source out of view when the last one is selected"
+        );
+    }
+
+    #[test]
+    fn test_default_terminal_keeps_four_source_rows() {
+        let sources = make_sources(&["claude", "copilot", "codex", "gemini", "qwen", "opencode"]);
+        let text = render_overview_text(&sources, None, 80, 24);
+        for name in ["claude", "copilot", "codex", "gemini"] {
+            assert!(
+                text.contains(name),
+                "an 80x24 terminal should fit four source rows, missing '{name}', got:\n{text}"
+            );
+        }
+        assert!(
+            text.contains("1–4 of 6"),
+            "an 80x24 terminal should page four of six sources, got:\n{text}"
+        );
+    }
+
+    #[test]
+    fn test_default_terminal_keeps_four_rows_with_estimated_costs() {
+        let mut sources =
+            make_sources(&["claude", "copilot", "codex", "gemini", "qwen", "opencode"]);
+        for source in sources.iter_mut() {
+            source.estimated = true;
+        }
+        let text = render_overview_text(&sources, None, 80, 24);
+        assert!(
+            text.contains("1–4 of 6"),
+            "the reserved legend row should not cost source rows at 80x24, got:\n{text}"
+        );
+        assert!(
+            text.contains("estimated cost"),
+            "the estimated-cost legend should still render, got:\n{text}"
+        );
+    }
+
+    #[test]
+    fn test_exact_cap_renders_no_pager_hint() {
+        let sources = make_sources(&["claude", "copilot", "codex", "gemini"]);
+        let text = render_overview_text(&sources, None, 80, 24);
+        for name in ["claude", "copilot", "codex", "gemini"] {
+            assert!(
+                text.contains(name),
+                "every source should render when the list fits, missing '{name}', got:\n{text}"
+            );
+        }
+        assert!(
+            !text.contains("to scroll"),
+            "no pager hint should render when nothing is hidden, got:\n{text}"
         );
     }
 }
