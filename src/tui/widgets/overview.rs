@@ -771,4 +771,32 @@ mod tests {
             "no pager hint should render when nothing is hidden, got:\n{text}"
         );
     }
+
+    #[test]
+    fn test_default_terminal_keeps_heatmap_day_grid() {
+        let sources = make_sources(&["claude", "copilot", "codex", "gemini", "qwen", "opencode"]);
+        let text = render_overview_text(&sources, None, 80, 24);
+        for day in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] {
+            assert!(
+                text.contains(day),
+                "four source rows must not cost the heatmap day grid, missing '{day}', got:\n{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_estimated_costs_keep_heatmap_day_grid() {
+        let mut sources =
+            make_sources(&["claude", "copilot", "codex", "gemini", "qwen", "opencode"]);
+        for source in sources.iter_mut() {
+            source.estimated = true;
+        }
+        let text = render_overview_text(&sources, None, 80, 24);
+        for day in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] {
+            assert!(
+                text.contains(day),
+                "the legend row must not cost the heatmap day grid, missing '{day}', got:\n{text}"
+            );
+        }
+    }
 }
