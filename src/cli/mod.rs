@@ -48,6 +48,10 @@ enum Commands {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+
+        /// Only include one source CLI in the JSON output (id as shown by `toktrack audit`, e.g. claude-code, codex)
+        #[arg(long, value_name = "SOURCE", requires = "json")]
+        source: Option<String>,
     },
 
     /// Show usage statistics (TUI stats tab, or JSON with --json)
@@ -55,6 +59,10 @@ enum Commands {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+
+        /// Only include one source CLI in the JSON output (id as shown by `toktrack audit`, e.g. claude-code, codex)
+        #[arg(long, value_name = "SOURCE", requires = "json")]
+        source: Option<String>,
     },
 
     /// Show weekly usage (TUI daily tab weekly mode, or JSON with --json)
@@ -62,6 +70,10 @@ enum Commands {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+
+        /// Only include one source CLI in the JSON output (id as shown by `toktrack audit`, e.g. claude-code, codex)
+        #[arg(long, value_name = "SOURCE", requires = "json")]
+        source: Option<String>,
     },
 
     /// Show monthly usage (TUI daily tab monthly mode, or JSON with --json)
@@ -69,6 +81,10 @@ enum Commands {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+
+        /// Only include one source CLI in the JSON output (id as shown by `toktrack audit`, e.g. claude-code, codex)
+        #[arg(long, value_name = "SOURCE", requires = "json")]
+        source: Option<String>,
     },
 
     /// Generate a usage report (text or SVG receipt)
@@ -167,9 +183,9 @@ impl Cli {
                 remote_options,
                 ..TuiConfig::default()
             }),
-            Some(Commands::Daily { json }) => {
+            Some(Commands::Daily { json, source }) => {
                 if json {
-                    Ok(run_daily_json(&remote_options)?)
+                    Ok(run_daily_json(&remote_options, source.as_deref())?)
                 } else {
                     crate::tui::run(TuiConfig {
                         initial_view_mode: DailyViewMode::Daily,
@@ -178,9 +194,9 @@ impl Cli {
                     })
                 }
             }
-            Some(Commands::Stats { json }) => {
+            Some(Commands::Stats { json, source }) => {
                 if json {
-                    Ok(run_stats_json(&remote_options)?)
+                    Ok(run_stats_json(&remote_options, source.as_deref())?)
                 } else {
                     crate::tui::run(TuiConfig {
                         initial_view_mode: DailyViewMode::Daily,
@@ -189,9 +205,9 @@ impl Cli {
                     })
                 }
             }
-            Some(Commands::Weekly { json }) => {
+            Some(Commands::Weekly { json, source }) => {
                 if json {
-                    Ok(run_weekly_json(&remote_options)?)
+                    Ok(run_weekly_json(&remote_options, source.as_deref())?)
                 } else {
                     crate::tui::run(TuiConfig {
                         initial_view_mode: DailyViewMode::Weekly,
@@ -200,9 +216,9 @@ impl Cli {
                     })
                 }
             }
-            Some(Commands::Monthly { json }) => {
+            Some(Commands::Monthly { json, source }) => {
                 if json {
-                    Ok(run_monthly_json(&remote_options)?)
+                    Ok(run_monthly_json(&remote_options, source.as_deref())?)
                 } else {
                     crate::tui::run(TuiConfig {
                         initial_view_mode: DailyViewMode::Monthly,
@@ -301,19 +317,34 @@ fn run_remote_config(command: RemoteCommand) -> Result<()> {
     }
 }
 
-/// Load and process usage data from all CLI parsers.
-/// Uses cache-first strategy via DataLoaderService.
-fn load_data(remote_options: &RemoteOptions) -> Result<Vec<DailySummary>> {
-    let result = load_data_full(remote_options)?;
-    Ok(result.summaries)
-}
-
 /// Load full result including source_usage
 fn load_data_full(
     remote_options: &RemoteOptions,
 ) -> Result<crate::services::data_loader::LoadResult> {
     let extra_sources = RemoteSourceService::sync_and_build_sources(remote_options)?;
     DataLoaderService::with_extra_sources(extra_sources).load()
+}
+
+/// Pick one source's daily summaries from a load result, or the merged view
+/// when `source` is `None`. Unknown ids fail with the list of available ids.
+fn select_summaries(
+    mut result: crate::services::data_loader::LoadResult,
+    source: Option<&str>,
+) -> Result<Vec<DailySummary>> {
+    let Some(id) = source else {
+        return Ok(result.summaries);
+    };
+
+    result.source_summaries.remove(id).ok_or_else(|| {
+        let mut available: Vec<&str> = result.source_summaries.keys().map(String::as_str).collect();
+        available.sort_unstable();
+        let available = if available.is_empty() {
+            "none".to_string()
+        } else {
+            available.join(", ")
+        };
+        ToktrackError::UnknownSource(format!("'{id}' (available: {available})"))
+    })
 }
 
 /// Generate a usage report (text and optionally SVG)
@@ -388,8 +419,8 @@ fn redact_project_paths(summaries: &mut [DailySummary]) {
 }
 
 /// Output daily summaries as JSON
-fn run_daily_json(remote_options: &RemoteOptions) -> Result<()> {
-    let mut summaries = load_data(remote_options)?;
+fn run_daily_json(remote_options: &RemoteOptions, source: Option<&str>) -> Result<()> {
+    let mut summaries = select_summaries(load_data_full(remote_options)?, source)?;
     summaries.sort_by_key(|b| std::cmp::Reverse(b.date));
     redact_project_paths(&mut summaries);
     println!(
@@ -401,8 +432,8 @@ fn run_daily_json(remote_options: &RemoteOptions) -> Result<()> {
 }
 
 /// Output weekly summaries as JSON
-fn run_weekly_json(remote_options: &RemoteOptions) -> Result<()> {
-    let summaries = load_data(remote_options)?;
+fn run_weekly_json(remote_options: &RemoteOptions, source: Option<&str>) -> Result<()> {
+    let summaries = select_summaries(load_data_full(remote_options)?, source)?;
     let mut weekly = Aggregator::weekly(&summaries);
     weekly.sort_by_key(|b| std::cmp::Reverse(b.date));
     redact_project_paths(&mut weekly);
@@ -414,8 +445,8 @@ fn run_weekly_json(remote_options: &RemoteOptions) -> Result<()> {
 }
 
 /// Output monthly summaries as JSON
-fn run_monthly_json(remote_options: &RemoteOptions) -> Result<()> {
-    let summaries = load_data(remote_options)?;
+fn run_monthly_json(remote_options: &RemoteOptions, source: Option<&str>) -> Result<()> {
+    let summaries = select_summaries(load_data_full(remote_options)?, source)?;
     let mut monthly = Aggregator::monthly(&summaries);
     monthly.sort_by_key(|b| std::cmp::Reverse(b.date));
     redact_project_paths(&mut monthly);
@@ -427,8 +458,8 @@ fn run_monthly_json(remote_options: &RemoteOptions) -> Result<()> {
 }
 
 /// Output stats as JSON
-fn run_stats_json(remote_options: &RemoteOptions) -> Result<()> {
-    let summaries = load_data(remote_options)?;
+fn run_stats_json(remote_options: &RemoteOptions, source: Option<&str>) -> Result<()> {
+    let summaries = select_summaries(load_data_full(remote_options)?, source)?;
     let stats = StatsData::from_daily_summaries(&summaries);
     println!(
         "{}",
@@ -491,25 +522,49 @@ mod tests {
     #[test]
     fn test_cli_parse_daily() {
         let cli = Cli::try_parse_from(["toktrack", "daily"]).unwrap();
-        assert!(matches!(cli.command, Some(Commands::Daily { json: false })));
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Daily {
+                json: false,
+                source: None
+            })
+        ));
     }
 
     #[test]
     fn test_cli_parse_daily_json() {
         let cli = Cli::try_parse_from(["toktrack", "daily", "--json"]).unwrap();
-        assert!(matches!(cli.command, Some(Commands::Daily { json: true })));
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Daily {
+                json: true,
+                source: None
+            })
+        ));
     }
 
     #[test]
     fn test_cli_parse_stats() {
         let cli = Cli::try_parse_from(["toktrack", "stats"]).unwrap();
-        assert!(matches!(cli.command, Some(Commands::Stats { json: false })));
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Stats {
+                json: false,
+                source: None
+            })
+        ));
     }
 
     #[test]
     fn test_cli_parse_stats_json() {
         let cli = Cli::try_parse_from(["toktrack", "stats", "--json"]).unwrap();
-        assert!(matches!(cli.command, Some(Commands::Stats { json: true })));
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Stats {
+                json: true,
+                source: None
+            })
+        ));
     }
 
     #[test]
@@ -517,14 +572,23 @@ mod tests {
         let cli = Cli::try_parse_from(["toktrack", "weekly"]).unwrap();
         assert!(matches!(
             cli.command,
-            Some(Commands::Weekly { json: false })
+            Some(Commands::Weekly {
+                json: false,
+                source: None
+            })
         ));
     }
 
     #[test]
     fn test_cli_parse_weekly_json() {
         let cli = Cli::try_parse_from(["toktrack", "weekly", "--json"]).unwrap();
-        assert!(matches!(cli.command, Some(Commands::Weekly { json: true })));
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Weekly {
+                json: true,
+                source: None
+            })
+        ));
     }
 
     #[test]
@@ -532,7 +596,10 @@ mod tests {
         let cli = Cli::try_parse_from(["toktrack", "monthly"]).unwrap();
         assert!(matches!(
             cli.command,
-            Some(Commands::Monthly { json: false })
+            Some(Commands::Monthly {
+                json: false,
+                source: None
+            })
         ));
     }
 
@@ -541,8 +608,35 @@ mod tests {
         let cli = Cli::try_parse_from(["toktrack", "monthly", "--json"]).unwrap();
         assert!(matches!(
             cli.command,
-            Some(Commands::Monthly { json: true })
+            Some(Commands::Monthly {
+                json: true,
+                source: None
+            })
         ));
+    }
+
+    #[test]
+    fn test_cli_parse_daily_json_source() {
+        let cli =
+            Cli::try_parse_from(["toktrack", "daily", "--json", "--source", "codex"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Daily {
+                json: true,
+                source: Some(ref s)
+            }) if s == "codex"
+        ));
+    }
+
+    #[test]
+    fn test_cli_parse_source_requires_json() {
+        for cmd in ["daily", "weekly", "monthly", "stats"] {
+            let result = Cli::try_parse_from(["toktrack", cmd, "--source", "codex"]);
+            assert!(
+                result.is_err(),
+                "--source without --json must fail for {cmd}"
+            );
+        }
     }
 
     #[test]
@@ -665,14 +759,77 @@ mod tests {
     fn test_cli_parse_all_remotes() {
         let cli = Cli::try_parse_from(["toktrack", "--all-remotes", "daily", "--json"]).unwrap();
         assert!(cli.all_remotes);
-        assert!(matches!(cli.command, Some(Commands::Daily { json: true })));
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Daily { json: true, .. })
+        ));
     }
 
     #[test]
     fn test_cli_parse_local_only() {
         let cli = Cli::try_parse_from(["toktrack", "--local-only", "stats"]).unwrap();
         assert!(cli.local_only);
-        assert!(matches!(cli.command, Some(Commands::Stats { json: false })));
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Stats { json: false, .. })
+        ));
+    }
+
+    fn summary_with_input(date: &str, input: u64) -> DailySummary {
+        DailySummary {
+            date: date.parse().unwrap(),
+            total_input_tokens: input,
+            total_output_tokens: 0,
+            total_cache_read_tokens: 0,
+            total_cache_creation_tokens: 0,
+            total_reasoning_tokens: 0,
+            total_cache_creation_5m_tokens: 0,
+            total_cache_creation_1h_tokens: 0,
+            total_web_search_requests: 0,
+            total_cost_usd: 0.0,
+            models: std::collections::HashMap::new(),
+            projects: std::collections::HashMap::new(),
+        }
+    }
+
+    fn load_result_fixture() -> crate::services::data_loader::LoadResult {
+        let mut source_summaries = std::collections::HashMap::new();
+        source_summaries.insert(
+            "claude-code".to_string(),
+            vec![summary_with_input("2026-01-01", 10)],
+        );
+        source_summaries.insert(
+            "codex".to_string(),
+            vec![summary_with_input("2026-01-01", 20)],
+        );
+        crate::services::data_loader::LoadResult {
+            summaries: vec![summary_with_input("2026-01-01", 30)],
+            source_usage: Vec::new(),
+            source_summaries,
+            cache_warning: None,
+        }
+    }
+
+    #[test]
+    fn test_select_summaries_merged_by_default() {
+        let summaries = select_summaries(load_result_fixture(), None).unwrap();
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].total_input_tokens, 30);
+    }
+
+    #[test]
+    fn test_select_summaries_picks_single_source() {
+        let summaries = select_summaries(load_result_fixture(), Some("codex")).unwrap();
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].total_input_tokens, 20);
+    }
+
+    #[test]
+    fn test_select_summaries_unknown_source_lists_available() {
+        let err = select_summaries(load_result_fixture(), Some("gemini")).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("unknown source: 'gemini'"), "{msg}");
+        assert!(msg.contains("claude-code, codex"), "{msg}");
     }
 
     #[test]
