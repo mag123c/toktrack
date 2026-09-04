@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.17.1](https://github.com/mag123c/toktrack/compare/v2.17.0...v2.17.1) (2026-09-04)
+
+
+### Bug Fixes
+
+* **tui:** keep four source rows on short terminals ([#245](https://github.com/mag123c/toktrack/issues/245)) ([2f3f66d](https://github.com/mag123c/toktrack/commit/2f3f66db361bf15dde85cc581e1b7baced86e8e0))
+* **tui:** make overview sources list scrollable ([#242](https://github.com/mag123c/toktrack/issues/242)) ([c5dd07e](https://github.com/mag123c/toktrack/commit/c5dd07e9bd99eba5cd94d0be71eb30717396751c))
+
 ## [2.17.0](https://github.com/mag123c/toktrack/compare/v2.16.1...v2.17.0) (2026-08-29)
 
 
