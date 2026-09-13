@@ -93,6 +93,10 @@ Sleep 1500ms
 Type "3"
 Sleep 1500ms
 
+# Tab 5: Audit (computed on open, so wait for the result)
+Type "5"
+Sleep 4000ms
+
 # Quit (Ctrl+C, then y)
 Ctrl+C
 Sleep 500ms
