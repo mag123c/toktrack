@@ -215,6 +215,12 @@ impl CLIParser for CodexParser {
             output_tokens: 0,
             cached_input_tokens: 0,
         };
+        // Codex re-emits the same token_count event (byte-identical total AND
+        // last usage) multiple times within one response — 603 of 1,313 events
+        // across a 53-session public corpus. The prefer-last path below would
+        // count each repeat as a fresh delta, so identical consecutive `last`
+        // snapshots must collapse to one.
+        let mut prev_last: Option<(u64, u64, u64)> = None;
 
         for line_result in reader.lines() {
             let line = match line_result {
@@ -250,6 +256,17 @@ impl CLIParser for CodexParser {
                     }
                 }
                 ParseResult::TokenCount(data) => {
+                    // Collapse byte-identical re-emissions before anything else
+                    let last_key = data
+                        .last
+                        .as_ref()
+                        .map(|l| (l.input_tokens, l.output_tokens, l.cached_input_tokens));
+                    if last_key.is_some() && prev_last == last_key {
+                        prev_totals = data.total;
+                        continue;
+                    }
+                    prev_last = last_key;
+
                     // Compute delta: prefer last_token_usage, fallback to diff
                     let (delta_input, delta_output, delta_cached) =
                         if let Some(ref last) = data.last {
@@ -611,5 +628,29 @@ mod tests {
         for path in recent_local_sessions(5) {
             assert_token_count_shape_known(&path);
         }
+    }
+}
+
+#[cfg(test)]
+mod reemission_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_byte_identical_reemissions_collapse() {
+        // Three consecutive token_count events where the 2nd and 3rd are
+        // byte-identical repeats of the 1st-with-last (the measured Codex
+        // behavior: 603/1313 events in a public corpus). Only one turn may
+        // be counted.
+        let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
+        let entries = parser
+            .parse_file(&fixture_path("reemitted-session.jsonl"))
+            .unwrap();
+        assert_eq!(entries.len(), 3);
+        let reemitted_turn: Vec<_> = entries
+            .iter()
+            .filter(|e| e.output_tokens == 70)
+            .collect();
+        assert_eq!(reemitted_turn.len(), 1, "re-emitted turn counted more than once");
     }
 }
