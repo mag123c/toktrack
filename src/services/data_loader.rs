@@ -709,6 +709,98 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_v16_cache_backfills_archived_codex_sessions_and_preserves_history() {
+        // Even with a current cache for another source, upgrade from v16 must
+        // backfill old archive files and retain days with no remaining raw logs.
+        let temp_dir = tempfile::tempdir().unwrap();
+        let archived = temp_dir.path().join("archived_sessions");
+        std::fs::create_dir_all(&archived).unwrap();
+        std::fs::copy(
+            "tests/fixtures/codex/cwd-session.jsonl",
+            archived.join("archived.jsonl"),
+        )
+        .unwrap();
+        let cache_dir = temp_dir.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let pricing_path = temp_dir.path().join("pricing.json");
+        let fetched_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        std::fs::write(
+            &pricing_path,
+            format!(r#"{{"fetched_at":{},"models":{{}}}}"#, fetched_at),
+        )
+        .unwrap();
+
+        let cache_service = DailySummaryCacheService::with_cache_dir(cache_dir.clone());
+
+        // Seed a CURRENT-version cache for a second source so has_valid_cache()
+        // is true and load() takes the warm path.
+        let today = Local::now().date_naive();
+        let mut keepwarm_entry = make_entry(Some(0.01), Some("openai"));
+        keepwarm_entry.timestamp = today.and_hms_opt(12, 0, 0).unwrap().and_utc();
+        cache_service
+            .load_or_compute("keepwarm", &[keepwarm_entry])
+            .unwrap();
+
+        // Seed a STALE (version 16) codex cache: an ancient cache-only day (no raw
+        // backing → preserved history) + a recent day so latest_cached_date is
+        // recent (no gap).
+        let yesterday = today - chrono::Duration::days(1);
+        let stale = format!(
+            r#"{{"cli":"codex","version":16,"updated_at":0,"summaries":[
+                {{"date":"2020-01-01","total_input_tokens":111,"total_output_tokens":0,
+                  "total_cache_read_tokens":0,"total_cache_creation_tokens":0,
+                  "total_cost_usd":0.0,"models":{{}},"projects":{{}}}},
+                {{"date":"{}","total_input_tokens":5,"total_output_tokens":5,
+                  "total_cache_read_tokens":0,"total_cache_creation_tokens":0,
+                  "total_cost_usd":0.0,"models":{{}},"projects":{{}}}}
+            ]}}"#,
+            yesterday
+        );
+        std::fs::write(cache_dir.join("codex_daily.json"), stale).unwrap();
+
+        let service = DataLoaderService {
+            registry: ParserRegistry::with_sources(vec![
+                SourceInstance::new(
+                    "codex",
+                    "codex",
+                    "codex",
+                    Box::new(CodexParser::with_data_dir(temp_dir.path().join("sessions"))),
+                ),
+                SourceInstance::new(
+                    "keepwarm",
+                    "keepwarm",
+                    "codex",
+                    Box::new(CodexParser::with_data_dir(temp_dir.path().to_path_buf())),
+                ),
+            ]),
+            cache_service: Some(DailySummaryCacheService::with_cache_dir(cache_dir.clone())),
+            pricing: PricingService::from_cache_only_with_path(&pricing_path),
+        };
+
+        let result = service.load().unwrap();
+        let codex = result
+            .source_summaries
+            .get("codex")
+            .expect("codex summaries present");
+        let dates: Vec<String> = codex.iter().map(|s| s.date.to_string()).collect();
+
+        // Ancient cache-only day preserved across the reparse.
+        assert!(
+            dates.iter().any(|d| d == "2020-01-01"),
+            "preserved >30-day history was dropped: {dates:?}"
+        );
+        // Fixture dates re-parsed — proves the stale source was fully re-parsed
+        // rather than served recent-only.
+        assert!(
+            dates.iter().any(|d| d.starts_with("2026-06")),
+            "stale-version source was not re-parsed (no backfill): {dates:?}"
+        );
+    }
+
     fn make_entry(cost_usd: Option<f64>, provider: Option<&str>) -> UsageEntry {
         UsageEntry {
             fast_speed: false,

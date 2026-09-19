@@ -68,7 +68,7 @@ impl CodexParser {
     /// Create a new parser with default data directory.
     ///
     /// Honors `CODEX_HOME` (root; replaces `~/.codex`); sessions live under
-    /// `<root>/sessions`.
+    /// `<root>/sessions` and `<root>/archived_sessions`.
     pub fn new() -> Self {
         let root = super::discovery::first_env_dir(&["CODEX_HOME"]).unwrap_or_else(|| {
             directories::BaseDirs::new()
@@ -200,6 +200,37 @@ impl CLIParser for CodexParser {
 
     fn file_pattern(&self) -> &str {
         "**/*.jsonl"
+    }
+
+    fn collect_files(&self) -> Vec<PathBuf> {
+        let collect = |dir: &Path| -> Vec<PathBuf> {
+            let pattern = PathBuf::from(glob::Pattern::escape(&dir.to_string_lossy()))
+                .join(self.file_pattern());
+            glob::glob(&pattern.to_string_lossy())
+                .map(|paths| paths.filter_map(std::result::Result::ok).collect())
+                .unwrap_or_default()
+        };
+        let mut files = collect(&self.data_dir);
+        // Only standard session roots have a sibling archive directory.
+        if self.data_dir.file_name() == Some(std::ffi::OsStr::new("sessions")) {
+            if let Some(root) = self.data_dir.parent() {
+                // Archiving flattens date directories; rollout filenames remain stable.
+                let active_names: std::collections::HashSet<_> = files
+                    .iter()
+                    .filter_map(|path| path.file_name().map(|name| name.to_os_string()))
+                    .collect();
+                files.extend(
+                    collect(&root.join("archived_sessions"))
+                        .into_iter()
+                        .filter(|path| {
+                            !path
+                                .file_name()
+                                .is_some_and(|name| active_names.contains(name))
+                        }),
+                );
+            }
+        }
+        files
     }
 
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>> {
@@ -432,6 +463,71 @@ mod tests {
         for entry in &entries {
             assert_eq!(entry.project, None);
         }
+    }
+
+    #[test]
+    fn test_archived_sessions_discovery_and_parsing() {
+        let home = tempfile::tempdir().unwrap();
+        let sessions = home.path().join("sessions");
+        let archived = home.path().join("archived_sessions");
+        std::fs::create_dir_all(sessions.join("2026/06/19")).unwrap();
+        std::fs::create_dir_all(&archived).unwrap();
+        let fixture = std::fs::read_to_string(fixture_path("cwd-session.jsonl")).unwrap();
+        let active = sessions.join("2026/06/19/active.jsonl");
+        std::fs::write(&active, &fixture).unwrap();
+        // Archive moves flatten the date directories. Prefer the active copy.
+        std::fs::write(archived.join("active.jsonl"), "invalid archive copy").unwrap();
+        let archive_only = archived.join("archived.jsonl");
+        std::fs::write(
+            &archive_only,
+            fixture.replace("sess-cwd-001", "archived-session"),
+        )
+        .unwrap();
+        let parser = CodexParser::with_data_dir(sessions);
+        let mut files = parser.collect_files();
+        files.sort();
+        let mut expected = vec![active, archive_only];
+        expected.sort();
+        assert_eq!(files, expected);
+        assert_eq!(parser.parse_all().unwrap().len(), 2);
+        assert_eq!(
+            parser
+                .parse_recent_files(std::time::UNIX_EPOCH)
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn test_archived_sessions_without_active_directory() {
+        let home = tempfile::tempdir().unwrap();
+        let archived = home.path().join("archived_sessions");
+        std::fs::create_dir_all(&archived).unwrap();
+        std::fs::copy(
+            fixture_path("cwd-session.jsonl"),
+            archived.join("only.jsonl"),
+        )
+        .unwrap();
+        let parser = CodexParser::with_data_dir(home.path().join("sessions"));
+        assert_eq!(parser.parse_all().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_archived_sessions_do_not_leak_into_custom_directory() {
+        let home = tempfile::tempdir().unwrap();
+        let custom = home.path().join("custom");
+        let archived = home.path().join("archived_sessions");
+        std::fs::create_dir_all(&custom).unwrap();
+        std::fs::create_dir_all(&archived).unwrap();
+        std::fs::copy(
+            fixture_path("cwd-session.jsonl"),
+            archived.join("only.jsonl"),
+        )
+        .unwrap();
+        assert!(CodexParser::with_data_dir(custom)
+            .collect_files()
+            .is_empty());
     }
 
     #[test]
