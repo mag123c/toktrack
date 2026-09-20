@@ -69,7 +69,8 @@ fn normalize_model_keys(models: HashMap<String, ModelUsage>) -> HashMap<String, 
 /// records by timestamp so they no longer appear as "unknown". v16 prices 1h
 /// ephemeral cache writes at LiteLLM's `_above_1hr` rate. v17 backfills Codex
 /// archived sessions, which were previously excluded from discovery.
-const CACHE_VERSION: u32 = 17;
+// v18 recalculates recorded Codex Fast usage with model-specific multipliers.
+const CACHE_VERSION: u32 = 18;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DailySummaryCache {

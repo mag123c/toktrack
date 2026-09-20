@@ -24,6 +24,8 @@ struct CodexPayload {
     #[serde(rename = "type")]
     payload_type: Option<String>,
     #[serde(default)]
+    thread_settings: Option<serde_json::Value>,
+    #[serde(default)]
     model: Option<String>,
     #[serde(default)]
     info: Option<CodexInfo>,
@@ -142,6 +144,18 @@ impl CodexParser {
             None => return ParseResult::Skip,
         };
 
+        if payload_type == "thread_settings_applied" {
+            // Settings are snapshots. Missing, null, or unknown tiers must clear
+            // an earlier Fast setting rather than silently carrying it forward.
+            let fast = payload
+                .thread_settings
+                .as_ref()
+                .and_then(|settings| settings.get("service_tier"))
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|tier| matches!(tier, "priority" | "fast"));
+            return ParseResult::Speed(fast);
+        }
+
         if payload_type != "token_count" {
             return ParseResult::Skip;
         }
@@ -178,6 +192,7 @@ impl CodexParser {
 /// Result of parsing a single line
 enum ParseResult {
     Skip,
+    Speed(bool),
     TurnContext {
         model: Option<String>,
         cwd: Option<String>,
@@ -244,6 +259,7 @@ impl CLIParser for CodexParser {
         let reader = BufReader::new(file);
         let mut entries: Vec<UsageEntry> = Vec::new();
         let mut current_model: Option<String> = None;
+        let mut fast_speed = false;
         let mut session_id: Option<String> = None;
         let mut current_provider: Option<String> = None;
         let mut current_project: Option<String> = None;
@@ -266,6 +282,7 @@ impl CLIParser for CodexParser {
             let mut line_bytes = line.into_bytes();
             match self.parse_line(&mut line_bytes) {
                 ParseResult::Skip => {}
+                ParseResult::Speed(fast) => fast_speed = fast,
                 ParseResult::TurnContext { model, cwd } => {
                     if model.is_some() {
                         current_model = model;
@@ -319,7 +336,7 @@ impl CLIParser for CodexParser {
                     let non_cached_input = delta_input.saturating_sub(delta_cached);
 
                     entries.push(UsageEntry {
-                        fast_speed: false,
+                        fast_speed,
                         timestamp: data.timestamp,
                         model: current_model.clone(),
                         input_tokens: non_cached_input,
@@ -351,6 +368,77 @@ impl CLIParser for CodexParser {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn test_codex_fast_tier_transitions() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("session.jsonl");
+        let mut lines = vec![];
+        for (i, tier) in [
+            None,
+            Some("priority"),
+            Some("default"),
+            Some("fast"),
+            Some("future"),
+            Some("priority"),
+            None,
+        ]
+        .iter()
+        .enumerate()
+        {
+            if i > 0 {
+                lines.push(serde_json::json!({"type":"event_msg", "timestamp":"2026-09-20T00:00:00Z", "payload":{"type":"thread_settings_applied", "thread_settings":{"service_tier":tier}}}).to_string());
+            }
+            lines.push(serde_json::json!({"type":"event_msg", "timestamp":"2026-09-20T00:00:01Z", "payload":{"type":"token_count", "info":{"total_token_usage":{"input_tokens":(i+1)*100,"output_tokens":(i+1)*10}}}}).to_string());
+        }
+        std::fs::write(&path, lines.join("\n")).unwrap();
+        let entries = CodexParser::with_data_dir(temp.path().into())
+            .parse_file(&path)
+            .unwrap();
+        assert_eq!(
+            entries.iter().map(|e| e.fast_speed).collect::<Vec<_>>(),
+            vec![false, true, false, true, false, true, false]
+        );
+        assert!(entries
+            .iter()
+            .all(|e| e.input_tokens == 100 && e.output_tokens == 10));
+    }
+
+    #[test]
+    fn test_codex_fast_unknown_settings_clear_previous_tier() {
+        use serde_json::json;
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("session.jsonl");
+        for payload in [
+            json!({"type":"thread_settings_applied"}),
+            json!({"type":"thread_settings_applied", "thread_settings":null}),
+            json!({"type":"thread_settings_applied", "thread_settings":[]}),
+            json!({"type":"thread_settings_applied", "thread_settings":true}),
+            json!({"type":"thread_settings_applied", "thread_settings":{}}),
+            json!({"type":"thread_settings_applied", "thread_settings":{"service_tier":42}}),
+            json!({"type":"thread_settings_applied", "thread_settings":{"service_tier":false}}),
+        ] {
+            let lines = [
+                json!({"type":"event_msg", "timestamp":"2026-09-20T00:00:00Z", "payload":{"type":"thread_settings_applied", "thread_settings":{"service_tier":"priority"}}}),
+                json!({"type":"event_msg", "timestamp":"2026-09-20T00:00:00Z", "payload":payload}),
+                json!({"type":"event_msg", "timestamp":"2026-09-20T00:00:01Z", "payload":{"type":"token_count", "info":{"total_token_usage":{"input_tokens":100,"output_tokens":10}}}}),
+            ];
+            std::fs::write(
+                &path,
+                lines
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            )
+            .unwrap();
+            let entries = CodexParser::with_data_dir(temp.path().into())
+                .parse_file(&path)
+                .unwrap();
+            assert_eq!(entries.len(), 1, "{payload}");
+            assert!(!entries[0].fast_speed, "{payload}");
+        }
+    }
 
     fn fixture_path(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))

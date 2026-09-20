@@ -207,12 +207,35 @@ fn tiered_cost(tokens: u64, base_price: f64, tier: Option<(u64, f64)>) -> f64 {
 /// Rate multiplier for the speed the request ran at. Claude Code records
 /// `usage.speed`, and LiteLLM carries the matching multiplier under
 /// `provider_specific_entry.fast` (2.0 for claude-opus-5, matching its $10/$50
-/// fast pricing against a $5/$25 base). Anything else bills at 1x.
+/// fast pricing against a $5/$25 base). Codex has exact model fallbacks below.
+/// Unknown rates bill at 1x.
 fn speed_multiplier(entry: &UsageEntry, rates: Option<&HashMap<String, f64>>) -> f64 {
     if !entry.fast_speed {
         return 1.0;
     }
-    rates.and_then(|m| m.get("fast")).copied().unwrap_or(1.0)
+    if let Some(rate) = rates.and_then(|m| m.get("fast")).copied() {
+        return rate;
+    }
+    // Codex API-equivalent estimates, matching ccusage's exact model table:
+    // https://github.com/ccusage/ccusage/blob/main/rust/crates/ccusage-core/src/fast-multiplier-overrides.json
+    // GPT-5.6 and Astra API Fast pricing is 2x, not the 2.5x ChatGPT credit rate:
+    // https://developers.openai.com/api/docs/pricing
+    // Do not infer rates for unknown models or custom providers.
+    let codex = entry
+        .source
+        .as_deref()
+        .is_some_and(|source| source == "codex" || source.starts_with("codex@"));
+    if codex && entry.provider.as_deref().is_none_or(|p| p == "openai") {
+        match entry.model.as_deref() {
+            Some("gpt-5.5") => return 2.5,
+            Some(
+                "gpt-5.3-codex" | "gpt-5.4" | "gpt-5.6" | "gpt-5.6-sol" | "gpt-5.6-terra"
+                | "gpt-5.6-luna" | "gpt-6-astra",
+            ) => return 2.0,
+            _ => {}
+        }
+    }
+    1.0
 }
 
 /// Custom pricing configuration from ~/.toktrack/pricing.toml
@@ -2413,6 +2436,75 @@ web_search_per_request = 0.01
             .has_any_pricing(),
             "Web-search-only entries still price something"
         );
+    }
+
+    #[test]
+    fn test_codex_fast_log_to_cost() {
+        use crate::parsers::{CLIParser, CodexParser};
+        let (mut service, temp) = create_test_service();
+        service.cache.models.insert(
+            "gpt-6-astra".into(),
+            ModelPricing {
+                input_cost_per_token: Some(10.0 / 1_000_000.0),
+                output_cost_per_token: Some(50.0 / 1_000_000.0),
+                cache_read_input_token_cost: Some(1.0 / 1_000_000.0),
+                ..Default::default()
+            },
+        );
+        let path = temp.path().join("rollout.jsonl");
+        let mut lines = vec![serde_json::json!({"type":"turn_context", "timestamp":"2026-09-20T00:00:00Z", "payload":{"model":"gpt-6-astra"}}).to_string()];
+        for tier in ["priority", "default"] {
+            lines.push(serde_json::json!({"type":"event_msg", "timestamp":"2026-09-20T00:00:00Z", "payload":{"type":"thread_settings_applied", "thread_settings":{"service_tier":tier}}}).to_string());
+            lines.push(serde_json::json!({"type":"event_msg", "timestamp":"2026-09-20T00:00:01Z", "payload":{"type":"token_count", "info":{"total_token_usage":{"input_tokens":100,"output_tokens":10,"cached_input_tokens":20},"last_token_usage":{"input_tokens":100,"output_tokens":10,"cached_input_tokens":20}}}}).to_string());
+        }
+        fs::write(&path, lines.join("\n")).unwrap();
+        let entries = CodexParser::with_data_dir(temp.path().into())
+            .parse_file(&path)
+            .unwrap();
+        assert_eq!(entries.len(), 2);
+        // 80 uncached input + 20 cached input + 10 output tokens.
+        assert!((service.calculate_cost(&entries[0]) - 0.00264).abs() < 1e-12);
+        assert!((service.calculate_cost(&entries[1]) - 0.00132).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_codex_fast_provider_and_source_boundaries() {
+        let mut entry = make_entry(Some("gpt-5.5"), 100, 10, 0, 0, None);
+        entry.fast_speed = true;
+        entry.source = Some("codex@remote".into());
+        entry.provider = Some("openai".into());
+        assert_eq!(speed_multiplier(&entry, None), 2.5);
+        entry.provider = Some("custom".into());
+        assert_eq!(speed_multiplier(&entry, None), 1.0);
+        entry.provider = None;
+        entry.source = Some("opencode".into());
+        assert_eq!(speed_multiplier(&entry, None), 1.0);
+        entry.source = Some("codex".into());
+        let rates = HashMap::from([("fast".into(), 3.0)]);
+        assert_eq!(speed_multiplier(&entry, Some(&rates)), 3.0);
+        entry.model = Some("gpt-5.6-unknown".into());
+        assert_eq!(speed_multiplier(&entry, None), 1.0);
+    }
+
+    #[test]
+    fn test_codex_fast_published_rates() {
+        for model in [
+            "gpt-5.6",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-5.6-luna",
+            "gpt-6-astra",
+        ] {
+            let mut entry = make_entry(Some(model), 100, 10, 20, 0, None);
+            entry.source = Some("codex".into());
+            assert_eq!(speed_multiplier(&entry, None), 1.0);
+            entry.fast_speed = true;
+            assert_eq!(speed_multiplier(&entry, None), 2.0, "{model}");
+        }
+        let mut unknown = make_entry(Some("gpt-future"), 100, 10, 0, 0, None);
+        unknown.source = Some("codex".into());
+        unknown.fast_speed = true;
+        assert_eq!(speed_multiplier(&unknown, None), 1.0);
     }
 
     #[test]
