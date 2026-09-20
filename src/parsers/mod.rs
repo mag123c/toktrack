@@ -13,7 +13,7 @@ mod qwen;
 
 pub use antigravity::AntigravityParser;
 pub use claude::ClaudeCodeParser;
-pub use codex::CodexParser;
+pub use codex::{CodexParser, ARCHIVED_SESSIONS_DIR, SESSIONS_DIR};
 pub use copilot::CopilotParser;
 pub use gemini::GeminiParser;
 pub use grok::GrokParser;

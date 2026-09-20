@@ -59,6 +59,13 @@ struct TokenCountData {
     last: Option<CodexTokenUsage>,
 }
 
+/// Directory name of a standard Codex session root. Remote snapshots mirror this
+/// name so `collect_files` finds the archive beside it (`crate::services::remote`).
+pub const SESSIONS_DIR: &str = "sessions";
+
+/// Sibling directory Codex moves finished sessions into.
+pub const ARCHIVED_SESSIONS_DIR: &str = "archived_sessions";
+
 /// Parser for Codex CLI usage data
 pub struct CodexParser {
     data_dir: PathBuf,
@@ -79,7 +86,7 @@ impl CodexParser {
                 })
         });
         Self {
-            data_dir: root.join("sessions"),
+            data_dir: root.join(SESSIONS_DIR),
         }
     }
 
@@ -212,7 +219,7 @@ impl CLIParser for CodexParser {
         };
         let mut files = collect(&self.data_dir);
         // Only standard session roots have a sibling archive directory.
-        if self.data_dir.file_name() == Some(std::ffi::OsStr::new("sessions")) {
+        if self.data_dir.file_name() == Some(std::ffi::OsStr::new(SESSIONS_DIR)) {
             if let Some(root) = self.data_dir.parent() {
                 // Archiving flattens date directories; rollout filenames remain stable.
                 let active_names: std::collections::HashSet<_> = files
@@ -220,7 +227,7 @@ impl CLIParser for CodexParser {
                     .filter_map(|path| path.file_name().map(|name| name.to_os_string()))
                     .collect();
                 files.extend(
-                    collect(&root.join("archived_sessions"))
+                    collect(&root.join(ARCHIVED_SESSIONS_DIR))
                         .into_iter()
                         .filter(|path| {
                             !path

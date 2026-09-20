@@ -7,7 +7,7 @@ use std::process::Command;
 
 use directories::BaseDirs;
 
-use crate::parsers::{CodexParser, SourceInstance};
+use crate::parsers::{CodexParser, SourceInstance, ARCHIVED_SESSIONS_DIR, SESSIONS_DIR};
 use crate::services::config::{ConfigService, RemoteConfig, ToktrackConfig};
 use crate::types::{Result, ToktrackError};
 
@@ -70,19 +70,12 @@ impl RemoteSourceService {
         self.snapshot_root
             .join(&remote.name)
             .join("codex")
-            .join("sessions")
+            .join(SESSIONS_DIR)
     }
 
     fn sync_codex(&self, remote: &RemoteConfig, snapshot_dir: &Path) -> Result<()> {
         fs::create_dir_all(snapshot_dir)?;
-        let args = build_rsync_args(remote, snapshot_dir);
-        let output = Command::new("rsync").args(&args).output().map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                ToktrackError::Remote("rsync not found; install rsync to use remote sources".into())
-            } else {
-                ToktrackError::Io(e)
-            }
-        })?;
+        let output = run_rsync(&build_rsync_args(remote, snapshot_dir))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -93,8 +86,43 @@ impl RemoteSourceService {
             )));
         }
 
+        sync_codex_archive(remote, snapshot_dir);
+
         Ok(())
     }
+}
+
+/// Mirror the remote's archived sessions next to the sessions snapshot.
+///
+/// Best effort on purpose: the sessions snapshot is already synced and usable,
+/// so a failure here warns and leaves it intact rather than failing the source.
+fn sync_codex_archive(remote: &RemoteConfig, snapshot_dir: &Path) {
+    let Some(dest) = archive_snapshot_dir(snapshot_dir) else {
+        return;
+    };
+    let Some(spec) = remote_codex_archive_spec(remote) else {
+        // The snapshot directory is always named `sessions`, so the parser keeps
+        // scanning this sibling even after the remote is repointed at a custom
+        // path. Drop the snapshot the way `--delete` drops removed sessions,
+        // otherwise its usage is counted forever.
+        discard_archive_snapshot(remote, &dest);
+        return;
+    };
+    // rsync creates the destination itself, so a host that never archived a
+    // session leaves no empty directory behind.
+    let output = match run_rsync(&build_rsync_args_for(&spec, &dest)) {
+        Ok(output) => output,
+        Err(e) => {
+            warn_archive_sync_failed(remote, &e.to_string());
+            return;
+        }
+    };
+    if output.status.success() {
+        return;
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    settle_failed_archive_sync(remote, &dest, output.status.code(), &stderr);
 }
 
 pub fn resolve_remote_names(
@@ -171,6 +199,10 @@ fn build_source_after_sync_attempt(
 }
 
 pub fn build_rsync_args(remote: &RemoteConfig, snapshot_dir: &Path) -> Vec<OsString> {
+    build_rsync_args_for(&remote_codex_spec(remote), snapshot_dir)
+}
+
+fn build_rsync_args_for(spec: &str, dest: &Path) -> Vec<OsString> {
     vec![
         OsString::from("-az"),
         OsString::from("--delete"),
@@ -183,9 +215,99 @@ pub fn build_rsync_args(remote: &RemoteConfig, snapshot_dir: &Path) -> Vec<OsStr
         OsString::from("--exclude"),
         OsString::from("*"),
         OsString::from("--"),
-        OsString::from(remote_codex_spec(remote)),
-        snapshot_dir.as_os_str().to_os_string(),
+        OsString::from(spec),
+        dest.as_os_str().to_os_string(),
     ]
+}
+
+/// Sibling `archived_sessions` path for a remote `sessions` root.
+///
+/// `None` when the configured path is not a standard `sessions` directory, so a
+/// custom remote layout stays isolated exactly as a custom local data directory
+/// does in `CodexParser::collect_files`.
+fn remote_codex_archive_path(sessions_path: &str) -> Option<String> {
+    let path = sessions_path.trim_end_matches('/');
+    let separator = path.rfind('/');
+    let last = match separator {
+        Some(index) => &path[index + 1..],
+        None => path,
+    };
+    if last != SESSIONS_DIR {
+        return None;
+    }
+    let prefix = match separator {
+        Some(index) => &path[..=index],
+        None => "",
+    };
+    Some(format!("{}{}", prefix, ARCHIVED_SESSIONS_DIR))
+}
+
+fn remote_codex_archive_spec(remote: &RemoteConfig) -> Option<String> {
+    remote_codex_archive_path(remote.codex_sessions_path())
+        .map(|path| format!("{}:{}/", remote.target, path))
+}
+
+/// Local snapshot directory for archived sessions: the sibling of the sessions
+/// snapshot, which is where `CodexParser` scans for archives.
+fn archive_snapshot_dir(snapshot_dir: &Path) -> Option<PathBuf> {
+    snapshot_dir
+        .parent()
+        .map(|parent| parent.join(ARCHIVED_SESSIONS_DIR))
+}
+
+/// Whether an rsync failure means the remote has no archive directory to copy.
+///
+/// rsync exits 23 when it cannot read the source, which for a top-level source
+/// means the directory is missing: the normal state of a host that has never
+/// archived a session. The stderr text is deliberately not matched, because it
+/// is the remote host's `strerror()` output and therefore locale-dependent.
+fn archive_source_absent(code: Option<i32>) -> bool {
+    code == Some(23)
+}
+
+/// Apply an archive-sync failure to the local snapshot.
+///
+/// A missing remote source drops the snapshot, mirroring what `--delete` does
+/// for removed sessions; leaving it would keep counting usage the remote no
+/// longer has. Any other failure keeps the snapshot, which is still the best
+/// known state, and warns.
+fn settle_failed_archive_sync(remote: &RemoteConfig, dest: &Path, code: Option<i32>, stderr: &str) {
+    if archive_source_absent(code) {
+        discard_archive_snapshot(remote, dest);
+        return;
+    }
+    warn_archive_sync_failed(remote, stderr.trim());
+}
+
+fn run_rsync(args: &[OsString]) -> Result<std::process::Output> {
+    Command::new("rsync").args(args).output().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            ToktrackError::Remote("rsync not found; install rsync to use remote sources".into())
+        } else {
+            ToktrackError::Io(e)
+        }
+    })
+}
+
+fn discard_archive_snapshot(remote: &RemoteConfig, dest: &Path) {
+    if !dest.exists() {
+        return;
+    }
+    if let Err(e) = fs::remove_dir_all(dest) {
+        eprintln!(
+            "[toktrack] Warning: stale archive snapshot for remote '{}' could not be removed ({}): {}",
+            remote.name,
+            dest.display(),
+            e
+        );
+    }
+}
+
+fn warn_archive_sync_failed(remote: &RemoteConfig, reason: &str) {
+    eprintln!(
+        "[toktrack] Warning: archived sessions for remote '{}' were not synced: {}. Continuing with active sessions only.",
+        remote.name, reason
+    );
 }
 
 fn warn_sync_failed(remote: &RemoteConfig, snapshot_dir: &Path, error: &ToktrackError) {
@@ -208,6 +330,7 @@ fn remote_codex_spec(remote: &RemoteConfig) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parsers::CLIParser;
     use crate::services::config::RemotePaths;
 
     fn config() -> ToktrackConfig {
@@ -371,5 +494,189 @@ mod tests {
                 "/tmp/toktrack/prod"
             ]
         );
+    }
+
+    #[test]
+    fn archive_path_is_derived_from_a_standard_sessions_root() {
+        assert_eq!(
+            remote_codex_archive_path("~/.codex/sessions").as_deref(),
+            Some("~/.codex/archived_sessions")
+        );
+        assert_eq!(
+            remote_codex_archive_path("/home/codex/.codex/sessions").as_deref(),
+            Some("/home/codex/.codex/archived_sessions")
+        );
+    }
+
+    #[test]
+    fn archive_path_ignores_a_trailing_slash() {
+        assert_eq!(
+            remote_codex_archive_path("~/.codex/sessions/").as_deref(),
+            Some("~/.codex/archived_sessions")
+        );
+    }
+
+    #[test]
+    fn archive_path_is_none_for_a_custom_sessions_directory() {
+        // Custom remote layouts stay isolated, matching how a custom local
+        // data directory never picks up a sibling archive.
+        assert_eq!(remote_codex_archive_path("~/logs/codex"), None);
+        assert_eq!(remote_codex_archive_path("~/.codex/sessions-old"), None);
+        assert_eq!(remote_codex_archive_path(""), None);
+    }
+
+    #[test]
+    fn archive_path_handles_root_level_and_relative_sessions_directories() {
+        assert_eq!(
+            remote_codex_archive_path("/sessions").as_deref(),
+            Some("/archived_sessions")
+        );
+        assert_eq!(
+            remote_codex_archive_path("sessions").as_deref(),
+            Some("archived_sessions")
+        );
+    }
+
+    #[test]
+    fn archive_spec_targets_the_remote_sibling_directory() {
+        let remote = &config().remotes[1];
+        assert_eq!(
+            remote_codex_archive_spec(remote).as_deref(),
+            Some("prod-alias:/home/codex/.codex/archived_sessions/")
+        );
+    }
+
+    #[test]
+    fn builds_rsync_args_for_codex_archived_sessions() {
+        let remote = &config().remotes[1];
+        let spec = remote_codex_archive_spec(remote).unwrap();
+        let args = build_rsync_args_for(&spec, Path::new("/tmp/toktrack/prod/archived_sessions"));
+        let args: Vec<String> = args
+            .into_iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+
+        assert_eq!(
+            args,
+            vec![
+                "-az",
+                "--delete",
+                "-e",
+                "ssh -o BatchMode=yes -o ConnectTimeout=5",
+                "--include",
+                "*/",
+                "--include",
+                "*.jsonl",
+                "--exclude",
+                "*",
+                "--",
+                "prod-alias:/home/codex/.codex/archived_sessions/",
+                "/tmp/toktrack/prod/archived_sessions"
+            ]
+        );
+    }
+
+    #[test]
+    fn archive_snapshot_dir_is_where_the_parser_looks_for_archives() {
+        // The sync destination is only useful if it is the exact directory the
+        // Codex parser scans as the sibling archive, so assert against the
+        // parser instead of restating its path formula.
+        let temp = tempfile::tempdir().unwrap();
+        let sessions = temp.path().join("codex").join("sessions");
+        std::fs::create_dir_all(&sessions).unwrap();
+        let archive = archive_snapshot_dir(&sessions).expect("archive snapshot dir");
+        std::fs::create_dir_all(&archive).unwrap();
+        let synced = archive.join("archived.jsonl");
+        std::fs::copy("tests/fixtures/codex/cwd-session.jsonl", &synced).unwrap();
+
+        let collected = CodexParser::with_data_dir(sessions).collect_files();
+
+        assert_eq!(collected, vec![synced]);
+    }
+
+    #[test]
+    fn an_unreadable_archive_source_is_classified_as_absent() {
+        // Keyed on the exit code alone: the stderr text comes from the remote
+        // host's strerror() and changes with its locale.
+        assert!(archive_source_absent(Some(23)));
+    }
+
+    #[test]
+    fn transport_failures_are_not_classified_as_absent() {
+        assert!(!archive_source_absent(Some(255)));
+        assert!(!archive_source_absent(Some(12)));
+        assert!(!archive_source_absent(Some(30)));
+        assert!(!archive_source_absent(None));
+    }
+
+    #[test]
+    fn an_archive_removed_on_the_remote_discards_the_local_snapshot() {
+        // Same "counted forever" hazard as a repointed remote: rsync fails
+        // before transferring, so --delete never clears the stale snapshot.
+        let (_temp, sessions, archive) = snapshot_with_archived_session();
+        let remote = standard_remote();
+
+        settle_failed_archive_sync(&remote, &archive, Some(23), "unreadable source");
+
+        assert!(!archive.exists());
+        assert!(CodexParser::with_data_dir(sessions)
+            .collect_files()
+            .is_empty());
+    }
+
+    #[test]
+    fn an_unreachable_remote_keeps_the_local_archive_snapshot() {
+        // The snapshot is still the best known state, so a transport failure
+        // must not throw away already-synced archives.
+        let (_temp, sessions, archive) = snapshot_with_archived_session();
+        let synced = archive.join("archived.jsonl");
+        let remote = standard_remote();
+
+        settle_failed_archive_sync(&remote, &archive, Some(255), "Connection refused");
+
+        assert!(archive.exists());
+        assert_eq!(
+            CodexParser::with_data_dir(sessions).collect_files(),
+            vec![synced]
+        );
+    }
+
+    /// Snapshot layout with one already-synced archived session. The caller keeps
+    /// the returned `TempDir` alive for as long as it uses the paths.
+    fn snapshot_with_archived_session() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let temp = tempfile::tempdir().unwrap();
+        let sessions = temp.path().join("codex").join(SESSIONS_DIR);
+        std::fs::create_dir_all(&sessions).unwrap();
+        let archive = archive_snapshot_dir(&sessions).unwrap();
+        std::fs::create_dir_all(&archive).unwrap();
+        std::fs::copy(
+            "tests/fixtures/codex/cwd-session.jsonl",
+            archive.join("archived.jsonl"),
+        )
+        .unwrap();
+        (temp, sessions, archive)
+    }
+
+    fn standard_remote() -> RemoteConfig {
+        RemoteConfig::new(
+            "devbox",
+            "ubuntu@devbox",
+            Some("~/.codex/sessions".to_string()),
+        )
+    }
+
+    #[test]
+    fn a_custom_remote_path_discards_a_previously_synced_archive_snapshot() {
+        // Repointing a remote at a custom path must not leave its old archive
+        // snapshot behind, because the parser keeps scanning that sibling.
+        let (_temp, sessions, archive) = snapshot_with_archived_session();
+        let remote = RemoteConfig::new("devbox", "ubuntu@devbox", Some("~/logs/codex".to_string()));
+
+        sync_codex_archive(&remote, &sessions);
+
+        assert!(!archive.exists());
+        assert!(CodexParser::with_data_dir(sessions)
+            .collect_files()
+            .is_empty());
     }
 }
