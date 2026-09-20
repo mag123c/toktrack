@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.17.2](https://github.com/mag123c/toktrack/compare/v2.17.1...v2.17.2) (2026-09-20)
+
+
+### Bug Fixes
+
+* **parser:** account for recorded Codex Fast pricing ([#255](https://github.com/mag123c/toktrack/issues/255)) ([7d3fefd](https://github.com/mag123c/toktrack/commit/7d3fefd6e215a5fff1c2f78fe89e0e6e13d626de))
+* **parser:** escape data directory paths when collecting files ([#254](https://github.com/mag123c/toktrack/issues/254)) ([98c6a19](https://github.com/mag123c/toktrack/commit/98c6a19e56154c74a7cf9b4c681057c5bc89669c))
+* **parser:** include archived Codex sessions ([#251](https://github.com/mag123c/toktrack/issues/251)) ([45ff79e](https://github.com/mag123c/toktrack/commit/45ff79e5912c6f2484103007973e074ac92a8556))
+* **services:** key the Codex Fast table on normalized model names ([31efb46](https://github.com/mag123c/toktrack/commit/31efb46bf2fca40c92c55a4edfe9f2a188491cdb))
+* **services:** sync remote Codex archived sessions ([#253](https://github.com/mag123c/toktrack/issues/253)) ([9e0726a](https://github.com/mag123c/toktrack/commit/9e0726af211677708e0ecc9824b79d54074a9b23))
+
 ## [2.17.1](https://github.com/mag123c/toktrack/compare/v2.17.0...v2.17.1) (2026-09-04)
 
 
