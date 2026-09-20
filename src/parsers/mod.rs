@@ -27,6 +27,33 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+/// Collect files matching `pattern` under `dir`.
+///
+/// The directory is glob-escaped so a path containing `*`, `?`, `[` or `]` is
+/// matched literally. Without that, such a path resolves to no matches at all
+/// and every session under it silently disappears from the totals.
+fn glob_under(dir: &Path, pattern: &str) -> Vec<PathBuf> {
+    let escaped = PathBuf::from(glob::Pattern::escape(&dir.to_string_lossy()));
+    glob::glob(&escaped.join(pattern).to_string_lossy())
+        .map(|paths| paths.filter_map(std::result::Result::ok).collect())
+        .unwrap_or_default()
+}
+
+/// Collect files matching several patterns under `dir`, in pattern order and
+/// without repeating a path that more than one pattern matches.
+pub(super) fn glob_patterns_under(dir: &Path, patterns: &[&str]) -> Vec<PathBuf> {
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+    let mut out = Vec::new();
+    for pattern in patterns {
+        for path in glob_under(dir, pattern) {
+            if seen.insert(path.clone()) {
+                out.push(path);
+            }
+        }
+    }
+    out
+}
+
 /// Trait for parsing usage data from AI CLI tools
 pub trait CLIParser: Send + Sync {
     /// Parser name (e.g., "claude-code")
@@ -77,10 +104,7 @@ pub trait CLIParser: Send + Sync {
 
     /// Collect all files matching the glob pattern
     fn collect_files(&self) -> Vec<PathBuf> {
-        let pattern = self.data_dir().join(self.file_pattern());
-        glob::glob(&pattern.to_string_lossy())
-            .map(|paths| paths.filter_map(|e| e.ok()).collect())
-            .unwrap_or_default()
+        glob_under(self.data_dir(), self.file_pattern())
     }
 
     /// Parse files in parallel and deduplicate
@@ -356,5 +380,55 @@ mod tests {
         let files = parser.collect_files();
         // Every `**/*.jsonl` under tests/fixtures, all sources included.
         assert_eq!(files.len(), 26);
+    }
+    // A data directory whose name contains glob metacharacters must still be
+    // matched literally. Otherwise the glob resolves to nothing and every
+    // session under it disappears from the totals with no error.
+
+    #[test]
+    fn test_default_collect_files_escapes_glob_metacharacters_in_data_dir() {
+        let temp = tempfile::tempdir().unwrap();
+        let data_dir = temp.path().join("pro[ject]s");
+        std::fs::create_dir_all(data_dir.join("nested")).unwrap();
+        let file = data_dir.join("nested").join("session.jsonl");
+        std::fs::write(&file, "{}\n").unwrap();
+
+        let collected = ClaudeCodeParser::with_data_dir(data_dir).collect_files();
+
+        assert_eq!(collected, vec![file]);
+    }
+
+    #[test]
+    fn test_pattern_collect_files_escapes_glob_metacharacters_in_data_dir() {
+        let temp = tempfile::tempdir().unwrap();
+        let data_dir = temp.path().join("tmp[1]");
+        let chats = data_dir.join("project").join("chats");
+        std::fs::create_dir_all(&chats).unwrap();
+        let file = chats.join("session-20260920-abcdefgh.jsonl");
+        std::fs::write(&file, "{}\n").unwrap();
+
+        let collected = GeminiParser::with_data_dir(data_dir).collect_files();
+
+        assert_eq!(collected, vec![file]);
+    }
+
+    #[test]
+    fn test_codex_collect_files_escapes_glob_metacharacters_in_data_dir() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("co[dex]");
+        let sessions = root.join("sessions");
+        std::fs::create_dir_all(&sessions).unwrap();
+        std::fs::create_dir_all(root.join("archived_sessions")).unwrap();
+        let active = sessions.join("active.jsonl");
+        std::fs::write(&active, "{}\n").unwrap();
+        let archived = root.join("archived_sessions").join("archived.jsonl");
+        std::fs::write(&archived, "{}\n").unwrap();
+
+        let mut collected = CodexParser::with_data_dir(sessions).collect_files();
+        collected.sort();
+        let mut expected = vec![active, archived];
+        expected.sort();
+
+        assert_eq!(collected, expected);
     }
 }

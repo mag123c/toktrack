@@ -209,14 +209,13 @@ impl CLIParser for CodexParser {
         "**/*.jsonl"
     }
 
+    // `retroactive_reconciliation` is deliberately left at the default: resumed
+    // sessions make old-dated entries in a recent file the norm here, so opting
+    // in would force a full reparse on nearly every run. See
+    // `test_codex_does_not_reconcile_retroactively`.
+
     fn collect_files(&self) -> Vec<PathBuf> {
-        let collect = |dir: &Path| -> Vec<PathBuf> {
-            let pattern = PathBuf::from(glob::Pattern::escape(&dir.to_string_lossy()))
-                .join(self.file_pattern());
-            glob::glob(&pattern.to_string_lossy())
-                .map(|paths| paths.filter_map(std::result::Result::ok).collect())
-                .unwrap_or_default()
-        };
+        let collect = |dir: &Path| super::glob_patterns_under(dir, &[self.file_pattern()]);
         let mut files = collect(&self.data_dir);
         // Only standard session roots have a sibling archive directory.
         if self.data_dir.file_name() == Some(std::ffi::OsStr::new(SESSIONS_DIR)) {

@@ -432,7 +432,7 @@ impl Default for DataLoaderService {
 
 #[cfg(test)]
 mod tests {
-    use crate::parsers::{CodexParser, SourceInstance};
+    use crate::parsers::{CLIParser, CodexParser, SourceInstance};
 
     use super::*;
     use std::path::PathBuf;
@@ -644,6 +644,8 @@ mod tests {
 
         // Seed a CURRENT-version cache for a second source so has_valid_cache()
         // is true and load() takes the warm path.
+        let keepwarm_dir = temp_dir.path().join("keepwarm");
+        std::fs::create_dir_all(&keepwarm_dir).unwrap();
         let today = Local::now().date_naive();
         let mut keepwarm_entry = make_entry(Some(0.01), Some("openai"));
         keepwarm_entry.timestamp = today.and_hms_opt(12, 0, 0).unwrap().and_utc();
@@ -652,8 +654,9 @@ mod tests {
             .unwrap();
 
         // Seed a STALE (version 0) codex cache: an ancient cache-only day (no raw
-        // backing → preserved history) + a recent day so latest_cached_date is
-        // recent (no gap).
+        // backing → preserved history) plus a recent day so the fixture matches a
+        // real cache. The stale version alone routes this source to a full
+        // reparse, so the gap check never runs here.
         let yesterday = today - chrono::Duration::days(1);
         let stale = format!(
             r#"{{"cli":"codex","version":0,"updated_at":0,"summaries":[
@@ -682,7 +685,9 @@ mod tests {
                     "keepwarm",
                     "keepwarm",
                     "codex",
-                    Box::new(CodexParser::with_data_dir(temp_dir.path().to_path_buf())),
+                    // Isolated: pointing this at the temp root would also glob
+                    // the other source's fixtures into this source.
+                    Box::new(CodexParser::with_data_dir(keepwarm_dir.clone())),
                 ),
             ]),
             cache_service: Some(DailySummaryCacheService::with_cache_dir(cache_dir.clone())),
@@ -738,6 +743,8 @@ mod tests {
 
         // Seed a CURRENT-version cache for a second source so has_valid_cache()
         // is true and load() takes the warm path.
+        let keepwarm_dir = temp_dir.path().join("keepwarm");
+        std::fs::create_dir_all(&keepwarm_dir).unwrap();
         let today = Local::now().date_naive();
         let mut keepwarm_entry = make_entry(Some(0.01), Some("openai"));
         keepwarm_entry.timestamp = today.and_hms_opt(12, 0, 0).unwrap().and_utc();
@@ -746,8 +753,9 @@ mod tests {
             .unwrap();
 
         // Seed a STALE (version 16) codex cache: an ancient cache-only day (no raw
-        // backing → preserved history) + a recent day so latest_cached_date is
-        // recent (no gap).
+        // backing → preserved history) plus a recent day so the fixture matches a
+        // real cache. The stale version alone routes this source to a full
+        // reparse, so the gap check never runs here.
         let yesterday = today - chrono::Duration::days(1);
         let stale = format!(
             r#"{{"cli":"codex","version":16,"updated_at":0,"summaries":[
@@ -774,12 +782,23 @@ mod tests {
                     "keepwarm",
                     "keepwarm",
                     "codex",
-                    Box::new(CodexParser::with_data_dir(temp_dir.path().to_path_buf())),
+                    // Isolated: pointing this at the temp root would also glob
+                    // the other source's fixtures into this source.
+                    Box::new(CodexParser::with_data_dir(keepwarm_dir.clone())),
                 ),
             ]),
             cache_service: Some(DailySummaryCacheService::with_cache_dir(cache_dir.clone())),
             pricing: PricingService::from_cache_only_with_path(&pricing_path),
         };
+
+        // The control source must see no files of its own. Pointing it at the
+        // temp root instead would sweep this test's archive fixture into it.
+        assert!(service
+            .registry
+            .get("keepwarm")
+            .expect("keepwarm source registered")
+            .collect_files()
+            .is_empty());
 
         let result = service.load().unwrap();
         let codex = result
@@ -799,6 +818,16 @@ mod tests {
             dates.iter().any(|d| d.starts_with("2026-06")),
             "stale-version source was not re-parsed (no backfill): {dates:?}"
         );
+    }
+
+    #[test]
+    fn test_codex_does_not_reconcile_retroactively() {
+        // Deliberate, not an oversight: Codex sessions are resumed across days,
+        // so a file touched today routinely carries entries dated before
+        // yesterday and the flag would force a full reparse on nearly every
+        // run. Those days are already summarized in the cache from when they
+        // were current. See .dev/DECISIONS.md (2026-09-20) for the measurement.
+        assert!(!CodexParser::new().retroactive_reconciliation());
     }
 
     fn make_entry(cost_usd: Option<f64>, provider: Option<&str>) -> UsageEntry {
