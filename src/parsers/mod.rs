@@ -379,7 +379,7 @@ mod tests {
         let parser = ClaudeCodeParser::with_data_dir(PathBuf::from("tests/fixtures"));
         let files = parser.collect_files();
         // Every `**/*.jsonl` under tests/fixtures, all sources included.
-        assert_eq!(files.len(), 27);
+        assert_eq!(files.len(), 31);
     }
     // A data directory whose name contains glob metacharacters must still be
     // matched literally. Otherwise the glob resolves to nothing and every
