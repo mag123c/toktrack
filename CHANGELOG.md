@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.17.3](https://github.com/mag123c/toktrack/compare/v2.17.2...v2.17.3) (2026-09-21)
+
+
+### Bug Fixes
+
+* **ci:** stop denying linker warnings in release builds ([#256](https://github.com/mag123c/toktrack/issues/256)) ([8a50f27](https://github.com/mag123c/toktrack/commit/8a50f27426d371a2c5f164a6e561b6edb9a54ab2))
+* **parser:** collapse byte-identical token_count re-emissions (key on total+last) ([#250](https://github.com/mag123c/toktrack/issues/250)) ([a85022d](https://github.com/mag123c/toktrack/commit/a85022db88c58d85891e00e87f918d1d24e2f669))
+
 ## [2.17.2](https://github.com/mag123c/toktrack/compare/v2.17.1...v2.17.2) (2026-09-20)
 
 
