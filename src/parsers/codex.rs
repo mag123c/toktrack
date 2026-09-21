@@ -253,6 +253,8 @@ impl CLIParser for CodexParser {
                     if cwd.is_some() {
                         current_project = cwd;
                     }
+                    // Re-emission identity is scoped to one session.
+                    prev_key = None;
                 }
                 ParseResult::TokenCount(data) => {
                     // Collapse byte-identical re-emissions before anything else.
@@ -462,6 +464,23 @@ mod tests {
         assert_eq!(entries[0].input_tokens, 80);
         assert_eq!(entries[0].output_tokens, 50);
         assert_eq!(entries[0].cache_read_tokens, 20);
+    }
+
+    #[test]
+    fn test_reemission_key_does_not_cross_session_meta() {
+        // Dedup identity is scoped to one session: the first turn of a new
+        // session_meta must count even if its numbers match the last turn
+        // of the previous session.
+        let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
+        let entries = parser
+            .parse_file(&fixture_path("reemission-key-across-session-meta.jsonl"))
+            .unwrap();
+
+        assert_eq!(entries.len(), 2, "new session's first turn was collapsed");
+        assert_eq!(entries[0].message_id, Some("session-a".to_string()));
+        assert_eq!(entries[1].message_id, Some("session-b".to_string()));
+        assert_eq!(entries[1].input_tokens, 80);
+        assert_eq!(entries[1].output_tokens, 50);
     }
 
     #[test]
