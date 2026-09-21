@@ -3,7 +3,8 @@
 //! Centralizes environment-variable overrides so each parser doesn't reimplement
 //! the "first non-empty env var wins, empty means unset" rule. Confirmed upstream
 //! override variables:
-//! - Codex: `CODEX_HOME` (root; sessions live under `$CODEX_HOME/sessions`)
+//! - Codex: `CODEX_HOME` (root; sessions live under `$CODEX_HOME/sessions`, and
+//!   finished ones under `$CODEX_HOME/archived_sessions`)
 //! - Claude: `CLAUDE_CONFIG_DIR` (root; projects under `$CLAUDE_CONFIG_DIR/projects`)
 //! - Gemini: `GEMINI_CLI_HOME` (home root; data under `$GEMINI_CLI_HOME/.gemini/tmp`)
 //! - OpenCode: `OPENCODE_DATA_DIR` (full data dir) / `XDG_DATA_HOME` (base)

@@ -15,7 +15,7 @@
 use crate::types::{Result, ToktrackError, UsageEntry};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use std::collections::HashSet;
+
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -222,19 +222,7 @@ impl CLIParser for QwenParser {
             "tmp/*/chats/session-*.json",
             "tmp/*/chats/*/*.jsonl",
         ];
-        let mut seen: HashSet<PathBuf> = HashSet::new();
-        let mut out = Vec::new();
-        for pat in patterns {
-            let full = self.data_dir.join(pat);
-            if let Ok(paths) = glob::glob(&full.to_string_lossy()) {
-                for p in paths.filter_map(std::result::Result::ok) {
-                    if seen.insert(p.clone()) {
-                        out.push(p);
-                    }
-                }
-            }
-        }
-        out
+        super::glob_patterns_under(&self.data_dir, &patterns)
     }
 
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>> {

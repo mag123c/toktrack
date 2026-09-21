@@ -164,6 +164,17 @@ zsh/bash/fish 몇 줄이면 됩니다 — **[셸 통합 가이드](docs/shell-in
 > 1시간 캐시 쓰기는 별도의 높은 단가로, Claude Code의 fast 모드(`/fast`) 요청은 제공사 fast 배수로 계산됩니다.
 > LiteLLM에 가격이 없는 모델은 비용 자리에 `?`가 떠서 $0을 무료 사용으로 오해하지 않게 합니다.
 
+> Codex의 Fast 비용은 세션에 기록된 `thread_settings_applied.thread_settings.service_tier`
+> 스냅샷을 따릅니다. `priority`와 구버전 값 `fast`는 Fast 단가로, 나머지 값이나 누락은 Standard로
+> 계산됩니다. Codex가 tier를 남기는 자리는 이 이벤트뿐이고 이 이벤트가 하나도 없는 세션도 많아서,
+> tier 기록이 없는 사용량은 현재 로컬 설정을 끌어다 쓰지 않고 Standard로 남습니다. Fast 모드로 돌린
+> 모든 세션이 아니라 tier를 기록한 세션에만 Fast 단가가 붙는다고 보시면 됩니다. 모델별 배수는
+> [ccusage의 모델 표](https://github.com/ccusage/ccusage/blob/main/rust/crates/ccusage-core/src/fast-multiplier-overrides.json)와
+> 같습니다(GPT-5.5는 2.5배, GPT-5.3-Codex와 GPT-5.4, GPT-5.6/Sol/Terra/Luna, GPT-6 Astra는 2배).
+> 공개된 Fast 단가가 없는 모델은 Standard로 둡니다. 이 값들은 달러 기준 추정치이지 ChatGPT 크레딧
+> 잔액이 아닙니다. 업그레이드하면 로그가 남아 있는 날짜는 다시 계산하고, 로그가 사라진 날짜의 캐시
+> 기록은 그대로 보존합니다.
+
 ### 환경 변수
 
 각 소스의 데이터 디렉터리는 상위 CLI가 쓰는 변수명으로 재지정할 수 있습니다:

@@ -24,6 +24,8 @@ struct CodexPayload {
     #[serde(rename = "type")]
     payload_type: Option<String>,
     #[serde(default)]
+    thread_settings: Option<serde_json::Value>,
+    #[serde(default)]
     model: Option<String>,
     #[serde(default)]
     info: Option<CodexInfo>,
@@ -59,6 +61,13 @@ struct TokenCountData {
     last: Option<CodexTokenUsage>,
 }
 
+/// Directory name of a standard Codex session root. Remote snapshots mirror this
+/// name so `collect_files` finds the archive beside it (`crate::services::remote`).
+pub const SESSIONS_DIR: &str = "sessions";
+
+/// Sibling directory Codex moves finished sessions into.
+pub const ARCHIVED_SESSIONS_DIR: &str = "archived_sessions";
+
 /// Parser for Codex CLI usage data
 pub struct CodexParser {
     data_dir: PathBuf,
@@ -68,7 +77,7 @@ impl CodexParser {
     /// Create a new parser with default data directory.
     ///
     /// Honors `CODEX_HOME` (root; replaces `~/.codex`); sessions live under
-    /// `<root>/sessions`.
+    /// `<root>/sessions` and `<root>/archived_sessions`.
     pub fn new() -> Self {
         let root = super::discovery::first_env_dir(&["CODEX_HOME"]).unwrap_or_else(|| {
             directories::BaseDirs::new()
@@ -79,7 +88,7 @@ impl CodexParser {
                 })
         });
         Self {
-            data_dir: root.join("sessions"),
+            data_dir: root.join(SESSIONS_DIR),
         }
     }
 
@@ -135,6 +144,18 @@ impl CodexParser {
             None => return ParseResult::Skip,
         };
 
+        if payload_type == "thread_settings_applied" {
+            // Settings are snapshots. Missing, null, or unknown tiers must clear
+            // an earlier Fast setting rather than silently carrying it forward.
+            let fast = payload
+                .thread_settings
+                .as_ref()
+                .and_then(|settings| settings.get("service_tier"))
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|tier| matches!(tier, "priority" | "fast"));
+            return ParseResult::Speed(fast);
+        }
+
         if payload_type != "token_count" {
             return ParseResult::Skip;
         }
@@ -171,6 +192,7 @@ impl CodexParser {
 /// Result of parsing a single line
 enum ParseResult {
     Skip,
+    Speed(bool),
     TurnContext {
         model: Option<String>,
         cwd: Option<String>,
@@ -202,11 +224,42 @@ impl CLIParser for CodexParser {
         "**/*.jsonl"
     }
 
+    // `retroactive_reconciliation` is deliberately left at the default: resumed
+    // sessions make old-dated entries in a recent file the norm here, so opting
+    // in would force a full reparse on nearly every run. See
+    // `test_codex_does_not_reconcile_retroactively`.
+
+    fn collect_files(&self) -> Vec<PathBuf> {
+        let collect = |dir: &Path| super::glob_patterns_under(dir, &[self.file_pattern()]);
+        let mut files = collect(&self.data_dir);
+        // Only standard session roots have a sibling archive directory.
+        if self.data_dir.file_name() == Some(std::ffi::OsStr::new(SESSIONS_DIR)) {
+            if let Some(root) = self.data_dir.parent() {
+                // Archiving flattens date directories; rollout filenames remain stable.
+                let active_names: std::collections::HashSet<_> = files
+                    .iter()
+                    .filter_map(|path| path.file_name().map(|name| name.to_os_string()))
+                    .collect();
+                files.extend(
+                    collect(&root.join(ARCHIVED_SESSIONS_DIR))
+                        .into_iter()
+                        .filter(|path| {
+                            !path
+                                .file_name()
+                                .is_some_and(|name| active_names.contains(name))
+                        }),
+                );
+            }
+        }
+        files
+    }
+
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>> {
         let file = File::open(path).map_err(ToktrackError::Io)?;
         let reader = BufReader::new(file);
         let mut entries: Vec<UsageEntry> = Vec::new();
         let mut current_model: Option<String> = None;
+        let mut fast_speed = false;
         let mut session_id: Option<String> = None;
         let mut current_provider: Option<String> = None;
         let mut current_project: Option<String> = None;
@@ -234,6 +287,7 @@ impl CLIParser for CodexParser {
             let mut line_bytes = line.into_bytes();
             match self.parse_line(&mut line_bytes) {
                 ParseResult::Skip => {}
+                ParseResult::Speed(fast) => fast_speed = fast,
                 ParseResult::TurnContext { model, cwd } => {
                     if model.is_some() {
                         current_model = model;
@@ -312,7 +366,7 @@ impl CLIParser for CodexParser {
                     let non_cached_input = delta_input.saturating_sub(delta_cached);
 
                     entries.push(UsageEntry {
-                        fast_speed: false,
+                        fast_speed,
                         timestamp: data.timestamp,
                         model: current_model.clone(),
                         input_tokens: non_cached_input,
@@ -344,6 +398,77 @@ impl CLIParser for CodexParser {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn test_codex_fast_tier_transitions() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("session.jsonl");
+        let mut lines = vec![];
+        for (i, tier) in [
+            None,
+            Some("priority"),
+            Some("default"),
+            Some("fast"),
+            Some("future"),
+            Some("priority"),
+            None,
+        ]
+        .iter()
+        .enumerate()
+        {
+            if i > 0 {
+                lines.push(serde_json::json!({"type":"event_msg", "timestamp":"2026-09-20T00:00:00Z", "payload":{"type":"thread_settings_applied", "thread_settings":{"service_tier":tier}}}).to_string());
+            }
+            lines.push(serde_json::json!({"type":"event_msg", "timestamp":"2026-09-20T00:00:01Z", "payload":{"type":"token_count", "info":{"total_token_usage":{"input_tokens":(i+1)*100,"output_tokens":(i+1)*10}}}}).to_string());
+        }
+        std::fs::write(&path, lines.join("\n")).unwrap();
+        let entries = CodexParser::with_data_dir(temp.path().into())
+            .parse_file(&path)
+            .unwrap();
+        assert_eq!(
+            entries.iter().map(|e| e.fast_speed).collect::<Vec<_>>(),
+            vec![false, true, false, true, false, true, false]
+        );
+        assert!(entries
+            .iter()
+            .all(|e| e.input_tokens == 100 && e.output_tokens == 10));
+    }
+
+    #[test]
+    fn test_codex_fast_unknown_settings_clear_previous_tier() {
+        use serde_json::json;
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("session.jsonl");
+        for payload in [
+            json!({"type":"thread_settings_applied"}),
+            json!({"type":"thread_settings_applied", "thread_settings":null}),
+            json!({"type":"thread_settings_applied", "thread_settings":[]}),
+            json!({"type":"thread_settings_applied", "thread_settings":true}),
+            json!({"type":"thread_settings_applied", "thread_settings":{}}),
+            json!({"type":"thread_settings_applied", "thread_settings":{"service_tier":42}}),
+            json!({"type":"thread_settings_applied", "thread_settings":{"service_tier":false}}),
+        ] {
+            let lines = [
+                json!({"type":"event_msg", "timestamp":"2026-09-20T00:00:00Z", "payload":{"type":"thread_settings_applied", "thread_settings":{"service_tier":"priority"}}}),
+                json!({"type":"event_msg", "timestamp":"2026-09-20T00:00:00Z", "payload":payload}),
+                json!({"type":"event_msg", "timestamp":"2026-09-20T00:00:01Z", "payload":{"type":"token_count", "info":{"total_token_usage":{"input_tokens":100,"output_tokens":10}}}}),
+            ];
+            std::fs::write(
+                &path,
+                lines
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            )
+            .unwrap();
+            let entries = CodexParser::with_data_dir(temp.path().into())
+                .parse_file(&path)
+                .unwrap();
+            assert_eq!(entries.len(), 1, "{payload}");
+            assert!(!entries[0].fast_speed, "{payload}");
+        }
+    }
 
     fn fixture_path(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -533,6 +658,71 @@ mod tests {
     }
 
     #[test]
+    fn test_archived_sessions_discovery_and_parsing() {
+        let home = tempfile::tempdir().unwrap();
+        let sessions = home.path().join("sessions");
+        let archived = home.path().join("archived_sessions");
+        std::fs::create_dir_all(sessions.join("2026/06/19")).unwrap();
+        std::fs::create_dir_all(&archived).unwrap();
+        let fixture = std::fs::read_to_string(fixture_path("cwd-session.jsonl")).unwrap();
+        let active = sessions.join("2026/06/19/active.jsonl");
+        std::fs::write(&active, &fixture).unwrap();
+        // Archive moves flatten the date directories. Prefer the active copy.
+        std::fs::write(archived.join("active.jsonl"), "invalid archive copy").unwrap();
+        let archive_only = archived.join("archived.jsonl");
+        std::fs::write(
+            &archive_only,
+            fixture.replace("sess-cwd-001", "archived-session"),
+        )
+        .unwrap();
+        let parser = CodexParser::with_data_dir(sessions);
+        let mut files = parser.collect_files();
+        files.sort();
+        let mut expected = vec![active, archive_only];
+        expected.sort();
+        assert_eq!(files, expected);
+        assert_eq!(parser.parse_all().unwrap().len(), 2);
+        assert_eq!(
+            parser
+                .parse_recent_files(std::time::UNIX_EPOCH)
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn test_archived_sessions_without_active_directory() {
+        let home = tempfile::tempdir().unwrap();
+        let archived = home.path().join("archived_sessions");
+        std::fs::create_dir_all(&archived).unwrap();
+        std::fs::copy(
+            fixture_path("cwd-session.jsonl"),
+            archived.join("only.jsonl"),
+        )
+        .unwrap();
+        let parser = CodexParser::with_data_dir(home.path().join("sessions"));
+        assert_eq!(parser.parse_all().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_archived_sessions_do_not_leak_into_custom_directory() {
+        let home = tempfile::tempdir().unwrap();
+        let custom = home.path().join("custom");
+        let archived = home.path().join("archived_sessions");
+        std::fs::create_dir_all(&custom).unwrap();
+        std::fs::create_dir_all(&archived).unwrap();
+        std::fs::copy(
+            fixture_path("cwd-session.jsonl"),
+            archived.join("only.jsonl"),
+        )
+        .unwrap();
+        assert!(CodexParser::with_data_dir(custom)
+            .collect_files()
+            .is_empty());
+    }
+
+    #[test]
     fn test_parser_name() {
         let parser = CodexParser::new();
         assert_eq!(parser.name(), "codex");
@@ -708,6 +898,66 @@ mod tests {
         assert_token_count_shape_known(&fixture_path("real-shape-token-count.jsonl"));
         for path in recent_local_sessions(5) {
             assert_token_count_shape_known(&path);
+        }
+    }
+
+    /// Tiers we know how to price. A tier outside this set bills at Standard,
+    /// so silent vocabulary growth upstream is an undercount, not an error.
+    const KNOWN_SERVICE_TIERS: [&str; 3] = ["default", "priority", "fast"];
+
+    /// Fast pricing rests on one field the parser does not own. This asserts
+    /// where it lives and what it may say, so a rename, a move out of
+    /// `thread_settings`, or a new tier id fails loudly instead of quietly
+    /// pricing every Fast request at Standard.
+    fn assert_service_tier_shape_known(path: &Path) {
+        let file = File::open(path).unwrap();
+        for (i, line) in BufReader::new(file)
+            .lines()
+            .take(CANARY_LINE_LIMIT)
+            .enumerate()
+        {
+            let Ok(line) = line else { continue };
+            if !line.contains("thread_settings_applied") {
+                continue;
+            }
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else {
+                continue;
+            };
+            let Some(payload) = value.get("payload").filter(|p| {
+                p.get("type").and_then(|t| t.as_str()) == Some("thread_settings_applied")
+            }) else {
+                continue;
+            };
+            let settings = &payload["thread_settings"];
+            assert!(
+                settings.is_object() || settings.is_null(),
+                "Codex thread_settings is no longer an object at {}:{} — the service_tier lookup \
+                 in parse_line reads it as one.",
+                path.display(),
+                i + 1
+            );
+            // Older rollouts omit the tier entirely; only a present one is checked.
+            let Some(tier) = settings.get("service_tier").filter(|t| !t.is_null()) else {
+                continue;
+            };
+            let known = tier
+                .as_str()
+                .is_some_and(|t| KNOWN_SERVICE_TIERS.contains(&t));
+            assert!(
+                known,
+                "Codex service_tier drifted to {tier} at {}:{} — decide whether it bills at a Fast \
+                 rate, then add it to KNOWN_SERVICE_TIERS (and to parse_line if it does).",
+                path.display(),
+                i + 1
+            );
+        }
+    }
+
+    #[test]
+    fn test_codex_service_tier_schema_is_known() {
+        assert_service_tier_shape_known(&fixture_path("real-shape-thread-settings.jsonl"));
+        for path in recent_local_sessions(5) {
+            assert_service_tier_shape_known(&path);
         }
     }
 }

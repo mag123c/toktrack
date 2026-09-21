@@ -37,7 +37,7 @@
 use crate::types::{Result, UsageEntry};
 use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OpenFlags};
-use std::collections::HashSet;
+
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -435,19 +435,7 @@ impl CLIParser for AntigravityParser {
             "antigravity-ide/conversations/*.db",
             "antigravity-cli/conversations/*.db",
         ];
-        let mut seen: HashSet<PathBuf> = HashSet::new();
-        let mut out = Vec::new();
-        for pat in patterns {
-            let full = self.data_dir.join(pat);
-            if let Ok(paths) = glob::glob(&full.to_string_lossy()) {
-                for p in paths.filter_map(std::result::Result::ok) {
-                    if seen.insert(p.clone()) {
-                        out.push(p);
-                    }
-                }
-            }
-        }
-        out
+        super::glob_patterns_under(&self.data_dir, &patterns)
     }
 
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>> {

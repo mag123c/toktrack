@@ -48,7 +48,7 @@ trait CLIParser: Send + Sync {
 | Parser | Format | Data Dir | Status |
 |--------|--------|----------|--------|
 | ClaudeCodeParser | JSONL | ~/.claude/projects/ | ✅ |
-| CodexParser | JSONL | ~/.codex/sessions/ | ✅ |
+| CodexParser | JSONL | ~/.codex/{sessions,archived_sessions}/ | ✅ |
 | GeminiParser | JSON + JSONL | ~/.gemini/tmp/*/chats/ | ✅ |
 | GeminiParser (qwen) | JSON + JSONL | ~/.qwen/tmp/*/chats/ | ✅ Qwen Code (Gemini fork, source="qwen") |
 | OpenCodeParser | SQLite (v1.2.0+) + JSON fallback | ~/.local/share/opencode/{opencode.db, storage/message/} | ✅ |

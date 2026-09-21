@@ -120,7 +120,7 @@ pub struct UsageEntry {
     #[serde(default)]
     pub project: Option<String>,
     /// Request served in fast mode (Claude Code `usage.speed == "fast"`), which
-    /// bills at the provider's fast multiplier. Only Claude records a speed.
+    /// bills at the provider's fast multiplier. Claude records a speed; Codex persists service tier settings.
     #[serde(default)]
     pub fast_speed: bool,
 }

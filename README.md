@@ -227,6 +227,19 @@ existing snapshot/cache for that remote.
 > fast mode (`/fast`) are billed at the provider's fast multiplier. A model LiteLLM has no price for
 > shows `?` instead of a cost, so a $0 row is never mistaken for free usage.
 
+> Codex Fast costs follow the `thread_settings_applied.thread_settings.service_tier`
+> snapshots a session recorded: `priority` and legacy `fast` enable Fast pricing, other
+> or missing tiers use Standard. That event is the only place Codex writes the tier, and
+> many sessions contain none of them, so usage with no tier on file stays Standard rather
+> than inheriting today's local config. Expect Fast pricing to show up only for the
+> sessions that recorded it, not for every session you ran in Fast mode. Known model
+> multipliers match
+> [ccusage's model table](https://github.com/ccusage/ccusage/blob/main/rust/crates/ccusage-core/src/fast-multiplier-overrides.json)
+> (GPT-5.5: 2.5×; GPT-5.3-Codex, GPT-5.4, GPT-5.6/Sol/Terra/Luna, and GPT-6 Astra: 2×), and
+> a model with no published Fast rate stays at Standard. These are dollar cost estimates,
+> not ChatGPT credit balances. Upgrading recalculates dates with available logs while
+> preserving cached history whose logs are no longer available.
+
 ### Environment Variables
 
 Each source's data directory can be overridden (matching the upstream CLI's own variable):
