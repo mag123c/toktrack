@@ -1,0 +1,5 @@
+{"timestamp":"2026-01-20T09:00:00.000Z","type":"session_meta","payload":{"id":"session-missing-last"}}
+{"timestamp":"2026-01-20T09:00:01.000Z","type":"turn_context","payload":{"model":"o4-mini"}}
+{"timestamp":"2026-01-20T09:00:10.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"output_tokens":50,"cached_input_tokens":20},"last_token_usage":{"input_tokens":100,"output_tokens":50,"cached_input_tokens":20}}}}
+{"timestamp":"2026-01-20T09:00:11.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"output_tokens":50,"cached_input_tokens":20}}}}
+{"timestamp":"2026-01-20T09:00:12.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"output_tokens":50,"cached_input_tokens":20},"last_token_usage":{"input_tokens":100,"output_tokens":50,"cached_input_tokens":20}}}}

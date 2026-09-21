@@ -272,7 +272,11 @@ impl CLIParser for CodexParser {
                         prev_totals = data.total;
                         continue;
                     }
-                    prev_key = key;
+                    // An event without `last` has no identity; letting it
+                    // overwrite the key would let the next re-emission through.
+                    if key.is_some() {
+                        prev_key = key;
+                    }
 
                     // Compute delta: prefer last_token_usage, fallback to diff
                     let (delta_input, delta_output, delta_cached) =
@@ -442,6 +446,22 @@ mod tests {
         assert_eq!(entries[0].output_tokens, 50);
         assert_eq!(entries[1].input_tokens, 80);
         assert_eq!(entries[1].output_tokens, 50);
+    }
+
+    #[test]
+    fn test_reemission_after_event_without_last_still_collapses() {
+        // A token_count without `last_token_usage` between a turn and its
+        // byte-identical re-emission must not clear the dedup memory,
+        // otherwise the re-emission is counted as a second turn.
+        let parser = CodexParser::with_data_dir(PathBuf::from("tests/fixtures/codex"));
+        let entries = parser
+            .parse_file(&fixture_path("reemission-around-missing-last.jsonl"))
+            .unwrap();
+
+        assert_eq!(entries.len(), 1, "re-emission counted as a second turn");
+        assert_eq!(entries[0].input_tokens, 80);
+        assert_eq!(entries[0].output_tokens, 50);
+        assert_eq!(entries[0].cache_read_tokens, 20);
     }
 
     #[test]
