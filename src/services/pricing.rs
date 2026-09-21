@@ -2459,9 +2459,11 @@ web_search_per_request = 0.01
         );
         let path = temp.path().join("rollout.jsonl");
         let mut lines = vec![serde_json::json!({"type":"turn_context", "timestamp":"2026-09-20T00:00:00Z", "payload":{"model":"gpt-6-astra"}}).to_string()];
-        for tier in ["priority", "default"] {
+        // Totals are cumulative, so the second turn advances them; an identical
+        // snapshot would be collapsed as a re-emission of the first turn.
+        for (turn, tier) in [(1u64, "priority"), (2, "default")] {
             lines.push(serde_json::json!({"type":"event_msg", "timestamp":"2026-09-20T00:00:00Z", "payload":{"type":"thread_settings_applied", "thread_settings":{"service_tier":tier}}}).to_string());
-            lines.push(serde_json::json!({"type":"event_msg", "timestamp":"2026-09-20T00:00:01Z", "payload":{"type":"token_count", "info":{"total_token_usage":{"input_tokens":100,"output_tokens":10,"cached_input_tokens":20},"last_token_usage":{"input_tokens":100,"output_tokens":10,"cached_input_tokens":20}}}}).to_string());
+            lines.push(serde_json::json!({"type":"event_msg", "timestamp":"2026-09-20T00:00:01Z", "payload":{"type":"token_count", "info":{"total_token_usage":{"input_tokens":100 * turn,"output_tokens":10 * turn,"cached_input_tokens":20 * turn},"last_token_usage":{"input_tokens":100,"output_tokens":10,"cached_input_tokens":20}}}}).to_string());
         }
         fs::write(&path, lines.join("\n")).unwrap();
         let entries = CodexParser::with_data_dir(temp.path().into())
