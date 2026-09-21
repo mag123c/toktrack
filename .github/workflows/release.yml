@@ -15,6 +15,12 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # setup-rust-toolchain@v2 defaults to CARGO_BUILD_WARNINGS=deny, and cargo's
+  # `build.warnings` — unlike the old `-D warnings` RUSTFLAGS — does not exempt
+  # `linker_messages`. The cross aarch64-musl image's linker wrapper traces
+  # itself to stderr, so that lint fires and kills the release build. Lint
+  # gating belongs to CI; release builds only produce binaries.
+  CARGO_BUILD_WARNINGS: warn
 
 permissions:
   contents: write
