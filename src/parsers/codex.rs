@@ -602,10 +602,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(entries.len(), 2, "new session's first turn was collapsed");
-        assert_eq!(entries[0].message_id, Some("session-a".to_string()));
-        assert_eq!(entries[1].message_id, Some("session-b".to_string()));
-        assert_eq!(entries[1].input_tokens, 80);
-        assert_eq!(entries[1].output_tokens, 50);
+        for (entry, session) in entries.iter().zip(["session-a", "session-b"]) {
+            assert_eq!(entry.message_id, Some(session.to_string()));
+            assert_eq!(entry.input_tokens, 80);
+            assert_eq!(entry.output_tokens, 50);
+            assert_eq!(entry.cache_read_tokens, 20);
+        }
     }
 
     #[test]
