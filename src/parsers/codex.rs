@@ -258,10 +258,16 @@ impl CLIParser for CodexParser {
                     // Collapse byte-identical re-emissions before anything else.
                     // Identity is (total, last); a repeat of `last` with an
                     // advancing `total` is a distinct turn and must survive.
-                    let key = data.last.as_ref().map(|l| (
-                        data.total.input_tokens, data.total.output_tokens, data.total.cached_input_tokens,
-                        l.input_tokens, l.output_tokens, l.cached_input_tokens,
-                    ));
+                    let key = data.last.as_ref().map(|l| {
+                        (
+                            data.total.input_tokens,
+                            data.total.output_tokens,
+                            data.total.cached_input_tokens,
+                            l.input_tokens,
+                            l.output_tokens,
+                            l.cached_input_tokens,
+                        )
+                    });
                     if key.is_some() && prev_key == key {
                         prev_totals = data.total;
                         continue;
