@@ -162,7 +162,13 @@ impl OpenCodeParser {
         let tx = conn.transaction()?;
         let mut rows = Vec::new();
         for (messages, sessions, role_filter) in [
-            ("session_message", "session_v2", "m.type = 'assistant'"),
+            // v2 records a compaction request's usage only on its compaction
+            // row; no assistant row carries it.
+            (
+                "session_message",
+                "session_v2",
+                "m.type IN ('assistant', 'compaction')",
+            ),
             (
                 "message",
                 "session",
@@ -1030,5 +1036,77 @@ mod tests {
             entries.iter().map(|e| e.cost_usd.unwrap()).sum::<f64>(),
             0.25
         );
+    }
+
+    #[test]
+    fn sqlite_v2_counts_compaction_request_usage() {
+        let tmp = TempDir::new().unwrap();
+        let ts = 1700000000000;
+        create_v2_db(
+            &tmp.path().join("opencode.db"),
+            &[
+                ("turn", "assistant", ts, &v2_data(ts as u64)),
+                (
+                    "compacted",
+                    "compaction",
+                    ts,
+                    r#"{"type":"compaction","status":"completed","reason":"auto",
+                        "model":{"id":"claude-sonnet-4-5","providerID":"anthropic"},
+                        "summary":"s","recent":"r","time":{"created":1700000000000},
+                        "cost":0.4,"tokens":{"input":90000,"output":1500,"reasoning":0,
+                        "cache":{"read":0,"write":0}}}"#,
+                ),
+                (
+                    "compact-failed",
+                    "compaction",
+                    ts,
+                    r#"{"type":"compaction","status":"failed","reason":"auto",
+                        "error":{"type":"unknown","message":"boom"},
+                        "time":{"created":1700000000000},
+                        "cost":0.3,"tokens":{"input":80000,"output":0,"reasoning":0,
+                        "cache":{"read":0,"write":0}}}"#,
+                ),
+                (
+                    "compacting",
+                    "compaction",
+                    ts,
+                    r#"{"type":"compaction","status":"running","reason":"manual",
+                        "summary":"","recent":"","time":{"created":1700000000000}}"#,
+                ),
+            ],
+        );
+        let entries = OpenCodeParser::with_base_dir(tmp.path().into())
+            .parse_all()
+            .unwrap();
+
+        let mut ids: Vec<&str> = entries
+            .iter()
+            .filter_map(|e| e.message_id.as_deref())
+            .collect();
+        ids.sort_unstable();
+        assert_eq!(ids, ["compact-failed", "compacted", "turn"]);
+
+        let completed = entries
+            .iter()
+            .find(|e| e.message_id.as_deref() == Some("compacted"))
+            .unwrap();
+        assert_eq!(completed.model.as_deref(), Some("claude-sonnet-4-5"));
+        assert_eq!(completed.provider.as_deref(), Some("anthropic"));
+        assert_eq!(completed.project.as_deref(), Some("/work/v2"));
+        assert_eq!(
+            (completed.input_tokens, completed.output_tokens),
+            (90000, 1500)
+        );
+        assert_eq!(completed.cost_usd, Some(0.4));
+
+        // Failed compactions carry no model in OpenCode's schema, but the
+        // request was still billed.
+        let failed = entries
+            .iter()
+            .find(|e| e.message_id.as_deref() == Some("compact-failed"))
+            .unwrap();
+        assert_eq!(failed.model, None);
+        assert_eq!(failed.input_tokens, 80000);
+        assert_eq!(failed.cost_usd, Some(0.3));
     }
 }

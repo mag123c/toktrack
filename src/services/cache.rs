@@ -70,8 +70,9 @@ fn normalize_model_keys(models: HashMap<String, ModelUsage>) -> HashMap<String, 
 /// ephemeral cache writes at LiteLLM's `_above_1hr` rate. v17 backfills Codex
 /// archived sessions, which were previously excluded from discovery. v18
 /// recalculates recorded Codex Fast usage with model-specific multipliers. v19
-/// backfills OpenCode v2 messages while deduplicating migrated v1/v2 turns.
-const CACHE_VERSION: u32 = 19;
+/// backfills OpenCode v2 messages while deduplicating migrated v1/v2 turns. v20
+/// backfills OpenCode v2 compaction-request usage.
+const CACHE_VERSION: u32 = 20;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DailySummaryCache {
@@ -1191,6 +1192,17 @@ mod tests {
         fs::write(
             service.cache_path("opencode"),
             r#"{"cli":"opencode","version":18,"updated_at":0,"summaries":[]}"#,
+        )
+        .unwrap();
+        assert!(!service.is_version_current("opencode"));
+    }
+
+    #[test]
+    fn opencode_cache_without_compaction_usage_requires_backfill() {
+        let (service, _temp) = create_test_service();
+        fs::write(
+            service.cache_path("opencode"),
+            r#"{"cli":"opencode","version":19,"updated_at":0,"summaries":[]}"#,
         )
         .unwrap();
         assert!(!service.is_version_current("opencode"));
