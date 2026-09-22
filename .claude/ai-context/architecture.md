@@ -51,7 +51,7 @@ trait CLIParser: Send + Sync {
 | CodexParser | JSONL | ~/.codex/{sessions,archived_sessions}/ | ✅ |
 | GeminiParser | JSON + JSONL | ~/.gemini/tmp/*/chats/ | ✅ |
 | GeminiParser (qwen) | JSON + JSONL | ~/.qwen/tmp/*/chats/ | ✅ Qwen Code (Gemini fork, source="qwen") |
-| OpenCodeParser | SQLite (v1.2.0+) + JSON fallback | ~/.local/share/opencode/{opencode.db, storage/message/} | ✅ |
+| OpenCodeParser | SQLite (v1 `message` + v2 `session_message`) + JSON fallback | ~/.local/share/opencode/{opencode.db, storage/message/} | ✅ (v2 rows read first and deduplicated against migrated v1 rows by (message, session); v2 counts `assistant` and `compaction` rows; rows are parsed as they stream, since v2 `data` embeds the full response) |
 | PiAgentParser | JSONL | ~/.pi/agent/sessions/ | ✅ |
 | AntigravityParser | SQLite + protobuf blobs | ~/.gemini/antigravity-{ide,cli}/conversations/*.db | ✅ (gen_metadata → ChatModelMetadata/ModelUsageStats) |
 | GrokParser | JSONL | ~/.grok/sessions/*/*/updates.jsonl | ✅ (`_x.ai/session/update` + `sessionUpdate == turn_completed` → `usage.modelUsage`; cost from `costUsdTicks`, the only parser deriving it from an integer tick count; absent ticks stay `None` so the turn is not reported as an exact $0) |
