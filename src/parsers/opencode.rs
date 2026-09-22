@@ -106,26 +106,18 @@ impl OpenCodeParser {
     }
 
     fn parse_sqlite_rows(&self, since_ms: Option<i64>) -> Result<Vec<UsageEntry>> {
-        let rows = match self.query_sqlite_rows(since_ms) {
-            Ok(rows) => rows,
-            Err(e) => {
-                eprintln!(
-                    "[toktrack] Warning: failed to read OpenCode SQLite db {:?}: {}",
-                    self.db_path, e
-                );
-                return Ok(Vec::new());
-            }
-        };
-
-        let mut entries = Vec::with_capacity(rows.len());
+        let mut entries = Vec::new();
         let mut seen = HashSet::new();
-        for SqliteMessageRow {
-            id,
-            session_id,
-            mut data_json,
-            directory,
-        } in rows
-        {
+        // Parse each row as it is read: v2 `data` embeds the full response
+        // content, so collecting every row first holds the whole transcript in
+        // memory.
+        let visited = self.visit_sqlite_rows(since_ms, &mut |row| {
+            let SqliteMessageRow {
+                id,
+                session_id,
+                mut data_json,
+                directory,
+            } = row;
             // SAFETY: `data_json` is exclusively owned and not aliased; safe for simd_json in-place mutation.
             let data: OpenCodeMessageData = match unsafe { simd_json::from_str(&mut data_json) } {
                 Ok(d) => d,
@@ -134,7 +126,7 @@ impl OpenCodeParser {
                         "[toktrack] Warning: failed to parse OpenCode SQLite row {}: {}",
                         id, e
                     );
-                    continue;
+                    return;
                 }
             };
             if let Some(mut entry) = to_usage_entry(id, session_id, data) {
@@ -143,24 +135,33 @@ impl OpenCodeParser {
                 if entry.total_tokens() == 0
                     || !seen.insert((entry.message_id.clone(), entry.request_id.clone()))
                 {
-                    continue;
+                    return;
                 }
                 // Attribute to the session's working directory (empty → no project).
                 entry.project = directory.filter(|d| !d.is_empty());
                 entries.push(entry);
             }
+        });
+        if let Err(e) = visited {
+            eprintln!(
+                "[toktrack] Warning: failed to read OpenCode SQLite db {:?}: {}",
+                self.db_path, e
+            );
         }
         Ok(entries)
     }
 
-    fn query_sqlite_rows(&self, since_ms: Option<i64>) -> rusqlite::Result<Vec<SqliteMessageRow>> {
+    fn visit_sqlite_rows(
+        &self,
+        since_ms: Option<i64>,
+        visit: &mut dyn FnMut(SqliteMessageRow),
+    ) -> rusqlite::Result<()> {
         // Pass the Path directly so paths with spaces (Windows usernames, etc.) don't
         // need URI percent-encoding. SQLITE_OPEN_READ_ONLY alone gives read-only access.
         let mut conn =
             Connection::open_with_flags(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         // Keep both schema reads on the same snapshot during migrations/writes.
         let tx = conn.transaction()?;
-        let mut rows = Vec::new();
         for (messages, sessions, role_filter) in [
             // v2 records a compaction request's usage only on its compaction
             // row; no assistant row carries it.
@@ -175,70 +176,72 @@ impl OpenCodeParser {
                 "CASE WHEN json_valid(m.data) THEN json_extract(m.data, '$.role') END = 'assistant'",
             ),
         ] {
-            let exists: bool = tx.query_row(
-                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?)",
-                [messages],
-                |r| r.get(0),
-            )?;
-            if !exists {
-                continue;
-            }
-            // Directory metadata is optional; failure in one schema must not
-            // discard successfully read rows from the other schema.
-            match Self::run_message_query(&tx, since_ms, messages, sessions, role_filter, true)
-                .or_else(|_| Self::run_message_query(&tx, since_ms, messages, sessions, role_filter, false))
+            // A failure in one schema must not discard rows from the other.
+            if let Err(e) =
+                Self::visit_message_rows(&tx, since_ms, messages, sessions, role_filter, visit)
             {
-                Ok(mut batch) => rows.append(&mut batch),
-                Err(e) => eprintln!(
+                eprintln!(
                     "[toktrack] Warning: failed to read OpenCode {messages} in {:?}: {e}",
                     self.db_path
-                ),
+                );
             }
         }
-        Ok(rows)
+        Ok(())
     }
 
-    fn run_message_query(
+    fn visit_message_rows(
         conn: &Connection,
         since_ms: Option<i64>,
         messages: &str,
         sessions: &str,
         role_filter: &str,
-        with_directory: bool,
-    ) -> rusqlite::Result<Vec<SqliteMessageRow>> {
+        visit: &mut dyn FnMut(SqliteMessageRow),
+    ) -> rusqlite::Result<()> {
+        let exists: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?)",
+            [messages],
+            |r| r.get(0),
+        )?;
+        if !exists {
+            return Ok(());
+        }
         // Identifiers and predicates are fixed internal literals, never user input.
-        let (directory, join) = if with_directory {
-            (
-                "s.directory",
-                format!("LEFT JOIN {sessions} s ON s.id = m.session_id"),
-            )
-        } else {
-            ("NULL", String::new())
+        let select = |directory: &str, join: &str| {
+            let mut sql = format!(
+                "SELECT m.id, m.session_id, m.data, {directory} FROM {messages} m {join} WHERE {role_filter}"
+            );
+            if since_ms.is_some() {
+                sql.push_str(" AND m.time_created >= ?");
+            }
+            sql
         };
-        let base_sql = format!(
-            "SELECT m.id, m.session_id, m.data, {directory} FROM {messages} m {join} WHERE {role_filter}"
-        );
+        // Directory metadata is optional: if the joined read fails at any point
+        // (missing or unreadable session table/column), read again without a
+        // project. Rows visited before the failure come back with the same
+        // (message, session) key, which the caller already deduplicates.
+        let join = format!("LEFT JOIN {sessions} s ON s.id = m.session_id");
+        Self::visit_query(conn, &select("s.directory", &join), since_ms, visit)
+            .or_else(|_| Self::visit_query(conn, &select("NULL", ""), since_ms, visit))
+    }
 
-        fn map_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<SqliteMessageRow> {
-            Ok(SqliteMessageRow {
+    fn visit_query(
+        conn: &Connection,
+        sql: &str,
+        since_ms: Option<i64>,
+        visit: &mut dyn FnMut(SqliteMessageRow),
+    ) -> rusqlite::Result<()> {
+        let mut stmt = conn.prepare(sql)?;
+        let mut rows = stmt.query(rusqlite::params_from_iter(since_ms))?;
+        while let Some(r) = rows.next()? {
+            visit(SqliteMessageRow {
                 id: r.get(0)?,
                 session_id: r.get(1)?,
                 data_json: r.get(2)?,
-                directory: r.get(3)?,
-            })
+                // A non-text directory costs only this row its project.
+                directory: r.get(3).ok().flatten(),
+            });
         }
-
-        match since_ms {
-            Some(ms) => {
-                let sql = format!("{base_sql} AND m.time_created >= ?");
-                let mut stmt = conn.prepare(&sql)?;
-                stmt.query_map([ms], map_row).and_then(Iterator::collect)
-            }
-            None => {
-                let mut stmt = conn.prepare(&base_sql)?;
-                stmt.query_map([], map_row).and_then(Iterator::collect)
-            }
-        }
+        Ok(())
     }
 }
 
@@ -1108,5 +1111,78 @@ mod tests {
         assert_eq!(failed.model, None);
         assert_eq!(failed.input_tokens, 80000);
         assert_eq!(failed.cost_usd, Some(0.3));
+    }
+
+    #[test]
+    fn sqlite_non_text_directory_costs_only_that_rows_project() {
+        let tmp = TempDir::new().unwrap();
+        let db = tmp.path().join("opencode.db");
+        let ts = 1700000000000;
+        create_v2_db(
+            &db,
+            &[
+                ("in-project", "assistant", ts, &v2_data(ts as u64)),
+                ("odd-session", "assistant", ts, &v2_data(ts as u64)),
+            ],
+        );
+        let conn = Connection::open(&db).unwrap();
+        conn.execute_batch(
+            "INSERT INTO session_v2 VALUES ('s2', X'00');
+             UPDATE session_message SET session_id = 's2' WHERE id = 'odd-session';",
+        )
+        .unwrap();
+
+        let entries = OpenCodeParser::with_base_dir(tmp.path().into())
+            .parse_all()
+            .unwrap();
+
+        assert_eq!(entries.len(), 2);
+        let project_of = |id: &str| {
+            entries
+                .iter()
+                .find(|e| e.message_id.as_deref() == Some(id))
+                .unwrap()
+                .project
+                .clone()
+        };
+        assert_eq!(project_of("in-project").as_deref(), Some("/work/v2"));
+        assert_eq!(project_of("odd-session"), None);
+    }
+
+    #[test]
+    fn sqlite_session_join_failing_mid_scan_keeps_usage() {
+        let tmp = TempDir::new().unwrap();
+        let db = tmp.path().join("opencode.db");
+        let ts = 1700000000000;
+        create_v2_db(
+            &db,
+            &[
+                ("first", "assistant", ts, &v2_data(ts as u64)),
+                ("second", "assistant", ts, &v2_data(ts as u64)),
+            ],
+        );
+        // Swap the session table for a view whose directory errors at read
+        // time (abs of i64::MIN overflows), so the joined query prepares fine
+        // and fails only once the scan reaches that session.
+        Connection::open(&db)
+            .unwrap()
+            .execute_batch(
+                "ALTER TABLE session_v2 RENAME TO session_rows;
+                 CREATE VIEW session_v2 AS SELECT id,
+                   CASE WHEN id = 's1' THEN abs(-9223372036854775807 - 1) ELSE directory END
+                   AS directory FROM session_rows;",
+            )
+            .unwrap();
+
+        let entries = OpenCodeParser::with_base_dir(tmp.path().into())
+            .parse_all()
+            .unwrap();
+
+        let mut ids: Vec<&str> = entries
+            .iter()
+            .filter_map(|e| e.message_id.as_deref())
+            .collect();
+        ids.sort_unstable();
+        assert_eq!(ids, ["first", "second"]);
     }
 }
