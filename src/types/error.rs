@@ -25,6 +25,10 @@ pub enum ToktrackError {
     #[error("config error: {0}")]
     Config(String),
 
+    /// Unknown `--source` id with the list of available ids
+    #[error("unknown source: {0}")]
+    UnknownSource(String),
+
     /// Remote sync error
     #[error("remote error: {0}")]
     Remote(String),
