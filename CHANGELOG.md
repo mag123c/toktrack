@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.17.4](https://github.com/mag123c/toktrack/compare/v2.17.3...v2.17.4) (2026-09-22)
+
+
+### Bug Fixes
+
+* **parser:** count OpenCode v2 compaction usage and stream SQLite rows ([#261](https://github.com/mag123c/toktrack/issues/261)) ([8c69120](https://github.com/mag123c/toktrack/commit/8c6912043a857a784c5ee4ccfc7dbcaf85899113))
+* **parser:** track OpenCode v2 usage without migration duplicates ([#259](https://github.com/mag123c/toktrack/issues/259)) ([b4b6836](https://github.com/mag123c/toktrack/commit/b4b6836530bbaf96bd63916aa9cf15d0670ed061))
+
 ## [2.17.3](https://github.com/mag123c/toktrack/compare/v2.17.2...v2.17.3) (2026-09-21)
 
 
