@@ -69,8 +69,9 @@ fn normalize_model_keys(models: HashMap<String, ModelUsage>) -> HashMap<String, 
 /// records by timestamp so they no longer appear as "unknown". v16 prices 1h
 /// ephemeral cache writes at LiteLLM's `_above_1hr` rate. v17 backfills Codex
 /// archived sessions, which were previously excluded from discovery. v18
-/// recalculates recorded Codex Fast usage with model-specific multipliers.
-const CACHE_VERSION: u32 = 18;
+/// recalculates recorded Codex Fast usage with model-specific multipliers. v19
+/// backfills OpenCode v2 messages while deduplicating migrated v1/v2 turns.
+const CACHE_VERSION: u32 = 19;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DailySummaryCache {
@@ -1183,5 +1184,15 @@ mod tests {
         assert!(warning.is_some());
         assert_eq!(result.len(), 1);
         assert!(result[0].models.contains_key("claude-opus-4-5::anthropic"));
+    }
+    #[test]
+    fn opencode_v1_only_cache_requires_backfill() {
+        let (service, _temp) = create_test_service();
+        fs::write(
+            service.cache_path("opencode"),
+            r#"{"cli":"opencode","version":18,"updated_at":0,"summaries":[]}"#,
+        )
+        .unwrap();
+        assert!(!service.is_version_current("opencode"));
     }
 }

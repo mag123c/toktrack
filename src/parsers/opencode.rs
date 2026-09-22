@@ -1,10 +1,11 @@
-//! OpenCode CLI parser: reads SQLite (`opencode.db`, v1.2.0+) when present,
+//! OpenCode CLI parser: reads v1/v2 SQLite tables (`opencode.db`) when present,
 //! falls back to legacy JSON files (`storage/message/**/msg_*.json`, <= v1.1.65).
 
 use crate::types::{Result, ToktrackError, UsageEntry};
 use chrono::DateTime;
 use rusqlite::{Connection, OpenFlags};
 use serde::Deserialize;
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -28,9 +29,17 @@ struct OpenCodeMessageData {
     model_id: Option<String>,
     #[serde(rename = "providerID")]
     provider_id: Option<String>,
+    model: Option<OpenCodeModel>,
     time: OpenCodeTime,
     tokens: Option<OpenCodeTokens>,
     cost: Option<f64>,
+}
+
+#[derive(Deserialize)]
+struct OpenCodeModel {
+    id: Option<String>,
+    #[serde(rename = "providerID")]
+    provider_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -109,6 +118,7 @@ impl OpenCodeParser {
         };
 
         let mut entries = Vec::with_capacity(rows.len());
+        let mut seen = HashSet::new();
         for SqliteMessageRow {
             id,
             session_id,
@@ -128,6 +138,13 @@ impl OpenCodeParser {
                 }
             };
             if let Some(mut entry) = to_usage_entry(id, session_id, data) {
+                // v2 is read first. Only successful, nonempty usage claims an ID:
+                // a malformed/incomplete migrated row must not hide valid v1 usage.
+                if entry.total_tokens() == 0
+                    || !seen.insert((entry.message_id.clone(), entry.request_id.clone()))
+                {
+                    continue;
+                }
                 // Attribute to the session's working directory (empty → no project).
                 entry.project = directory.filter(|d| !d.is_empty());
                 entries.push(entry);
@@ -139,41 +156,62 @@ impl OpenCodeParser {
     fn query_sqlite_rows(&self, since_ms: Option<i64>) -> rusqlite::Result<Vec<SqliteMessageRow>> {
         // Pass the Path directly so paths with spaces (Windows usernames, etc.) don't
         // need URI percent-encoding. SQLITE_OPEN_READ_ONLY alone gives read-only access.
-        let conn = Connection::open_with_flags(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-
-        // Prefer the directory-aware query (joins `session.directory` so each
-        // message can be attributed to a project). Older OpenCode schemas may
-        // lack the `session` table/column, so fall back to a directory-less
-        // query that yields `project = None`.
-        Self::run_message_query(&conn, since_ms, true)
-            .or_else(|_| Self::run_message_query(&conn, since_ms, false))
+        let mut conn =
+            Connection::open_with_flags(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        // Keep both schema reads on the same snapshot during migrations/writes.
+        let tx = conn.transaction()?;
+        let mut rows = Vec::new();
+        for (messages, sessions, role_filter) in [
+            ("session_message", "session_v2", "m.type = 'assistant'"),
+            (
+                "message",
+                "session",
+                "CASE WHEN json_valid(m.data) THEN json_extract(m.data, '$.role') END = 'assistant'",
+            ),
+        ] {
+            let exists: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?)",
+                [messages],
+                |r| r.get(0),
+            )?;
+            if !exists {
+                continue;
+            }
+            // Directory metadata is optional; failure in one schema must not
+            // discard successfully read rows from the other schema.
+            match Self::run_message_query(&tx, since_ms, messages, sessions, role_filter, true)
+                .or_else(|_| Self::run_message_query(&tx, since_ms, messages, sessions, role_filter, false))
+            {
+                Ok(mut batch) => rows.append(&mut batch),
+                Err(e) => eprintln!(
+                    "[toktrack] Warning: failed to read OpenCode {messages} in {:?}: {e}",
+                    self.db_path
+                ),
+            }
+        }
+        Ok(rows)
     }
 
     fn run_message_query(
         conn: &Connection,
         since_ms: Option<i64>,
+        messages: &str,
+        sessions: &str,
+        role_filter: &str,
         with_directory: bool,
     ) -> rusqlite::Result<Vec<SqliteMessageRow>> {
-        let (base_sql, time_col) = if with_directory {
+        // Identifiers and predicates are fixed internal literals, never user input.
+        let (directory, join) = if with_directory {
             (
-                "SELECT m.id, m.session_id, m.data, s.directory \
-                 FROM message m \
-                 LEFT JOIN session s ON s.id = m.session_id \
-                 WHERE json_extract(m.data, '$.role') = 'assistant' \
-                   AND COALESCE(json_extract(m.data, '$.tokens.input'), 0) \
-                     + COALESCE(json_extract(m.data, '$.tokens.output'), 0) > 0",
-                "m.time_created",
+                "s.directory",
+                format!("LEFT JOIN {sessions} s ON s.id = m.session_id"),
             )
         } else {
-            (
-                "SELECT id, session_id, data, NULL \
-                 FROM message \
-                 WHERE json_extract(data, '$.role') = 'assistant' \
-                   AND COALESCE(json_extract(data, '$.tokens.input'), 0) \
-                     + COALESCE(json_extract(data, '$.tokens.output'), 0) > 0",
-                "time_created",
-            )
+            ("NULL", String::new())
         };
+        let base_sql = format!(
+            "SELECT m.id, m.session_id, m.data, {directory} FROM {messages} m {join} WHERE {role_filter}"
+        );
 
         fn map_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<SqliteMessageRow> {
             Ok(SqliteMessageRow {
@@ -186,12 +224,12 @@ impl OpenCodeParser {
 
         match since_ms {
             Some(ms) => {
-                let sql = format!("{} AND {} >= ?", base_sql, time_col);
+                let sql = format!("{base_sql} AND m.time_created >= ?");
                 let mut stmt = conn.prepare(&sql)?;
                 stmt.query_map([ms], map_row).and_then(Iterator::collect)
             }
             None => {
-                let mut stmt = conn.prepare(base_sql)?;
+                let mut stmt = conn.prepare(&base_sql)?;
                 stmt.query_map([], map_row).and_then(Iterator::collect)
             }
         }
@@ -222,7 +260,9 @@ fn to_usage_entry(id: String, session_id: String, msg: OpenCodeMessageData) -> O
     Some(UsageEntry {
         fast_speed: false,
         timestamp,
-        model: msg.model_id,
+        model: msg
+            .model_id
+            .or_else(|| msg.model.as_ref().and_then(|m| m.id.clone())),
         input_tokens: tokens.input,
         output_tokens: tokens.output,
         cache_read_tokens: cache_read,
@@ -237,7 +277,9 @@ fn to_usage_entry(id: String, session_id: String, msg: OpenCodeMessageData) -> O
         message_id: Some(id),
         request_id: Some(session_id),
         source: Some("opencode".into()),
-        provider: msg.provider_id,
+        provider: msg
+            .provider_id
+            .or_else(|| msg.model.and_then(|m| m.provider_id)),
         project: None,
     })
 }
@@ -611,9 +653,8 @@ mod tests {
     fn sqlite_skips_rows_with_malformed_data_blob() {
         let tmp = TempDir::new().unwrap();
         let base = tmp.path().to_path_buf();
-        // SQL `json_extract` returns NULL for invalid JSON (filtered out at SQL),
-        // so to reach the simd_json fallback we need JSON that passes the role/token
-        // filters but breaks struct deserialization (here: `time.created` as string).
+        // Valid JSON passes the SQL role filter but can still fail typed
+        // deserialization (here: `time.created` as a string).
         let bad_struct = r#"{"role":"assistant","modelID":"x","providerID":"y",
             "time":{"created":"not-a-number"},
             "tokens":{"input":1,"output":1,"reasoning":0,"cache":{"read":0,"write":0}},
@@ -728,5 +769,266 @@ mod tests {
         assert_eq!(e.cost_usd, Some(0.42));
         assert_eq!(e.message_id, Some("m1".to_string()));
         assert_eq!(e.request_id, Some("s1".to_string()));
+    }
+
+    fn create_v2_db(path: &Path, rows: &[(&str, &str, i64, &str)]) {
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE session_message (
+                id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL,
+                seq INTEGER NOT NULL, time_created INTEGER NOT NULL,
+                time_updated INTEGER NOT NULL, data TEXT NOT NULL
+            );
+            CREATE TABLE session_v2 (id TEXT PRIMARY KEY, directory TEXT NOT NULL);
+            INSERT INTO session_v2 VALUES ('s1', '/work/v2');",
+        )
+        .unwrap();
+        for (seq, (id, kind, created, data)) in rows.iter().enumerate() {
+            conn.execute(
+                "INSERT INTO session_message VALUES (?, 's1', ?, ?, ?, ?, ?)",
+                params![id, kind, seq as i64, created, created, data],
+            )
+            .unwrap();
+        }
+    }
+
+    fn v2_data(ts: u64) -> String {
+        format!(
+            r#"{{"model":{{"id":"mimo-v2.6-flash","providerID":"opencode-go"}},
+            "time":{{"created":{ts}}},"cost":0.125,
+            "tokens":{{"input":100,"output":20,"reasoning":30,
+            "cache":{{"read":400,"write":50}}}}}}"#
+        )
+    }
+
+    #[test]
+    fn sqlite_v2_only_extracts_usage_and_project() {
+        let tmp = TempDir::new().unwrap();
+        create_v2_db(
+            &tmp.path().join("opencode.db"),
+            &[
+                ("v2", "assistant", 1700000000000, &v2_data(1700000000000)),
+                ("user", "user", 1700000000000, &v2_data(1700000000000)),
+                (
+                    "event",
+                    "model-switched",
+                    1700000000000,
+                    &v2_data(1700000000000),
+                ),
+            ],
+        );
+        let entries = OpenCodeParser::with_base_dir(tmp.path().into())
+            .parse_all()
+            .unwrap();
+        assert_eq!(entries.len(), 1);
+        let e = &entries[0];
+        assert_eq!(e.model.as_deref(), Some("mimo-v2.6-flash"));
+        assert_eq!(e.provider.as_deref(), Some("opencode-go"));
+        assert_eq!(e.project.as_deref(), Some("/work/v2"));
+        assert_eq!(e.message_id.as_deref(), Some("v2"));
+        assert_eq!(e.request_id.as_deref(), Some("s1"));
+        assert_eq!(e.source.as_deref(), Some("opencode"));
+        assert_eq!(e.timestamp.timestamp_millis(), 1700000000000);
+        assert_eq!(
+            (e.input_tokens, e.output_tokens, e.reasoning_tokens),
+            (100, 20, 30)
+        );
+        assert_eq!((e.cache_read_tokens, e.cache_creation_tokens), (400, 50));
+        assert_eq!(e.cost_usd, Some(0.125));
+    }
+
+    #[test]
+    fn sqlite_v2_migration_deduplicates_but_retains_legacy_only_rows() {
+        let tmp = TempDir::new().unwrap();
+        let db = tmp.path().join("opencode.db");
+        let old = assistant_data("old-model", 1700000000000, 10, 5);
+        create_test_db(
+            &db,
+            &[
+                ("shared", "s1", 1700000000000, &old),
+                ("legacy", "s1", 1700000000000, &old),
+            ],
+        );
+        create_v2_db(
+            &db,
+            &[
+                (
+                    "shared",
+                    "assistant",
+                    1700000000000,
+                    &v2_data(1700000000000),
+                ),
+                ("new", "assistant", 1700000000000, &v2_data(1700000000000)),
+            ],
+        );
+        let parser = OpenCodeParser::with_base_dir(tmp.path().into());
+        let entries = parser.parse_all().unwrap();
+        assert_eq!(entries.len(), 3);
+        let shared = entries
+            .iter()
+            .find(|e| e.message_id.as_deref() == Some("shared"))
+            .unwrap();
+        assert_eq!(shared.model.as_deref(), Some("mimo-v2.6-flash"));
+        assert_eq!(shared.input_tokens, 100);
+        assert_eq!(shared.project.as_deref(), Some("/work/v2"));
+        let recent = parser
+            .parse_recent_files(UNIX_EPOCH + std::time::Duration::from_millis(1700000000000))
+            .unwrap();
+        assert_eq!(recent.len(), 3);
+    }
+
+    #[test]
+    fn sqlite_v2_recent_cutoff_and_missing_session_table() {
+        let tmp = TempDir::new().unwrap();
+        let db = tmp.path().join("opencode.db");
+        create_v2_db(
+            &db,
+            &[
+                ("old", "assistant", 1699999999999, &v2_data(1699999999999)),
+                (
+                    "boundary",
+                    "assistant",
+                    1700000000000,
+                    &v2_data(1700000000000),
+                ),
+            ],
+        );
+        Connection::open(&db)
+            .unwrap()
+            .execute_batch("DROP TABLE session_v2")
+            .unwrap();
+        let entries = OpenCodeParser::with_base_dir(tmp.path().into())
+            .parse_recent_files(UNIX_EPOCH + std::time::Duration::from_millis(1700000000000))
+            .unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].message_id.as_deref(), Some("boundary"));
+        assert_eq!(entries[0].project, None);
+    }
+
+    #[test]
+    fn sqlite_v2_malformed_rows_do_not_hide_other_usage_or_legacy_fallback() {
+        let tmp = TempDir::new().unwrap();
+        let db = tmp.path().join("opencode.db");
+        let old = assistant_data("legacy", 1700000000000, 10, 5);
+        create_test_db(&db, &[("shared", "s1", 1700000000000, &old)]);
+        let invalid = v2_data(1700000000000).replace("100", "\"bad\"");
+        create_v2_db(
+            &db,
+            &[
+                ("shared", "assistant", 1700000000000, &invalid),
+                ("broken", "assistant", 1700000000000, "not json"),
+                ("good", "assistant", 1700000000000, &v2_data(1700000000000)),
+            ],
+        );
+        let entries = OpenCodeParser::with_base_dir(tmp.path().into())
+            .parse_all()
+            .unwrap();
+        assert_eq!(entries.len(), 2);
+        assert!(entries.iter().any(|e| e.model.as_deref() == Some("legacy")));
+        assert!(entries
+            .iter()
+            .any(|e| e.model.as_deref() == Some("mimo-v2.6-flash")));
+    }
+
+    #[test]
+    fn sqlite_v2_keeps_cache_only_usage_and_skips_empty_turns() {
+        let tmp = TempDir::new().unwrap();
+        create_v2_db(
+            &tmp.path().join("opencode.db"),
+            &[
+                (
+                    "cache",
+                    "assistant",
+                    1700000000000,
+                    r#"{"model":{"id":"mimo-v2.6-flash"},"time":{"created":1700000000000},"tokens":{"input":0,"output":0,"cache":{"read":400,"write":0}},"cost":0}"#,
+                ),
+                (
+                    "zero",
+                    "assistant",
+                    1700000000000,
+                    r#"{"time":{"created":1700000000000},"tokens":{"input":0,"output":0}}"#,
+                ),
+                (
+                    "pending",
+                    "assistant",
+                    1700000000000,
+                    r#"{"time":{"created":1700000000000}}"#,
+                ),
+            ],
+        );
+        let entries = OpenCodeParser::with_base_dir(tmp.path().into())
+            .parse_all()
+            .unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].cache_read_tokens, 400);
+        assert_eq!(entries[0].cost_usd, Some(0.0));
+    }
+
+    #[test]
+    fn sqlite_v2_failed_legacy_query_does_not_discard_v2_usage() {
+        let tmp = TempDir::new().unwrap();
+        let db = tmp.path().join("opencode.db");
+        create_v2_db(
+            &db,
+            &[("good", "assistant", 1700000000000, &v2_data(1700000000000))],
+        );
+        Connection::open(&db)
+            .unwrap()
+            .execute_batch("CREATE TABLE message (id TEXT)")
+            .unwrap();
+        let entries = OpenCodeParser::with_base_dir(tmp.path().into())
+            .parse_all()
+            .unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].model.as_deref(), Some("mimo-v2.6-flash"));
+    }
+
+    #[test]
+    fn sqlite_v2_failed_query_does_not_discard_legacy_usage() {
+        let tmp = TempDir::new().unwrap();
+        let db = tmp.path().join("opencode.db");
+        create_test_db(
+            &db,
+            &[
+                (
+                    "good",
+                    "s1",
+                    1700000000000,
+                    &assistant_data("legacy", 1700000000000, 10, 5),
+                ),
+                ("bad", "s1", 1700000000000, "not json"),
+            ],
+        );
+        Connection::open(&db)
+            .unwrap()
+            .execute_batch("CREATE TABLE session_message (id TEXT)")
+            .unwrap();
+        let entries = OpenCodeParser::with_base_dir(tmp.path().into())
+            .parse_all()
+            .unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].model.as_deref(), Some("legacy"));
+    }
+
+    #[test]
+    fn sqlite_v2_distinct_calls_with_equal_usage_are_not_deduplicated() {
+        let tmp = TempDir::new().unwrap();
+        let db = tmp.path().join("opencode.db");
+        let data = v2_data(1700000000000);
+        create_v2_db(
+            &db,
+            &[
+                ("a", "assistant", 1700000000000, &data),
+                ("b", "assistant", 1700000000000, &data),
+            ],
+        );
+        let entries = OpenCodeParser::with_base_dir(tmp.path().into())
+            .parse_all()
+            .unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(
+            entries.iter().map(|e| e.cost_usd.unwrap()).sum::<f64>(),
+            0.25
+        );
     }
 }

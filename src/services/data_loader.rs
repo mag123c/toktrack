@@ -1062,4 +1062,66 @@ mod tests {
         let yesterday = today - chrono::Duration::days(1);
         assert!(!has_date_gap(Some(yesterday), yesterday));
     }
+
+    #[test]
+    fn opencode_v2_backfills_v18_cache_without_losing_preserved_history() {
+        use crate::parsers::OpenCodeParser;
+        let tmp = tempfile::tempdir().unwrap();
+        let cache_dir = tmp.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let yesterday = Local::now().date_naive() - chrono::Duration::days(1);
+        let stale = serde_json::json!({
+            "cli": "opencode", "version": 18, "updated_at": 0,
+            "summaries": (["2020-01-01".to_owned(), yesterday.to_string()].map(|date| {
+                serde_json::json!({"date": date, "total_input_tokens": 111,
+                    "total_output_tokens": 0, "total_cache_read_tokens": 0,
+                    "total_cache_creation_tokens": 0, "total_cost_usd": 0,
+                    "models": {}, "projects": {}})
+            }))
+        });
+        std::fs::write(cache_dir.join("opencode_daily.json"), stale.to_string()).unwrap();
+        let conn = rusqlite::Connection::open(tmp.path().join("opencode.db")).unwrap();
+        conn.execute_batch(r#"CREATE TABLE session_message (id TEXT, session_id TEXT,
+            type TEXT, time_created INTEGER, data TEXT);
+            INSERT INTO session_message VALUES ('m1', 's1', 'assistant', 1700000000000,
+            '{"model":{"id":"mimo-v2.6-flash","providerID":"opencode-go"},
+              "time":{"created":1700000000000},"tokens":{"input":100,"output":20},"cost":0.125}');"#
+        ).unwrap();
+        let service = DataLoaderService {
+            registry: ParserRegistry::with_sources(vec![SourceInstance::new(
+                "opencode",
+                "opencode",
+                "opencode",
+                Box::new(OpenCodeParser::with_base_dir(tmp.path().into())),
+            )]),
+            cache_service: Some(DailySummaryCacheService::with_cache_dir(cache_dir.clone())),
+            pricing: None,
+        };
+        // Exercise the warm path directly: v18 alone must force a full scan,
+        // even though the latest cached day is yesterday (no date gap).
+        let result = service.load_warm_path().unwrap();
+        let summaries = &result.source_summaries["opencode"];
+        assert_eq!(summaries.len(), 3);
+        assert!(summaries
+            .iter()
+            .any(|s| s.date.to_string() == "2020-01-01" && s.total_input_tokens == 111));
+        let backfill = summaries
+            .iter()
+            .find(|s| s.date.to_string().starts_with("2023-"))
+            .unwrap();
+        assert_eq!(backfill.total_input_tokens, 100);
+        assert_eq!(backfill.total_output_tokens, 20);
+        assert_eq!(backfill.total_cost_usd, 0.125);
+        assert!(backfill.models.keys().any(|k| k.contains("mimo")));
+        assert!(service
+            .cache_service
+            .as_ref()
+            .unwrap()
+            .is_version_current("opencode"));
+        let warm = service.load_warm_path().unwrap();
+        assert_eq!(
+            serde_json::to_value(&warm.source_summaries).unwrap(),
+            serde_json::to_value(&result.source_summaries).unwrap()
+        );
+    }
 }
