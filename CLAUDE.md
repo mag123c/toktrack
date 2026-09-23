@@ -16,18 +16,7 @@ cargo build --release
 
 ## Workflow
 
-### 코드 구현 작업
-```
-/clarify → /implement → /verify → /review → /wrap
-```
-각 단계 완료 후 즉시 다음 호출. 확인 묻지 말 것.
-> clarify는 plan mode에 진입하지 않는다 — PLAN을 대화에 인라인 제시 후 곧바로 /implement.
-
-### 문서/마케팅/설정 작업
-```
-Plan Mode (선택) → 직접 작업
-```
-코드가 아닌 작업은 /implement 없이 진행 가능.
+Read `.claude/ai-context/workflow.md` for the shared Claude/Codex procedure and repository gates. Clear direct requirements or clarify → implement → verify → review → wrap. Continue authorized work; no Plan Mode or invocation marker is required. Investigation-only requests end at investigation.
 
 ## Commands
 ```bash

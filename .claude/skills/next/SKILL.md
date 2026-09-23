@@ -1,63 +1,10 @@
 ---
 name: next
-description: Session start - check progress, suggest next task
-required_context:
-  - .claude/ai-context/architecture.md
+description: "Inspect current task evidence and suggest the next bounded action without assuming old plans are current."
 ---
 
 # Next
 
-## Flow
-```
-Read Planning → Git Log → Analyze → Present → Suggest /clarify
-```
+Read `../../ai-context/workflow.md`. Confirm the current checkout, branch, working changes, and relevant task record. Use the user's active task and actual code/Git evidence; a planning file's date or checked boxes alone do not establish current completion.
 
-## Execution
-
-1. **Read Planning**
-   ```bash
-   # Read ONLY the latest planning file (by date prefix YYYYMMDD-)
-   # e.g., 20260205-improvements.md > 20260128-cli-parsers.md
-   # Check checkbox status: [ ] incomplete, [x] complete
-   ```
-
-2. **Git Log**
-   ```bash
-   git log --oneline -5
-   git status --short
-   ```
-
-3. **Analyze**
-   - Identify current phase
-   - Count completed/total tasks
-   - Identify next priority task
-
-4. **Present** (table format)
-   | Phase | Status | Progress |
-   |-------|--------|----------|
-   | Phase 0 | ✅ | 5/5 |
-   | Phase 1 | 🔄 | 3/4 |
-
-5. **Suggest**
-   - Summarize next task
-   - Suggest running `/clarify`
-
-## Output Format
-```markdown
-## Current Status
-- Phase: {current_phase}
-- Progress: {completed}/{total} tasks
-
-## Next Task
-**{task_id}: {task_name}**
-{brief_description}
-
-## Action
-Run `/clarify` to start: {task_summary}
-```
-
-## Rules
-- **Read only the latest dated planning file** (highest YYYYMMDD- prefix)
-- If no planning files → infer from git log + code state
-- Keep output concise (5-10 lines)
-- Always suggest /clarify connection
+Report established progress, remaining verification, and one useful next action. Label stale or inferred state. If requirements are clear, suggest the corresponding implementation/verification action; use clarify only for material missing decisions. Do not start unrelated work or publish anything from a status request.
