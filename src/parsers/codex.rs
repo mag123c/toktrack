@@ -2,7 +2,9 @@
 
 use crate::types::{Result, ToktrackError, UsageEntry};
 use chrono::{DateTime, Utc};
+use rayon::prelude::*;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -31,6 +33,9 @@ struct CodexPayload {
     info: Option<CodexInfo>,
     #[serde(default)]
     id: Option<String>,
+    /// Set on a forked session's `session_meta`: the session it was forked from.
+    #[serde(default)]
+    forked_from_id: Option<String>,
     #[serde(default)]
     model_provider: Option<String>,
     /// Working directory — present on `turn_context` (and sometimes
@@ -52,6 +57,12 @@ struct CodexTokenUsage {
     output_tokens: u64,
     #[serde(default)]
     cached_input_tokens: u64,
+    /// Not billed separately; only part of the fork-dedup snapshot identity.
+    #[serde(default)]
+    reasoning_output_tokens: u64,
+    /// Not billed separately; only part of the fork-dedup snapshot identity.
+    #[serde(default)]
+    total_tokens: u64,
 }
 
 /// Raw token data extracted from a token_count event
@@ -67,6 +78,13 @@ pub const SESSIONS_DIR: &str = "sessions";
 
 /// Sibling directory Codex moves finished sessions into.
 pub const ARCHIVED_SESSIONS_DIR: &str = "archived_sessions";
+
+/// Days of recently modified rollouts the warm path parses as the dedup
+/// reference set. A fork replays its parent's token_count events with new
+/// timestamps; the parent must be in the parsed set for the replay to collapse.
+/// Forks almost always come from a recently active parent, and Codex
+/// compresses rollouts idle for about a week, so a longer window gains little.
+const FORK_DEDUP_REFERENCE_DAYS: i64 = 7;
 
 /// Parser for Codex CLI usage data
 pub struct CodexParser {
@@ -125,11 +143,16 @@ impl CodexParser {
         }
 
         if data.line_type == "session_meta" {
-            if payload.id.is_none() && payload.model_provider.is_none() && payload.cwd.is_none() {
+            if payload.id.is_none()
+                && payload.forked_from_id.is_none()
+                && payload.model_provider.is_none()
+                && payload.cwd.is_none()
+            {
                 return ParseResult::Skip;
             }
             return ParseResult::SessionMeta {
                 id: payload.id.clone(),
+                forked_from_id: payload.forked_from_id.clone(),
                 provider: payload.model_provider.clone(),
                 cwd: payload.cwd.clone(),
             };
@@ -199,6 +222,7 @@ enum ParseResult {
     },
     SessionMeta {
         id: Option<String>,
+        forked_from_id: Option<String>,
         provider: Option<String>,
         cwd: Option<String>,
     },
@@ -212,6 +236,10 @@ impl Default for CodexParser {
 }
 
 impl CLIParser for CodexParser {
+    fn warm_path_reference_days(&self) -> i64 {
+        FORK_DEDUP_REFERENCE_DAYS
+    }
+
     fn name(&self) -> &str {
         "codex"
     }
@@ -255,18 +283,82 @@ impl CLIParser for CodexParser {
     }
 
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>> {
+        Ok(self.parse_rollout(path)?.0)
+    }
+
+    /// Collapse fork replays across files. A fork replays its parent's
+    /// token_count events (new timestamps, same cumulative snapshots), and a
+    /// fork can itself be forked, so every entry is keyed under the root of its
+    /// fork tree: a replay then collides with the original however deep the
+    /// chain is, and the earliest copy wins.
+    fn parse_and_dedup(&self, files: &[PathBuf]) -> Result<Vec<UsageEntry>> {
+        let parsed: Vec<(Vec<UsageEntry>, ForkEdges)> = files
+            .par_iter()
+            .filter_map(|f| match self.parse_rollout(f) {
+                Ok(parsed) => Some(parsed),
+                Err(e) => {
+                    eprintln!("[toktrack] Warning: Failed to parse {:?}: {}", f, e);
+                    None
+                }
+            })
+            .collect();
+
+        let mut parent_of: HashMap<String, String> = HashMap::new();
+        let mut entries = Vec::new();
+        for (file_entries, edges) in parsed {
+            parent_of.extend(edges);
+            entries.extend(file_entries);
+        }
+        for entry in &mut entries {
+            if let Some(id) = entry.message_id.take() {
+                entry.message_id = Some(fork_root(&parent_of, id));
+            }
+        }
+        // First-wins must not depend on file order: the original (earliest)
+        // copy wins over its replay, keeping usage on the day it happened.
+        entries.sort_by(|a, b| {
+            a.timestamp
+                .cmp(&b.timestamp)
+                .then_with(|| a.message_id.cmp(&b.message_id))
+                .then_with(|| a.request_id.cmp(&b.request_id))
+        });
+        Ok(super::dedup_entries(entries))
+    }
+}
+
+/// Fork links of one rollout: `(session id, forked_from_id)`.
+type ForkEdges = Vec<(String, String)>;
+
+/// Follow `forked_from_id` links to the root session (bounded against cycles).
+fn fork_root(parent_of: &HashMap<String, String>, mut id: String) -> String {
+    for _ in 0..parent_of.len() {
+        match parent_of.get(&id) {
+            Some(parent) if *parent != id => id = parent.clone(),
+            _ => break,
+        }
+    }
+    id
+}
+
+impl CodexParser {
+    /// Parse one rollout: its entries (keyed by the session that wrote them)
+    /// and its fork links (`session id -> forked_from_id`).
+    fn parse_rollout(&self, path: &Path) -> Result<(Vec<UsageEntry>, ForkEdges)> {
         let file = File::open(path).map_err(ToktrackError::Io)?;
         let reader = BufReader::new(file);
         let mut entries: Vec<UsageEntry> = Vec::new();
         let mut current_model: Option<String> = None;
         let mut fast_speed = false;
         let mut session_id: Option<String> = None;
+        let mut fork_edges: ForkEdges = Vec::new();
         let mut current_provider: Option<String> = None;
         let mut current_project: Option<String> = None;
         let mut prev_totals = CodexTokenUsage {
             input_tokens: 0,
             output_tokens: 0,
             cached_input_tokens: 0,
+            reasoning_output_tokens: 0,
+            total_tokens: 0,
         };
         // Codex re-emits the same token_count event (byte-identical total AND
         // last usage) within one response, so consecutive identical snapshots
@@ -296,7 +388,15 @@ impl CLIParser for CodexParser {
                         current_project = cwd;
                     }
                 }
-                ParseResult::SessionMeta { id, provider, cwd } => {
+                ParseResult::SessionMeta {
+                    id,
+                    forked_from_id: meta_forked_from_id,
+                    provider,
+                    cwd,
+                } => {
+                    if let (Some(id), Some(parent)) = (&id, meta_forked_from_id) {
+                        fork_edges.push((id.clone(), parent));
+                    }
                     if let Some(id) = id {
                         session_id = Some(id);
                     }
@@ -356,7 +456,13 @@ impl CLIParser for CodexParser {
                             )
                         };
 
-                    prev_totals = data.total;
+                    let delta_reasoning = data.last.as_ref().map_or(
+                        data.total
+                            .reasoning_output_tokens
+                            .saturating_sub(prev_totals.reasoning_output_tokens),
+                        |l| l.reasoning_output_tokens,
+                    );
+                    prev_totals = data.total.clone();
 
                     if delta_input == 0 && delta_output == 0 && delta_cached == 0 {
                         continue;
@@ -364,6 +470,22 @@ impl CLIParser for CodexParser {
 
                     // Normalize: input_tokens = non-cached only (Claude convention)
                     let non_cached_input = delta_input.saturating_sub(delta_cached);
+
+                    // Snapshot identity (total + delta). `parse_and_dedup` scopes
+                    // it to the fork tree's root session, so a fork's replay of
+                    // its parent's events collides with the originals.
+                    let dedup_key = format!(
+                        "codex:{}:{}:{}:{}:{}:{}:{}:{}:{}",
+                        data.total.input_tokens,
+                        data.total.cached_input_tokens,
+                        data.total.output_tokens,
+                        data.total.reasoning_output_tokens,
+                        data.total.total_tokens,
+                        delta_input,
+                        delta_cached,
+                        delta_output,
+                        delta_reasoning
+                    );
 
                     entries.push(UsageEntry {
                         fast_speed,
@@ -381,7 +503,7 @@ impl CLIParser for CodexParser {
                         reported_total_tokens: None,
                         cost_usd: None,
                         message_id: session_id.clone(),
-                        request_id: None,
+                        request_id: Some(dedup_key),
                         source: Some("codex".into()),
                         provider: current_provider.clone(),
                         project: current_project.clone(),
@@ -390,7 +512,7 @@ impl CLIParser for CodexParser {
             }
         }
 
-        Ok(entries)
+        Ok((entries, fork_edges))
     }
 }
 
@@ -398,6 +520,186 @@ impl CLIParser for CodexParser {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    // ---- fork replay dedup ----
+
+    /// (input, cached input, output)
+    type Usage = (u64, u64, u64);
+
+    fn meta_line(ts: &str, id: &str, forked_from: Option<&str>) -> String {
+        let forked = forked_from
+            .map(|p| format!(r#","forked_from_id":"{p}""#))
+            .unwrap_or_default();
+        format!(
+            r#"{{"timestamp":"{ts}","type":"session_meta","payload":{{"id":"{id}"{forked},"model_provider":"openai"}}}}"#
+        )
+    }
+
+    fn context_line(ts: &str) -> String {
+        format!(
+            r#"{{"timestamp":"{ts}","type":"turn_context","payload":{{"model":"gpt-5.5","cwd":"/work"}}}}"#
+        )
+    }
+
+    /// token_count with cumulative `total` and per-turn `last` (input, cached, output).
+    fn usage_line(ts: &str, total: Usage, last: Usage) -> String {
+        let usage = |(i, c, o): Usage| {
+            format!(
+                r#"{{"input_tokens":{i},"cached_input_tokens":{c},"output_tokens":{o},"reasoning_output_tokens":0,"total_tokens":{}}}"#,
+                i + o
+            )
+        };
+        format!(
+            r#"{{"timestamp":"{ts}","type":"event_msg","payload":{{"type":"token_count","info":{{"total_token_usage":{},"last_token_usage":{}}}}}}}"#,
+            usage(total),
+            usage(last)
+        )
+    }
+
+    const T1: Usage = (100, 0, 10);
+    const T2: Usage = (250, 50, 30);
+    const L2: Usage = (150, 50, 20);
+
+    /// Parent session P: two turns on 2026-07-01.
+    fn parent_rollout() -> String {
+        [
+            meta_line("2026-07-01T10:00:00.000Z", "P", None),
+            context_line("2026-07-01T10:00:00.001Z"),
+            usage_line("2026-07-01T10:00:01.000Z", T1, T1),
+            usage_line("2026-07-01T10:05:00.000Z", T2, L2),
+        ]
+        .join("\n")
+    }
+
+    /// A fork of `parent` written on `day`: Codex writes the fork's own
+    /// session_meta, replays the parent's session_meta and token_count events
+    /// with new timestamps, then appends the fork's own turns.
+    fn fork_rollout(
+        id: &str,
+        parent: &str,
+        day: &str,
+        replay: &[(Usage, Usage)],
+        own: (Usage, Usage),
+    ) -> String {
+        let mut lines = vec![
+            meta_line(&format!("{day}T09:00:00.000Z"), id, Some(parent)),
+            meta_line(&format!("{day}T09:00:00.001Z"), parent, None),
+            context_line(&format!("{day}T09:00:00.002Z")),
+        ];
+        for (i, (total, last)) in replay.iter().enumerate() {
+            lines.push(usage_line(
+                &format!("{day}T09:00:00.{:03}Z", 100 + i),
+                *total,
+                *last,
+            ));
+        }
+        lines.push(usage_line(&format!("{day}T09:30:00.000Z"), own.0, own.1));
+        lines.join("\n")
+    }
+
+    fn parse_dir(files: &[(&str, String)]) -> Vec<UsageEntry> {
+        let temp = tempfile::tempdir().unwrap();
+        let sessions = temp.path().join("sessions");
+        std::fs::create_dir_all(&sessions).unwrap();
+        for (name, body) in files {
+            std::fs::write(sessions.join(name), body).unwrap();
+        }
+        CodexParser::with_data_dir(sessions).parse_all().unwrap()
+    }
+
+    fn tokens(entries: &[UsageEntry]) -> u64 {
+        entries
+            .iter()
+            .map(|e| e.input_tokens + e.cache_read_tokens + e.output_tokens)
+            .sum()
+    }
+
+    #[test]
+    fn test_fork_replay_collapses_onto_parent_and_keeps_original_day() {
+        // The fork file sorts before the parent, so file order alone would
+        // keep the replay and drop the original.
+        let fork_own = ((400, 60, 55), (150, 10, 25));
+        let entries = parse_dir(&[
+            (
+                "a-fork.jsonl",
+                fork_rollout("F", "P", "2026-07-02", &[(T1, T1), (T2, L2)], fork_own),
+            ),
+            ("b-parent.jsonl", parent_rollout()),
+        ]);
+
+        // Per-entry tokens = last.input + last.output: 110 + 170 + 175.
+        assert_eq!(entries.len(), 3);
+        assert_eq!(tokens(&entries), 455);
+        // The parent's originals win, so their usage stays on 2026-07-01.
+        let days: Vec<String> = entries
+            .iter()
+            .map(|e| e.timestamp.date_naive().to_string())
+            .collect();
+        assert_eq!(days, ["2026-07-01", "2026-07-01", "2026-07-02"]);
+        assert!(entries.iter().all(|e| e.message_id.as_deref() == Some("P")));
+    }
+
+    #[test]
+    fn test_nested_and_sibling_fork_replays_collapse_onto_the_root() {
+        // P -> F -> G (a fork of a fork) and P -> S (a sibling of F).
+        let f_own = ((400, 60, 55), (150, 10, 25));
+        let g_own = ((600, 100, 80), (200, 40, 25));
+        let s_own = ((380, 50, 70), (130, 0, 40));
+        let entries = parse_dir(&[
+            ("p.jsonl", parent_rollout()),
+            (
+                "f.jsonl",
+                fork_rollout("F", "P", "2026-07-02", &[(T1, T1), (T2, L2)], f_own),
+            ),
+            // G replays P's turns and F's own turn under F's id.
+            (
+                "g.jsonl",
+                fork_rollout("G", "F", "2026-07-03", &[(T1, T1), (T2, L2), f_own], g_own),
+            ),
+            (
+                "s.jsonl",
+                fork_rollout("S", "P", "2026-07-04", &[(T1, T1), (T2, L2)], s_own),
+            ),
+        ]);
+
+        // P's two turns plus one own turn each for F, G and S.
+        assert_eq!(entries.len(), 5);
+        assert_eq!(tokens(&entries), 110 + 170 + 175 + 225 + 170);
+    }
+
+    #[test]
+    fn test_unrelated_sessions_with_equal_snapshots_stay_separate() {
+        // Same token snapshot in two unrelated sessions: not a replay.
+        let entries = parse_dir(&[
+            ("p.jsonl", parent_rollout()),
+            (
+                "q.jsonl",
+                [
+                    meta_line("2026-07-05T10:00:00.000Z", "Q", None),
+                    context_line("2026-07-05T10:00:00.001Z"),
+                    usage_line("2026-07-05T10:00:01.000Z", T1, T1),
+                ]
+                .join("\n"),
+            ),
+        ]);
+        assert_eq!(entries.len(), 3);
+    }
+
+    #[test]
+    fn test_fork_root_stops_on_cycles() {
+        let parent_of = HashMap::from([
+            ("a".to_string(), "b".to_string()),
+            ("b".to_string(), "a".to_string()),
+        ]);
+        // Terminates; which member of the cycle is returned does not matter.
+        let root = fork_root(&parent_of, "a".to_string());
+        assert!(root == "a" || root == "b");
+    }
+
+    #[test]
+    fn test_codex_warm_path_reference_window_is_a_week() {
+        assert_eq!(CodexParser::new().warm_path_reference_days(), 7);
+    }
 
     #[test]
     fn test_codex_fast_tier_transitions() {

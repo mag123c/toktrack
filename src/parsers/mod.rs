@@ -54,6 +54,22 @@ pub(super) fn glob_patterns_under(dir: &Path, patterns: &[&str]) -> Vec<PathBuf>
     out
 }
 
+/// Deduplicate by `message_id:request_id` (same as ccusage); the first copy wins.
+pub(crate) fn dedup_entries(entries: Vec<UsageEntry>) -> Vec<UsageEntry> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut deduped: Vec<UsageEntry> = Vec::with_capacity(entries.len());
+    for entry in entries {
+        if let Some(hash) = entry.dedup_hash() {
+            if seen.insert(hash) {
+                deduped.push(entry);
+            }
+        } else {
+            deduped.push(entry);
+        }
+    }
+    deduped
+}
+
 /// Trait for parsing usage data from AI CLI tools
 pub trait CLIParser: Send + Sync {
     /// Parser name (e.g., "claude-code")
@@ -78,6 +94,15 @@ pub trait CLIParser: Send + Sync {
     /// alone (losing that day's other, non-recent sessions).
     fn retroactive_reconciliation(&self) -> bool {
         false
+    }
+
+    /// Days of recently modified files the warm path parses, today included
+    /// (at least 2: yesterday and today). Only `[yesterday, today]` is
+    /// recomputed; older entries in the window are a dedup reference set, so a
+    /// source that replays recent history into a new file (Codex forks) can
+    /// collapse the replay onto the original.
+    fn warm_path_reference_days(&self) -> i64 {
+        2
     }
 
     /// Parse all files in parallel using rayon, with deduplication
@@ -120,21 +145,7 @@ pub trait CLIParser: Send + Sync {
             })
             .collect();
 
-        // Deduplicate by message_id:request_id (same as ccusage)
-        let mut seen: HashSet<String> = HashSet::new();
-        let mut deduped: Vec<UsageEntry> = Vec::with_capacity(all_entries.len());
-
-        for entry in all_entries {
-            if let Some(hash) = entry.dedup_hash() {
-                if seen.insert(hash) {
-                    deduped.push(entry);
-                }
-            } else {
-                deduped.push(entry);
-            }
-        }
-
-        Ok(deduped)
+        Ok(dedup_entries(all_entries))
     }
 }
 

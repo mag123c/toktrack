@@ -38,20 +38,22 @@ fn needs_full_reparse(retroactive: bool, entries: &[UsageEntry], yesterday: Naiv
     retroactive && entries.iter().any(|e| e.local_date() < yesterday)
 }
 
-/// Compute the warm-path cutoff: yesterday 00:00:00 local time.
+/// Compute the warm-path cutoff: 00:00:00 local time `reference_days - 1`
+/// days ago (yesterday for the default of 2).
 ///
 /// Files modified on or after this time are re-parsed, ensuring that
 /// "yesterday" (the most recent completed day) is always recomputed
-/// before being trusted as a complete cached date.
-fn warm_path_since() -> SystemTime {
-    let yesterday = Local::now().date_naive() - chrono::Duration::days(1);
-    let yesterday_midnight = yesterday.and_hms_opt(0, 0, 0).unwrap();
-    let utc = match Local.from_local_datetime(&yesterday_midnight) {
+/// before being trusted as a complete cached date. A longer window only adds
+/// dedup reference entries; the recompute filter stays at yesterday.
+fn warm_path_since(reference_days: i64) -> SystemTime {
+    let start = Local::now().date_naive() - chrono::Duration::days(reference_days.max(2) - 1);
+    let start_midnight = start.and_hms_opt(0, 0, 0).unwrap();
+    let utc = match Local.from_local_datetime(&start_midnight) {
         chrono::LocalResult::Single(dt) => dt.to_utc(),
         chrono::LocalResult::Ambiguous(earlier, _) => earlier.to_utc(),
         chrono::LocalResult::None => {
             // DST spring-forward: midnight doesn't exist, use 01:00
-            let fallback = yesterday.and_hms_opt(1, 0, 0).unwrap();
+            let fallback = start.and_hms_opt(1, 0, 0).unwrap();
             Local
                 .from_local_datetime(&fallback)
                 .earliest()
@@ -135,7 +137,6 @@ impl DataLoaderService {
             .as_ref()
             .ok_or_else(|| ToktrackError::Cache("No cache service".into()))?;
 
-        let since = warm_path_since();
         let yesterday = Local::now().date_naive() - chrono::Duration::days(1);
 
         let mut all_summaries = Vec::new();
@@ -169,6 +170,7 @@ impl DataLoaderService {
                         }
                     }
                 } else {
+                    let since = warm_path_since(parser.warm_path_reference_days());
                     match parser.parse_recent_files(since) {
                         Ok(e) => {
                             if needs_full_reparse(
@@ -513,7 +515,7 @@ mod tests {
 
     #[test]
     fn test_warm_path_since_is_start_of_yesterday_local() {
-        let since = warm_path_since();
+        let since = warm_path_since(2);
         let since_duration = since
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
             .unwrap();
@@ -532,14 +534,32 @@ mod tests {
     }
 
     #[test]
+    fn test_warm_path_since_honors_reference_days() {
+        let start = chrono::Local::now().date_naive() - chrono::Duration::days(6);
+        let expected = chrono::Local
+            .from_local_datetime(&start.and_hms_opt(0, 0, 0).unwrap())
+            .earliest()
+            .unwrap()
+            .to_utc()
+            .timestamp();
+        let since = warm_path_since(7)
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        assert_eq!(since, expected);
+        // Below the minimum still covers [yesterday, today].
+        assert_eq!(warm_path_since(0), warm_path_since(2));
+    }
+
+    #[test]
     fn test_warm_path_since_is_before_now() {
-        let since = warm_path_since();
+        let since = warm_path_since(2);
         assert!(since < std::time::SystemTime::now());
     }
 
     #[test]
     fn test_warm_path_since_is_at_midnight() {
-        let since = warm_path_since();
+        let since = warm_path_since(2);
         let since_duration = since
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
             .unwrap();
@@ -562,6 +582,132 @@ mod tests {
     fn test_data_loader_service_default() {
         let service = DataLoaderService::default();
         assert!(!service.registry.sources().is_empty());
+    }
+
+    /// The warm path parses a week of Codex rollouts as the dedup reference, so
+    /// a fork written today collapses its replay onto a parent last touched
+    /// five days ago; with only [yesterday, today] parsed it would not.
+    #[test]
+    fn test_codex_warm_path_dedups_fork_replay_of_older_parent() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let sessions = temp_dir.path().join("sessions");
+        std::fs::create_dir_all(&sessions).unwrap();
+
+        let today = Local::now().date_naive();
+        let parent_day = today - chrono::Duration::days(5);
+        let usage = |ts: String, total: (u64, u64, u64), last: (u64, u64, u64)| {
+            let u = |(i, c, o): (u64, u64, u64)| {
+                format!(
+                    r#"{{"input_tokens":{i},"cached_input_tokens":{c},"output_tokens":{o},"reasoning_output_tokens":0,"total_tokens":{}}}"#,
+                    i + o
+                )
+            };
+            format!(
+                r#"{{"timestamp":"{ts}","type":"event_msg","payload":{{"type":"token_count","info":{{"total_token_usage":{},"last_token_usage":{}}}}}}}"#,
+                u(total),
+                u(last)
+            )
+        };
+        let meta = |ts: String, id: &str, forked: &str| {
+            format!(
+                r#"{{"timestamp":"{ts}","type":"session_meta","payload":{{"id":"{id}"{forked},"model_provider":"openai"}}}}"#
+            )
+        };
+        let ctx = |ts: String| {
+            format!(
+                r#"{{"timestamp":"{ts}","type":"turn_context","payload":{{"model":"gpt-5.5","cwd":"/work"}}}}"#
+            )
+        };
+
+        let parent_path = sessions.join("parent.jsonl");
+        std::fs::write(
+            &parent_path,
+            [
+                meta(format!("{parent_day}T12:00:00.000Z"), "P", ""),
+                ctx(format!("{parent_day}T12:00:00.001Z")),
+                usage(
+                    format!("{parent_day}T12:00:01.000Z"),
+                    (100, 0, 10),
+                    (100, 0, 10),
+                ),
+            ]
+            .join("\n"),
+        )
+        .unwrap();
+        // Last written five days ago: outside [yesterday, today], inside a week.
+        std::fs::File::options()
+            .write(true)
+            .open(&parent_path)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(5 * 86_400))
+            .unwrap();
+        std::fs::write(
+            sessions.join("fork.jsonl"),
+            [
+                meta(
+                    format!("{today}T12:00:00.000Z"),
+                    "F",
+                    r#","forked_from_id":"P""#,
+                ),
+                meta(format!("{today}T12:00:00.001Z"), "P", ""),
+                ctx(format!("{today}T12:00:00.002Z")),
+                usage(format!("{today}T12:00:00.100Z"), (100, 0, 10), (100, 0, 10)),
+                usage(format!("{today}T12:30:00.000Z"), (180, 0, 30), (80, 0, 20)),
+            ]
+            .join("\n"),
+        )
+        .unwrap();
+
+        // Without the parent in the parsed set the replay looks like new usage.
+        let recent_only = CodexParser::with_data_dir(sessions.clone())
+            .parse_recent_files(warm_path_since(2))
+            .unwrap();
+        assert_eq!(recent_only.len(), 2);
+
+        // A cache whose latest date is today keeps the loader on the warm path.
+        let cache_dir = temp_dir.path().join("cache");
+        let mut cached = make_entry(Some(0.0), Some("openai"));
+        cached.timestamp = today.and_hms_opt(0, 0, 1).unwrap().and_utc();
+        cached.input_tokens = 0;
+        cached.output_tokens = 0;
+        DailySummaryCacheService::with_cache_dir(cache_dir.clone())
+            .load_or_compute("codex", &[cached])
+            .unwrap();
+
+        let pricing_path = temp_dir.path().join("pricing.json");
+        let fetched_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        std::fs::write(
+            &pricing_path,
+            format!(r#"{{"fetched_at":{},"models":{{}}}}"#, fetched_at),
+        )
+        .unwrap();
+
+        let service = DataLoaderService {
+            registry: ParserRegistry::with_sources(vec![SourceInstance::new(
+                "codex",
+                "codex",
+                "codex",
+                Box::new(CodexParser::with_data_dir(sessions)),
+            )]),
+            cache_service: Some(DailySummaryCacheService::with_cache_dir(cache_dir)),
+            pricing: PricingService::from_cache_only_with_path(&pricing_path),
+        };
+        let result = service.load().unwrap();
+        let today_summary = result.source_summaries["codex"]
+            .iter()
+            .find(|s| s.date == today)
+            .unwrap();
+
+        // Only the fork's own turn (80 input + 20 output) counts today.
+        assert_eq!(
+            today_summary.total_input_tokens
+                + today_summary.total_cache_read_tokens
+                + today_summary.total_output_tokens,
+            100
+        );
     }
 
     #[test]
