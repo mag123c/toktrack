@@ -12,46 +12,51 @@ use crate::parsers::{ParserRegistry, SourceInstance};
 use crate::services::{Aggregator, DailySummaryCacheService, PricingService};
 use crate::types::{CacheWarning, DailySummary, Result, SourceUsage, ToktrackError, UsageEntry};
 
-/// Check if there's a date gap between the latest cached date and yesterday.
-///
-/// A gap exists when `latest_cached < yesterday - 1 day`, meaning there are
-/// dates between the cache's coverage and the warm path's window that would
-/// never be parsed. When a gap is detected, the parser should fall back to
-/// a full re-parse to fill missing dates.
-fn has_date_gap(latest_cached: Option<chrono::NaiveDate>, yesterday: chrono::NaiveDate) -> bool {
-    match latest_cached {
-        Some(latest) => latest < yesterday - chrono::Duration::days(1),
-        None => false, // No cache → no gap to detect; cold path handles this
-    }
-}
-
 /// Warm-path guard: whether a recent-parse result must fall back to a full
-/// re-parse instead of the `>= yesterday` filter.
+/// re-parse instead of the `>= recompute_start` filter.
 ///
 /// True only when the source reconciles retroactively (see
 /// `CLIParser::retroactive_reconciliation`) and the recent parse produced an
-/// entry dated before `yesterday`. Keeping such an entry and recomputing its day
-/// from the recent files alone would drop that day's entries in older,
-/// non-recent files; dropping it leaves the day's cache stale. A full re-parse
-/// recomputes the day from the complete file set instead.
-fn needs_full_reparse(retroactive: bool, entries: &[UsageEntry], yesterday: NaiveDate) -> bool {
-    retroactive && entries.iter().any(|e| e.local_date() < yesterday)
+/// entry dated before `recompute_start`, the first date the warm path
+/// recomputes (see `warm_path_recompute_start`). Keeping such an entry and
+/// recomputing its day from the recent files alone would drop that day's
+/// entries in older, non-recent files; dropping it leaves the day's cache
+/// stale. A full re-parse recomputes the day from the complete file set instead.
+fn needs_full_reparse(
+    retroactive: bool,
+    entries: &[UsageEntry],
+    recompute_start: NaiveDate,
+) -> bool {
+    retroactive && entries.iter().any(|e| e.local_date() < recompute_start)
 }
 
-/// Compute the warm-path cutoff: yesterday 00:00:00 local time.
+/// First date the warm path recomputes: the previous run's date, or yesterday
+/// if that is earlier.
 ///
-/// Files modified on or after this time are re-parsed, ensuring that
-/// "yesterday" (the most recent completed day) is always recomputed
-/// before being trusted as a complete cached date.
-fn warm_path_since() -> SystemTime {
-    let yesterday = Local::now().date_naive() - chrono::Duration::days(1);
-    let yesterday_midnight = yesterday.and_hms_opt(0, 0, 0).unwrap();
-    let utc = match Local.from_local_datetime(&yesterday_midnight) {
+/// Every day before the previous run's date was already over when that run
+/// saved the cache; the run's own date may be a partial-day snapshot. Any entry
+/// dated on or after the start sits in a file modified on or after it, so
+/// recomputing from there brings every later day up to date after a gap of any
+/// length, without a full re-parse and without touching an older cached day.
+/// (Gating on the latest cached date instead would mistake days without usage
+/// for a gap.)
+fn warm_path_recompute_start(last_run: NaiveDate, yesterday: NaiveDate) -> NaiveDate {
+    last_run.min(yesterday)
+}
+
+/// Compute the warm-path cutoff: 00:00:00 local time on `start`.
+///
+/// Files modified on or after this time are re-parsed. Any entry dated on or
+/// after `start` sits in a file modified on or after it, so every date from
+/// `start` on is recomputed completely before being trusted as cached.
+fn warm_path_since(start: NaiveDate) -> SystemTime {
+    let start_midnight = start.and_hms_opt(0, 0, 0).unwrap();
+    let utc = match Local.from_local_datetime(&start_midnight) {
         chrono::LocalResult::Single(dt) => dt.to_utc(),
         chrono::LocalResult::Ambiguous(earlier, _) => earlier.to_utc(),
         chrono::LocalResult::None => {
             // DST spring-forward: midnight doesn't exist, use 01:00
-            let fallback = yesterday.and_hms_opt(1, 0, 0).unwrap();
+            let fallback = start.and_hms_opt(1, 0, 0).unwrap();
             Local
                 .from_local_datetime(&fallback)
                 .earliest()
@@ -135,7 +140,6 @@ impl DataLoaderService {
             .as_ref()
             .ok_or_else(|| ToktrackError::Cache("No cache service".into()))?;
 
-        let since = warm_path_since();
         let yesterday = Local::now().date_naive() - chrono::Duration::days(1);
 
         let mut all_summaries = Vec::new();
@@ -159,22 +163,16 @@ impl DataLoaderService {
                 && cache_service.is_version_current(&source.id);
 
             let entries = if has_source_cache {
-                let latest = cache_service.latest_cached_date(&source.id);
-                if has_date_gap(latest, yesterday) {
-                    match parser.parse_all() {
-                        Ok(e) => e,
-                        Err(e) => {
-                            eprintln!("[toktrack] Warning: {} failed: {}", source.label, e);
-                            continue;
-                        }
-                    }
-                } else {
-                    match parser.parse_recent_files(since) {
+                // Without a previous-run date the warm path cannot know which
+                // days are final: re-parse fully.
+                if let Some(last_run) = cache_service.last_run_date(&source.id) {
+                    let recompute_start = warm_path_recompute_start(last_run, yesterday);
+                    match parser.parse_recent_files(warm_path_since(recompute_start)) {
                         Ok(e) => {
                             if needs_full_reparse(
                                 parser.retroactive_reconciliation(),
                                 &e,
-                                yesterday,
+                                recompute_start,
                             ) {
                                 match parser.parse_all() {
                                     Ok(all) => all,
@@ -188,10 +186,18 @@ impl DataLoaderService {
                                 }
                             } else {
                                 e.into_iter()
-                                    .filter(|entry| entry.local_date() >= yesterday)
+                                    .filter(|entry| entry.local_date() >= recompute_start)
                                     .collect()
                             }
                         }
+                        Err(e) => {
+                            eprintln!("[toktrack] Warning: {} failed: {}", source.label, e);
+                            continue;
+                        }
+                    }
+                } else {
+                    match parser.parse_all() {
+                        Ok(e) => e,
                         Err(e) => {
                             eprintln!("[toktrack] Warning: {} failed: {}", source.label, e);
                             continue;
@@ -513,7 +519,7 @@ mod tests {
 
     #[test]
     fn test_warm_path_since_is_start_of_yesterday_local() {
-        let since = warm_path_since();
+        let since = warm_path_since(chrono::Local::now().date_naive() - chrono::Duration::days(1));
         let since_duration = since
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
             .unwrap();
@@ -533,13 +539,13 @@ mod tests {
 
     #[test]
     fn test_warm_path_since_is_before_now() {
-        let since = warm_path_since();
+        let since = warm_path_since(chrono::Local::now().date_naive() - chrono::Duration::days(1));
         assert!(since < std::time::SystemTime::now());
     }
 
     #[test]
     fn test_warm_path_since_is_at_midnight() {
-        let since = warm_path_since();
+        let since = warm_path_since(chrono::Local::now().date_naive() - chrono::Duration::days(1));
         let since_duration = since
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
             .unwrap();
@@ -656,7 +662,7 @@ mod tests {
         // Seed a STALE (version 0) codex cache: an ancient cache-only day (no raw
         // backing → preserved history) plus a recent day so the fixture matches a
         // real cache. The stale version alone routes this source to a full
-        // reparse, so the gap check never runs here.
+        // reparse.
         let yesterday = today - chrono::Duration::days(1);
         let stale = format!(
             r#"{{"cli":"codex","version":0,"updated_at":0,"summaries":[
@@ -755,7 +761,7 @@ mod tests {
         // Seed a STALE (version 16) codex cache: an ancient cache-only day (no raw
         // backing → preserved history) plus a recent day so the fixture matches a
         // real cache. The stale version alone routes this source to a full
-        // reparse, so the gap check never runs here.
+        // reparse.
         let yesterday = today - chrono::Duration::days(1);
         let stale = format!(
             r#"{{"cli":"codex","version":16,"updated_at":0,"summaries":[
@@ -1034,33 +1040,199 @@ mod tests {
     }
 
     #[test]
-    fn test_has_date_gap_no_gap() {
+    fn test_warm_path_recompute_start_is_previous_run_capped_at_yesterday() {
         let today = Local::now().date_naive();
-        let latest_cached = today - chrono::Duration::days(2);
         let yesterday = today - chrono::Duration::days(1);
-        assert!(!has_date_gap(Some(latest_cached), yesterday));
+        let four_days_ago = today - chrono::Duration::days(4);
+        assert_eq!(warm_path_recompute_start(today, yesterday), yesterday);
+        assert_eq!(warm_path_recompute_start(yesterday, yesterday), yesterday);
+        assert_eq!(
+            warm_path_recompute_start(four_days_ago, yesterday),
+            four_days_ago
+        );
+    }
+
+    /// RFC 3339 UTC timestamp for local noon (+`second`) on `day`, so the entry's
+    /// local date is `day` in every time zone.
+    fn local_noon(day: NaiveDate, second: u32) -> String {
+        Local
+            .from_local_datetime(&day.and_hms_opt(12, 0, second).unwrap())
+            .earliest()
+            .unwrap()
+            .to_utc()
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+    }
+
+    /// `(input, cached input, output)`
+    type Usage = (u64, u64, u64);
+
+    /// One Codex rollout with a token_count per `(day, total, last)`.
+    fn codex_rollout(events: &[(NaiveDate, Usage, Usage)]) -> String {
+        let usage = |(i, c, o): Usage| {
+            format!(
+                r#"{{"input_tokens":{i},"cached_input_tokens":{c},"output_tokens":{o},"reasoning_output_tokens":0,"total_tokens":{}}}"#,
+                i + o
+            )
+        };
+        let first = events[0].0;
+        let mut lines = vec![
+            format!(
+                r#"{{"timestamp":"{}","type":"session_meta","payload":{{"id":"sess-a","model_provider":"openai"}}}}"#,
+                local_noon(first, 0)
+            ),
+            format!(
+                r#"{{"timestamp":"{}","type":"turn_context","payload":{{"model":"gpt-5.5","cwd":"/work/a"}}}}"#,
+                local_noon(first, 1)
+            ),
+        ];
+        for (n, (day, total, last)) in events.iter().enumerate() {
+            lines.push(format!(
+                r#"{{"timestamp":"{}","type":"event_msg","payload":{{"type":"token_count","info":{{"total_token_usage":{},"last_token_usage":{}}}}}}}"#,
+                local_noon(*day, 2 + n as u32),
+                usage(*total),
+                usage(*last)
+            ));
+        }
+        lines.join("\n")
+    }
+
+    /// Cache `cached` as `(day, input tokens)` summaries saved by a run at local
+    /// noon on `last_run`, write `rollout`, then load once through the warm
+    /// path and return the Codex daily summaries.
+    fn load_codex_over_cache(
+        rollout: &str,
+        cached: &[(NaiveDate, u64)],
+        last_run: NaiveDate,
+    ) -> Vec<DailySummary> {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let sessions = temp_dir.path().join("sessions");
+        std::fs::create_dir_all(&sessions).unwrap();
+        std::fs::write(sessions.join("a.jsonl"), rollout).unwrap();
+
+        let cache_dir = temp_dir.path().join("cache");
+        let entries: Vec<UsageEntry> = cached
+            .iter()
+            .map(|(day, input)| {
+                let mut e = make_entry(Some(0.0), Some("openai"));
+                e.timestamp = Local
+                    .from_local_datetime(&day.and_hms_opt(12, 0, 0).unwrap())
+                    .earliest()
+                    .unwrap()
+                    .to_utc();
+                e.model = Some("gpt-5.5".to_string());
+                e.input_tokens = *input;
+                e.output_tokens = 0;
+                e
+            })
+            .collect();
+        let seed = DailySummaryCacheService::with_cache_dir(cache_dir.clone());
+        seed.load_or_compute("codex", &entries).unwrap();
+        let cache_path = seed.cache_path("codex");
+        let mut cache: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&cache_path).unwrap()).unwrap();
+        cache["updated_at"] = Local
+            .from_local_datetime(&last_run.and_hms_opt(12, 0, 0).unwrap())
+            .earliest()
+            .unwrap()
+            .timestamp()
+            .into();
+        std::fs::write(&cache_path, cache.to_string()).unwrap();
+
+        let pricing_path = temp_dir.path().join("pricing.json");
+        let fetched_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        std::fs::write(
+            &pricing_path,
+            format!(r#"{{"fetched_at":{},"models":{{}}}}"#, fetched_at),
+        )
+        .unwrap();
+
+        let service = DataLoaderService {
+            registry: ParserRegistry::with_sources(vec![SourceInstance::new(
+                "codex",
+                "codex",
+                "codex",
+                Box::new(CodexParser::with_data_dir(sessions)),
+            )]),
+            cache_service: Some(DailySummaryCacheService::with_cache_dir(cache_dir)),
+            pricing: PricingService::from_cache_only_with_path(&pricing_path),
+        };
+        service.load().unwrap().source_summaries["codex"].clone()
+    }
+
+    fn day_tokens(summaries: &[DailySummary], day: NaiveDate) -> u64 {
+        let s = summaries.iter().find(|s| s.date == day).unwrap();
+        s.total_input_tokens + s.total_cache_read_tokens + s.total_output_tokens
     }
 
     #[test]
-    fn test_has_date_gap_with_gap() {
-        let today = Local::now().date_naive();
-        let latest_cached = today - chrono::Duration::days(3);
-        let yesterday = today - chrono::Duration::days(1);
-        assert!(has_date_gap(Some(latest_cached), yesterday));
+    fn test_partial_latest_day_recomputed_when_next_run_is_two_days_later() {
+        // A run on day D cached D after its first turn; the next run is on D+2.
+        let d = Local::now().date_naive() - chrono::Duration::days(2);
+        let rollout = codex_rollout(&[
+            (d, (100, 10, 50), (100, 10, 50)), // 150 tokens
+            (d, (130, 10, 60), (30, 0, 10)),   // 40 tokens, after the snapshot
+        ]);
+        let summaries = load_codex_over_cache(&rollout, &[(d, 150)], d);
+        assert_eq!(day_tokens(&summaries, d), 190);
     }
 
     #[test]
-    fn test_has_date_gap_none_latest() {
-        let today = Local::now().date_naive();
-        let yesterday = today - chrono::Duration::days(1);
-        assert!(!has_date_gap(None, yesterday));
+    fn test_two_day_gap_keeps_older_cached_days() {
+        // An older day whose logs are mostly gone: only one 150-token turn is
+        // still on disk (in a long-running rollout that also covers D), while
+        // the cache holds its complete 150,000. Recomputing D must not touch it.
+        let d = Local::now().date_naive() - chrono::Duration::days(2);
+        let older = d - chrono::Duration::days(3);
+        let rollout = codex_rollout(&[
+            (older, (150, 0, 0), (150, 0, 0)),
+            (d, (250, 10, 50), (100, 10, 50)),
+            (d, (280, 10, 60), (30, 0, 10)),
+        ]);
+        let summaries = load_codex_over_cache(&rollout, &[(older, 150_000), (d, 150)], d);
+        assert_eq!(day_tokens(&summaries, d), 190);
+        assert_eq!(day_tokens(&summaries, older), 150_000);
     }
 
     #[test]
-    fn test_has_date_gap_latest_is_yesterday() {
+    fn test_long_gap_recomputes_from_previous_run_and_keeps_older_days() {
+        // The previous run was on D = today - 4 and cached D after its first
+        // turn; usage continued on D, D+1 and D+2. An older day's logs are
+        // mostly gone (150 of its 150,000 tokens are still on disk).
         let today = Local::now().date_naive();
+        let d = today - chrono::Duration::days(4);
+        let day = chrono::Duration::days(1);
+        let older = d - day * 3;
+        let rollout = codex_rollout(&[
+            (older, (150, 0, 0), (150, 0, 0)),
+            (d, (250, 10, 50), (100, 10, 50)),
+            (d, (280, 10, 60), (30, 0, 10)),
+            (d + day, (300, 10, 70), (20, 0, 10)),
+            (d + day * 2, (400, 10, 80), (100, 0, 10)),
+        ]);
+        let summaries = load_codex_over_cache(&rollout, &[(older, 150_000), (d, 150)], d);
+        assert_eq!(day_tokens(&summaries, d), 190);
+        assert_eq!(day_tokens(&summaries, d + day), 30);
+        assert_eq!(day_tokens(&summaries, d + day * 2), 110);
+        assert_eq!(day_tokens(&summaries, older), 150_000);
+    }
+
+    #[test]
+    fn test_days_without_usage_do_not_force_full_reparse() {
+        // toktrack ran yesterday, but the latest day with usage is a week old
+        // and its logs are mostly gone. Nothing older than yesterday may change.
+        let today = Local::now().date_naive();
+        let older = today - chrono::Duration::days(7);
+        let rollout = codex_rollout(&[
+            (older, (150, 0, 0), (150, 0, 0)),
+            (today, (250, 0, 10), (100, 0, 10)),
+        ]);
         let yesterday = today - chrono::Duration::days(1);
-        assert!(!has_date_gap(Some(yesterday), yesterday));
+        let summaries = load_codex_over_cache(&rollout, &[(older, 150_000)], yesterday);
+        assert_eq!(day_tokens(&summaries, older), 150_000);
+        assert_eq!(day_tokens(&summaries, today), 110);
     }
 
     #[test]
@@ -1097,8 +1269,7 @@ mod tests {
             cache_service: Some(DailySummaryCacheService::with_cache_dir(cache_dir.clone())),
             pricing: None,
         };
-        // Exercise the warm path directly: v18 alone must force a full scan,
-        // even though the latest cached day is yesterday (no date gap).
+        // Exercise the warm path directly: v18 alone must force a full scan.
         let result = service.load_warm_path().unwrap();
         let summaries = &result.source_summaries["opencode"];
         assert_eq!(summaries.len(), 3);

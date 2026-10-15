@@ -77,6 +77,20 @@ fn normalize_model_keys(models: HashMap<String, ModelUsage>) -> HashMap<String, 
 /// subagents inheriting their parent session's.
 const CACHE_VERSION: u32 = 22;
 
+/// Margin subtracted from `updated_at` before taking its local date.
+/// `updated_at` is stamped when the cache is saved, after parsing, so a run that
+/// parsed just before midnight and saved just after still counts as the earlier
+/// day.
+const LAST_RUN_MARGIN_SECS: i64 = 3600;
+
+fn last_run_date_from(updated_at: i64) -> Option<NaiveDate> {
+    if updated_at <= 0 {
+        return None;
+    }
+    chrono::DateTime::from_timestamp(updated_at - LAST_RUN_MARGIN_SECS, 0)
+        .map(|dt| dt.with_timezone(&Local).date_naive())
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DailySummaryCache {
     pub cli: String,
@@ -185,12 +199,13 @@ impl DailySummaryCacheService {
         Ok(())
     }
 
-    /// Return the latest (max) date in the cached summaries, or None.
-    pub fn latest_cached_date(&self, cli: &str) -> Option<NaiveDate> {
+    /// Local date of the run that last saved this source's cache, or None when
+    /// the cache is unreadable or carries no `updated_at`.
+    pub fn last_run_date(&self, cli: &str) -> Option<NaiveDate> {
         let path = self.cache_path(cli);
         let content = fs::read_to_string(&path).ok()?;
         let cache: DailySummaryCache = serde_json::from_str(&content).ok()?;
-        cache.summaries.iter().map(|s| s.date).max()
+        last_run_date_from(cache.updated_at)
     }
 
     /// Return the set of dates present in the cached summaries.
@@ -912,71 +927,25 @@ mod tests {
     }
 
     #[test]
-    fn test_latest_cached_date_no_cache() {
-        let (service, _temp) = create_test_service();
-        assert_eq!(service.latest_cached_date("claude-code"), None);
+    fn test_last_run_date_from_subtracts_margin() {
+        let d = |day| NaiveDate::from_ymd_opt(2024, 1, day).unwrap();
+        let at = |h, m| {
+            Local
+                .from_local_datetime(&d(15).and_hms_opt(h, m, 0).unwrap())
+                .earliest()
+                .unwrap()
+                .timestamp()
+        };
+        assert_eq!(last_run_date_from(at(12, 0)), Some(d(15)));
+        // Saved just after midnight: the parse belonged to the previous day.
+        assert_eq!(last_run_date_from(at(0, 30)), Some(d(14)));
+        assert_eq!(last_run_date_from(0), None);
     }
 
     #[test]
-    fn test_latest_cached_date_returns_max() {
+    fn test_last_run_date_no_cache() {
         let (service, _temp) = create_test_service();
-        let cache = DailySummaryCache {
-            cli: "claude-code".to_string(),
-            version: CACHE_VERSION,
-            updated_at: chrono::Utc::now().timestamp(),
-            summaries: vec![
-                DailySummary {
-                    date: NaiveDate::from_ymd_opt(2026, 2, 25).unwrap(),
-                    total_input_tokens: 100,
-                    total_output_tokens: 50,
-                    total_cache_read_tokens: 0,
-                    total_cache_creation_tokens: 0,
-                    total_reasoning_tokens: 0,
-                    total_cache_creation_5m_tokens: 0,
-                    total_cache_creation_1h_tokens: 0,
-                    total_web_search_requests: 0,
-                    total_cost_usd: 0.01,
-                    models: HashMap::new(),
-                    projects: HashMap::new(),
-                },
-                DailySummary {
-                    date: NaiveDate::from_ymd_opt(2026, 2, 27).unwrap(),
-                    total_input_tokens: 200,
-                    total_output_tokens: 100,
-                    total_cache_read_tokens: 0,
-                    total_cache_creation_tokens: 0,
-                    total_reasoning_tokens: 0,
-                    total_cache_creation_5m_tokens: 0,
-                    total_cache_creation_1h_tokens: 0,
-                    total_web_search_requests: 0,
-                    total_cost_usd: 0.02,
-                    models: HashMap::new(),
-                    projects: HashMap::new(),
-                },
-                DailySummary {
-                    date: NaiveDate::from_ymd_opt(2026, 2, 26).unwrap(),
-                    total_input_tokens: 150,
-                    total_output_tokens: 75,
-                    total_cache_read_tokens: 0,
-                    total_cache_creation_tokens: 0,
-                    total_reasoning_tokens: 0,
-                    total_cache_creation_5m_tokens: 0,
-                    total_cache_creation_1h_tokens: 0,
-                    total_web_search_requests: 0,
-                    total_cost_usd: 0.015,
-                    models: HashMap::new(),
-                    projects: HashMap::new(),
-                },
-            ],
-        };
-        let cache_path = service.cache_path("claude-code");
-        fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
-        fs::write(&cache_path, serde_json::to_string(&cache).unwrap()).unwrap();
-
-        assert_eq!(
-            service.latest_cached_date("claude-code"),
-            Some(NaiveDate::from_ymd_opt(2026, 2, 27).unwrap())
-        );
+        assert_eq!(service.last_run_date("claude-code"), None);
     }
 
     #[test]
@@ -1031,19 +1000,27 @@ mod tests {
     }
 
     #[test]
-    fn test_latest_cached_date_empty_summaries() {
+    fn test_last_run_date_reads_updated_at() {
         let (service, _temp) = create_test_service();
+        let noon = NaiveDate::from_ymd_opt(2026, 2, 27)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap();
         let cache = DailySummaryCache {
             cli: "claude-code".to_string(),
             version: CACHE_VERSION,
-            updated_at: chrono::Utc::now().timestamp(),
+            updated_at: Local
+                .from_local_datetime(&noon)
+                .earliest()
+                .unwrap()
+                .timestamp(),
             summaries: vec![],
         };
         let cache_path = service.cache_path("claude-code");
         fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
         fs::write(&cache_path, serde_json::to_string(&cache).unwrap()).unwrap();
 
-        assert_eq!(service.latest_cached_date("claude-code"), None);
+        assert_eq!(service.last_run_date("claude-code"), Some(noon.date()));
     }
 
     #[test]
