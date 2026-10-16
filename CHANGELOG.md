@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.17.5](https://github.com/mag123c/toktrack/compare/v2.17.4...v2.17.5) (2026-10-16)
+
+
+### Bug Fixes
+
+* **cache:** recompute a partial latest day when the next run is two days later ([#270](https://github.com/mag123c/toktrack/issues/270)) ([dee83a5](https://github.com/mag123c/toktrack/commit/dee83a55a0ca6283403e1e617040c14f760dc048))
+* **parser:** attribute Claude Code usage to the session's launch directory ([#265](https://github.com/mag123c/toktrack/issues/265)) ([249c50b](https://github.com/mag123c/toktrack/commit/249c50ba951739468bb52ddd802631d3becdf236))
+* **parser:** fold Claude Code worktree cwds into their repo project ([#264](https://github.com/mag123c/toktrack/issues/264)) ([73132ae](https://github.com/mag123c/toktrack/commit/73132aed7ede736836381bd74860dfc432e36d9b))
+
 ## [2.17.4](https://github.com/mag123c/toktrack/compare/v2.17.3...v2.17.4) (2026-09-22)
 
 
