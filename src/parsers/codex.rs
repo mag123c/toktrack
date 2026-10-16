@@ -2,12 +2,90 @@
 
 use crate::types::{Result, ToktrackError, UsageEntry};
 use chrono::{DateTime, Utc};
+use ruzstd::decoding::{FrameDecoder, StreamingDecoder};
 use serde::Deserialize;
+use std::collections::HashSet;
+use std::ffi::OsString;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{self, BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 
 use super::CLIParser;
+
+/// Codex compresses rollouts it has not touched for about a week, in place, to
+/// `<name>.jsonl.zst`.
+const ZST_ROLLOUT_PATTERN: &str = "**/*.jsonl.zst";
+
+fn is_zst(path: &Path) -> bool {
+    path.extension().is_some_and(|ext| ext == "zst")
+}
+
+/// Rollout file name with any `.zst` suffix removed, so a compressed rollout
+/// and its plain copy share one identity.
+fn rollout_name(path: &Path) -> Option<OsString> {
+    let path = if is_zst(path) {
+        path.with_extension("")
+    } else {
+        path.to_path_buf()
+    };
+    path.file_name().map(|name| name.to_os_string())
+}
+
+/// `Read` adapter decoding every zstd frame in sequence. `StreamingDecoder`
+/// stops after one frame; the format allows several, and stopping early would
+/// silently drop usage.
+struct ZstdFrames {
+    decoder: Option<StreamingDecoder<Box<dyn Read + Send>, FrameDecoder>>,
+}
+
+impl ZstdFrames {
+    fn new(source: Box<dyn Read + Send>) -> io::Result<Self> {
+        let decoder = StreamingDecoder::new(source).map_err(zstd_error)?;
+        Ok(Self {
+            decoder: Some(decoder),
+        })
+    }
+}
+
+impl Read for ZstdFrames {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        loop {
+            let Some(decoder) = self.decoder.as_mut() else {
+                return Ok(0);
+            };
+            let n = decoder.read(buf).map_err(zstd_error)?;
+            if n > 0 || buf.is_empty() {
+                return Ok(n);
+            }
+            // Frame finished: continue with the next frame, if any input remains.
+            let Some(mut source) = self.decoder.take().map(|d| d.into_inner()) else {
+                return Ok(0);
+            };
+            let mut probe = [0u8; 1];
+            if source.read(&mut probe)? == 0 {
+                return Ok(0);
+            }
+            let rest: Box<dyn Read + Send> = Box::new(io::Cursor::new(probe).chain(source));
+            self.decoder = Some(StreamingDecoder::new(rest).map_err(zstd_error)?);
+        }
+    }
+}
+
+/// Decoding failures use `ErrorKind::Other` so `parse_file` can tell them
+/// from a single non-UTF-8 line (`InvalidData`), which it skips.
+fn zstd_error(e: impl std::fmt::Display) -> io::Error {
+    io::Error::other(format!("zstd: {e}"))
+}
+
+/// Open a rollout, transparently decompressing `.jsonl.zst`.
+fn open_rollout(path: &Path) -> io::Result<Box<dyn BufRead>> {
+    let file = File::open(path)?;
+    if is_zst(path) {
+        Ok(Box::new(BufReader::new(ZstdFrames::new(Box::new(file))?)))
+    } else {
+        Ok(Box::new(BufReader::new(file)))
+    }
+}
 
 /// Codex JSONL line types
 #[derive(Deserialize)]
@@ -230,23 +308,28 @@ impl CLIParser for CodexParser {
     // `test_codex_does_not_reconcile_retroactively`.
 
     fn collect_files(&self) -> Vec<PathBuf> {
-        let collect = |dir: &Path| super::glob_patterns_under(dir, &[self.file_pattern()]);
+        let collect = |dir: &Path| {
+            let mut files =
+                super::glob_patterns_under(dir, &[self.file_pattern(), ZST_ROLLOUT_PATTERN]);
+            // Both copies can exist briefly while Codex compresses a rollout;
+            // read the plain one so the session is not counted twice.
+            let plain: HashSet<PathBuf> = files.iter().filter(|p| !is_zst(p)).cloned().collect();
+            files.retain(|p| !is_zst(p) || !plain.contains(&p.with_extension("")));
+            files
+        };
         let mut files = collect(&self.data_dir);
         // Only standard session roots have a sibling archive directory.
         if self.data_dir.file_name() == Some(std::ffi::OsStr::new(SESSIONS_DIR)) {
             if let Some(root) = self.data_dir.parent() {
                 // Archiving flattens date directories; rollout filenames remain stable.
-                let active_names: std::collections::HashSet<_> = files
-                    .iter()
-                    .filter_map(|path| path.file_name().map(|name| name.to_os_string()))
-                    .collect();
+                // Compression is ignored: `x.jsonl` and `x.jsonl.zst` are one rollout.
+                let active_names: HashSet<OsString> =
+                    files.iter().filter_map(|path| rollout_name(path)).collect();
                 files.extend(
                     collect(&root.join(ARCHIVED_SESSIONS_DIR))
                         .into_iter()
                         .filter(|path| {
-                            !path
-                                .file_name()
-                                .is_some_and(|name| active_names.contains(name))
+                            !rollout_name(path).is_some_and(|name| active_names.contains(&name))
                         }),
                 );
             }
@@ -255,8 +338,7 @@ impl CLIParser for CodexParser {
     }
 
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>> {
-        let file = File::open(path).map_err(ToktrackError::Io)?;
-        let reader = BufReader::new(file);
+        let reader = open_rollout(path).map_err(ToktrackError::Io)?;
         let mut entries: Vec<UsageEntry> = Vec::new();
         let mut current_model: Option<String> = None;
         let mut fast_speed = false;
@@ -277,7 +359,10 @@ impl CLIParser for CodexParser {
         for line_result in reader.lines() {
             let line = match line_result {
                 Ok(l) => l,
-                Err(_) => continue,
+                // A non-UTF-8 line is skipped; any other read error (e.g. a
+                // corrupt .zst) would repeat forever, so fail the file instead.
+                Err(e) if e.kind() == io::ErrorKind::InvalidData => continue,
+                Err(e) => return Err(ToktrackError::Io(e)),
             };
 
             if line.is_empty() {
@@ -398,6 +483,86 @@ impl CLIParser for CodexParser {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    // ---- compressed rollouts (.jsonl.zst) ----
+
+    fn zst(bytes: &[u8]) -> Vec<u8> {
+        ruzstd::encoding::compress_to_vec(bytes, ruzstd::encoding::CompressionLevel::Fastest)
+    }
+
+    #[test]
+    fn test_zst_rollout_parses_like_plain() {
+        let plain = fixture_path("multi-turn-session.jsonl");
+        let temp = tempfile::tempdir().unwrap();
+        let compressed = temp.path().join("rollout.jsonl.zst");
+        std::fs::write(&compressed, zst(&std::fs::read(&plain).unwrap())).unwrap();
+
+        let parser = CodexParser::new();
+        let expected = parser.parse_file(&plain).unwrap();
+        assert!(!expected.is_empty());
+        assert_eq!(parser.parse_file(&compressed).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_multi_frame_zst_reads_every_frame() {
+        let plain = fixture_path("multi-turn-session.jsonl");
+        let text = std::fs::read_to_string(&plain).unwrap();
+        let split = text[..text.len() / 2].rfind('\n').unwrap() + 1;
+        let mut bytes = zst(&text.as_bytes()[..split]);
+        bytes.extend(zst(&text.as_bytes()[split..]));
+        let temp = tempfile::tempdir().unwrap();
+        let compressed = temp.path().join("rollout.jsonl.zst");
+        std::fs::write(&compressed, bytes).unwrap();
+
+        let parser = CodexParser::new();
+        assert_eq!(
+            parser.parse_file(&compressed).unwrap(),
+            parser.parse_file(&plain).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_corrupt_zst_fails_instead_of_skipping() {
+        let bytes = zst(&std::fs::read(fixture_path("multi-turn-session.jsonl")).unwrap());
+        let temp = tempfile::tempdir().unwrap();
+        let truncated = temp.path().join("rollout.jsonl.zst");
+        std::fs::write(&truncated, &bytes[..bytes.len() / 2]).unwrap();
+
+        assert!(CodexParser::new().parse_file(&truncated).is_err());
+    }
+
+    #[test]
+    fn test_collect_files_reads_zst_and_prefers_plain_copies() {
+        let temp = tempfile::tempdir().unwrap();
+        let day = temp
+            .path()
+            .join("sessions")
+            .join("2026")
+            .join("10")
+            .join("01");
+        let archived = temp.path().join("archived_sessions");
+        std::fs::create_dir_all(&day).unwrap();
+        std::fs::create_dir_all(&archived).unwrap();
+        for path in [
+            day.join("a.jsonl"),
+            day.join("a.jsonl.zst"), // mid-compression duplicate of a.jsonl
+            day.join("b.jsonl.zst"),
+            archived.join("b.jsonl"), // archived copy of the active b
+            archived.join("c.jsonl.zst"),
+        ] {
+            std::fs::write(path, b"").unwrap();
+        }
+
+        let mut files = CodexParser::with_data_dir(temp.path().join("sessions")).collect_files();
+        files.sort();
+        let mut expected = vec![
+            day.join("a.jsonl"),
+            day.join("b.jsonl.zst"),
+            archived.join("c.jsonl.zst"),
+        ];
+        expected.sort();
+        assert_eq!(files, expected);
+    }
 
     #[test]
     fn test_codex_fast_tier_transitions() {

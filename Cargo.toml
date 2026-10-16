@@ -11,6 +11,7 @@ categories = ["command-line-utilities"]
 default-run = "toktrack"
 
 [dependencies]
+ruzstd = "0.9.1"
 # JSON parsing (SIMD optimized)
 simd-json = "0.18"
 serde = { version = "1", features = ["derive"] }
