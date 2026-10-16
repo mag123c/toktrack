@@ -1119,10 +1119,34 @@ mod tests {
     /// Cache `cached` as `(day, input tokens)` summaries, write `rollout`, then
     /// load once through the warm path and return the Codex daily summaries.
     fn load_codex_over_cache(rollout: &str, cached: &[(NaiveDate, u64)]) -> Vec<DailySummary> {
+        load_codex_files_over_cache(&[("a.jsonl", rollout.to_string(), None)], cached)
+    }
+
+    /// Like `load_codex_over_cache`, but writes several rollouts, each with an
+    /// optional mtime (local noon on that day) instead of "now".
+    fn load_codex_files_over_cache(
+        rollouts: &[(&str, String, Option<NaiveDate>)],
+        cached: &[(NaiveDate, u64)],
+    ) -> Vec<DailySummary> {
         let temp_dir = tempfile::tempdir().unwrap();
         let sessions = temp_dir.path().join("sessions");
         std::fs::create_dir_all(&sessions).unwrap();
-        std::fs::write(sessions.join("a.jsonl"), rollout).unwrap();
+        for (name, rollout, modified) in rollouts {
+            let path = sessions.join(name);
+            std::fs::write(&path, rollout).unwrap();
+            if let Some(day) = modified {
+                let noon = Local
+                    .from_local_datetime(&day.and_hms_opt(12, 0, 0).unwrap())
+                    .earliest()
+                    .unwrap();
+                std::fs::File::options()
+                    .write(true)
+                    .open(&path)
+                    .unwrap()
+                    .set_modified(noon.into())
+                    .unwrap();
+            }
+        }
 
         let cache_dir = temp_dir.path().join("cache");
         let entries: Vec<UsageEntry> = cached
@@ -1198,6 +1222,30 @@ mod tests {
             (d, (280, 10, 60), (30, 0, 10)),
         ]);
         let summaries = load_codex_over_cache(&rollout, &[(older, 150_000), (d, 150)]);
+        assert_eq!(day_tokens(&summaries, d), 190);
+        assert_eq!(day_tokens(&summaries, older), 150_000);
+    }
+
+    #[test]
+    fn test_two_day_gap_rereads_files_last_modified_on_the_partial_day() {
+        // Day D's rollout was last written on D, so only a cutoff at D's
+        // midnight (not yesterday's) re-reads it. The older rollout was last
+        // written before D and stays out; its day keeps the cached total.
+        let d = Local::now().date_naive() - chrono::Duration::days(2);
+        let older = d - chrono::Duration::days(3);
+        let partial_day = codex_rollout(&[
+            (d, (100, 10, 50), (100, 10, 50)),
+            (d, (130, 10, 60), (30, 0, 10)),
+        ]);
+        let older_day =
+            codex_rollout(&[(older, (150, 0, 0), (150, 0, 0))]).replace("sess-a", "sess-b");
+        let summaries = load_codex_files_over_cache(
+            &[
+                ("d.jsonl", partial_day, Some(d)),
+                ("older.jsonl", older_day, Some(older)),
+            ],
+            &[(older, 150_000), (d, 150)],
+        );
         assert_eq!(day_tokens(&summaries, d), 190);
         assert_eq!(day_tokens(&summaries, older), 150_000);
     }
