@@ -1,0 +1,8 @@
+{"version":1,"updated_at":"2026-10-27T03:00:00.000Z","agent":"lead","sessionId":"1793069169145_bbbbb","origin":{"source":"vscode","mode":"user","sessionId":"1793069169145_bbbbb","version":"4.1.26"},"messages":[
+{"id":"00000000-0000-4000-8000-000000000011","role":"user","content":[{"type":"text","text":"[redacted]"}],"ts":1793069169440},
+{"id":"msg_cachewrite","role":"assistant","content":[{"type":"text","text":"[redacted]"}],"ts":1793069179617,"modelInfo":{"id":"anthropic/claude-sonnet-5.5","provider":"openrouter","family":"claude-sonnet"},"metrics":{"inputTokens":4261,"outputTokens":953,"cacheReadTokens":0,"cacheWriteTokens":4257,"cost":0.0201805}},
+{"id":"msg_nocost","role":"assistant","content":[{"type":"text","text":"[redacted]"}],"ts":1793069200000,"modelInfo":{"id":"anthropic/claude-sonnet-5.5","provider":"openrouter"},"metrics":{"inputTokens":5000,"outputTokens":100,"cacheReadTokens":4200,"cacheWriteTokens":700}},
+{"id":"msg_nomodelinfo","role":"assistant","content":[{"type":"text","text":"[redacted]"}],"metrics":{"inputTokens":3000,"outputTokens":50,"cacheReadTokens":2000,"cacheWriteTokens":0,"cost":0.004}},
+{"id":"msg_nometrics","role":"assistant","content":[{"type":"text","text":"[redacted]"}],"ts":1793069300000,"modelInfo":{"id":"anthropic/claude-sonnet-5.5","provider":"openrouter"}},
+{"id":"msg_allzero","role":"assistant","content":[{"type":"text","text":"[redacted]"}],"ts":1793069400000,"modelInfo":{"id":"anthropic/claude-sonnet-5.5","provider":"openrouter"},"metrics":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0,"cost":0}}
+],"system_prompt":"[redacted]"}

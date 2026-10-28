@@ -2,6 +2,7 @@
 
 mod antigravity;
 mod claude;
+mod cline;
 mod codex;
 mod copilot;
 pub mod discovery;
@@ -13,6 +14,7 @@ mod qwen;
 
 pub use antigravity::AntigravityParser;
 pub use claude::ClaudeCodeParser;
+pub use cline::ClineParser;
 pub use codex::{CodexParser, ARCHIVED_SESSIONS_DIR, SESSIONS_DIR};
 pub use copilot::CopilotParser;
 pub use gemini::GeminiParser;
@@ -198,6 +200,7 @@ impl ParserRegistry {
                 SourceInstance::local(Box::new(PiAgentParser::new())),
                 SourceInstance::local(Box::new(AntigravityParser::new())),
                 SourceInstance::local(Box::new(GrokParser::new())),
+                SourceInstance::local(Box::new(ClineParser::new())),
             ],
         }
     }
@@ -246,7 +249,7 @@ mod tests {
     #[test]
     fn test_registry_default_parsers() {
         let registry = ParserRegistry::new();
-        assert_eq!(registry.sources().len(), 9);
+        assert_eq!(registry.sources().len(), 10);
         assert!(registry.get("claude-code").is_some());
         assert!(registry.get("copilot").is_some());
         assert!(registry.get("codex").is_some());
@@ -256,6 +259,7 @@ mod tests {
         assert!(registry.get("pi-agent").is_some());
         assert!(registry.get("antigravity").is_some());
         assert!(registry.get("grok").is_some());
+        assert!(registry.get("cline").is_some());
     }
 
     #[test]
@@ -311,8 +315,8 @@ mod tests {
             ))),
         )]);
 
-        assert_eq!(registry.sources().len(), 10);
-        assert_eq!(registry.sources()[9].id, "codex@testbox");
+        assert_eq!(registry.sources().len(), 11);
+        assert_eq!(registry.sources()[10].id, "codex@testbox");
     }
 
     #[test]

@@ -1,0 +1,8 @@
+{"version":1,"updated_at":"2026-10-26T06:47:34.700Z","agent":"lead","sessionId":"1792996779409_aaaaa","origin":{"source":"vscode","mode":"user","sessionId":"1792996779409_aaaaa","version":"4.1.26"},"messages":[
+{"id":"00000000-0000-4000-8000-000000000001","role":"user","content":[{"type":"text","text":"[redacted]"}],"ts":1792996779612},
+{"id":"msg_real0001","role":"assistant","content":[{"type":"text","text":"[redacted]"},{"type":"tool_use","id":"toolu_redacted01","name":"read_files","input":{"files":[]}}],"ts":1792996792728,"modelInfo":{"id":"anthropic/claude-sonnet-5.5","provider":"openrouter"},"metrics":{"inputTokens":4254,"outputTokens":1423,"cacheReadTokens":0,"cacheWriteTokens":0,"cost":0.023558000000000003}},
+{"id":"00000000-0000-4000-8000-000000000002","role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_redacted01","name":"read_files","content":[{"query":"[redacted]","result":"[redacted]","success":true}]}],"ts":1792996951208},
+{"id":"msg_real0002","role":"assistant","content":[{"type":"thinking","thinking":"[redacted]"}],"ts":1792996959443,"modelInfo":{"id":"anthropic/claude-sonnet-5.5","provider":"openrouter","family":"claude-sonnet"},"metrics":{"inputTokens":5691,"outputTokens":715,"cacheReadTokens":4250,"cacheWriteTokens":0,"cost":0.013067}},
+{"id":"00000000-0000-4000-8000-000000000003","role":"user","content":[{"type":"text","text":"[redacted]"}],"ts":1792997246690},
+{"id":"msg_real0003","role":"assistant","content":[{"type":"text","text":"[redacted]"}],"ts":1792997254666,"modelInfo":{"id":"anthropic/claude-sonnet-5.5","provider":"openrouter","family":"claude-sonnet"},"metrics":{"inputTokens":6445,"outputTokens":872,"cacheReadTokens":5687,"cacheWriteTokens":0,"cost":0.0108047}}
+],"system_prompt":"[redacted]"}
