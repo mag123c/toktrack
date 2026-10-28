@@ -35,6 +35,7 @@ structure is preserved.
 | OpenCode | `opencode/...`, in-test SQLite | message rows with reasoning + cache + cost |
 | PI Agent | `pi_agent/*.jsonl` | assistant usage; nested `cost.total` |
 | Grok | `grok/sessions/*/*/updates.jsonl` | real-shape from `~/.grok` (grok 1.0.5, sanitized ids/paths, token+cost values verbatim); only `_x.ai/session/update` + `sessionUpdate == "turn_completed"` is usage. Includes `session/update` noise lines whose `_meta.totalTokens` (4146/13497/71784) is a **running context-window size, not usage** — a canary against summing it. Also covers the three project-attribution paths (`summary.json` cwd, `.cwd` sidecar, percent-decoded dir name) and multi-model `modelUsage` fan-out |
+| Cline | `cline/sessions/<id>/<id>.messages.json` (+ `<id>.json`) | real-shape from `~/.cline/data` (Cline 4.1.26, sanitized ids/paths/content, token+cost values verbatim for `aaaaa` and `msg_cachewrite`). `inputTokens` **includes** cache reads and writes: `aaaaa` non-cached input sums to the session `tokensIn` (6453). Synthetic edge cases: missing `cost`, missing `modelInfo`/`ts` (session-record fallback), no session record, cache > input (nesting drift), no metrics, all-zero metrics, truncated file, empty `messages` |
 
 ## Schema drift canary
 
