@@ -812,7 +812,9 @@ mod tests {
 
     /// Upstream schema canary. Codex has grown `reasoning_output_tokens` and
     /// `cache_write_input_tokens` inside `token_count` since this parser was
-    /// written, and serde drops unknown fields silently. This mirror declares
+    /// written, and serde drops unknown fields silently. `info` also gained
+    /// `last_usage_includes_reasoning`, which Codex only uses to estimate
+    /// context-window fill, so it does not affect cost. This mirror declares
     /// what we have seen and rejects the rest, over the fixture always and over
     /// the newest real session files when this machine has them.
     #[derive(Deserialize)]
@@ -821,6 +823,7 @@ mod tests {
     struct KnownInfo {
         total_token_usage: Option<KnownTokenUsage>,
         last_token_usage: Option<KnownTokenUsage>,
+        last_usage_includes_reasoning: Option<bool>,
         model_context_window: Option<serde_json::Value>,
     }
 
