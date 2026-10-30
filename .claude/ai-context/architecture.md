@@ -56,7 +56,7 @@ trait CLIParser: Send + Sync {
 | PiAgentParser | JSONL | ~/.pi/agent/sessions/ | ✅ |
 | AntigravityParser | SQLite + protobuf blobs | ~/.gemini/antigravity-{ide,cli}/conversations/*.db | ✅ (gen_metadata → ChatModelMetadata/ModelUsageStats) |
 | GrokParser | JSONL | ~/.grok/sessions/*/*/updates.jsonl | ✅ (`_x.ai/session/update` + `sessionUpdate == turn_completed` → `usage.modelUsage`; cost from `costUsdTicks`, the only parser deriving it from an integer tick count; absent ticks stay `None` so the turn is not reported as an exact $0) |
-| ClineParser | JSON (per session) | ~/.cline/data/sessions/*/*.messages.json | ✅ (assistant `metrics` per message; `inputTokens` nests cache read+write → subtracted for v2 input; `modelInfo.id` provider prefix stripped; project/model/ts fallback from sibling `<id>.json`; `metrics.cost` verbatim, absent → `None`) |
+| ClineParser | JSON (per session) | ~/.cline/data/sessions/*/*.messages.json | ✅ (assistant `metrics` per message; `inputTokens` nests cache read+write → subtracted for v2 input; `modelInfo.id` provider prefix stripped; project/model/ts fallback from sibling `<id>.json`; `metrics.cost` verbatim, absent → `None`; compaction `metadata.usageBefore` → one entry dated at session `started_at`; `<root>/<agent>.messages.json` subagent files use the root's `<root>.json`) |
 
 ## Data Flow
 ```

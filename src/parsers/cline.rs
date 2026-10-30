@@ -19,6 +19,17 @@
 //! equals `Σ(inputTokens − cacheReadTokens − cacheWriteTokens)` exactly, so
 //! that difference is the v2 `input_tokens`. Cline reports no reasoning count.
 //!
+//! Compaction strips `metrics` from the messages it folds and sums them into
+//! the first message's `metadata.usageBefore` (same five fields, same nesting;
+//! repeated compactions add into it). It becomes one extra entry per such
+//! message, id `<id>#usageBefore`, dated at the session's `started_at` because
+//! the aggregate has no per-day split.
+//!
+//! Subagent and team-task files are `<root>/<agentId>.messages.json` with no
+//! record of their own: they use the root's `<root>/<root>.json` (but not its
+//! fork cutoff, as the running session creates them) and a `<root>/<stem>`
+//! request id so repeated agent ids cannot collide in dedup.
+//!
 //! Fork / checkpoint-restore sessions are seeded with the parent's messages and
 //! imported sessions carry another tool's usage, both with metrics intact. The
 //! session record's `metadata.fork.forkedAt` / `metadata.importedFrom.importedAt`
@@ -58,6 +69,15 @@ struct ClineMessage<'a> {
     model_info: Option<ClineModelInfo<'a>>,
     #[serde(default)]
     metrics: Option<ClineMetrics>,
+    #[serde(default, deserialize_with = "lenient_message_metadata")]
+    metadata: Option<ClineMessageMetadata>,
+}
+
+/// Only `usageBefore` is read from a message's `metadata`.
+#[derive(Deserialize)]
+struct ClineMessageMetadata {
+    #[serde(default, rename = "usageBefore", deserialize_with = "lenient_metrics")]
+    usage_before: Option<ClineMetrics>,
 }
 
 #[derive(Deserialize)]
@@ -119,6 +139,38 @@ fn lenient_f64<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> std::result::Result<Option<f64>, D::Error> {
     Ok(Option::<Lenient>::deserialize(d)?.and_then(|l| l.as_f64()))
+}
+
+/// A message `metadata` object, or `None` for any other shape.
+fn lenient_message_metadata<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<ClineMessageMetadata>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Shape {
+        Meta(ClineMessageMetadata),
+        Other(serde::de::IgnoredAny),
+    }
+    Ok(match Option::<Shape>::deserialize(d)? {
+        Some(Shape::Meta(m)) => Some(m),
+        _ => None,
+    })
+}
+
+/// A metrics object, or `None` for any other shape instead of failing the file.
+fn lenient_metrics<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<ClineMetrics>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Shape {
+        Metrics(ClineMetrics),
+        Other(serde::de::IgnoredAny),
+    }
+    Ok(match Option::<Shape>::deserialize(d)? {
+        Some(Shape::Metrics(m)) => Some(m),
+        _ => None,
+    })
 }
 
 /// Fields are optional and lenient: a `null`, float, negative or string value
@@ -298,10 +350,16 @@ impl ClineParser {
         name.strip_suffix(MESSAGES_SUFFIX).map(String::from)
     }
 
-    /// The sibling session record, or defaults when absent or unreadable —
-    /// it only supplies fallbacks, so losing it must not drop the usage.
-    fn session_record(path: &Path, session_id: Option<&str>) -> ClineSessionRecord {
-        let Some(id) = session_id else {
+    /// Name of the session directory holding `path`: the root session id.
+    fn root_id(path: &Path) -> Option<&str> {
+        path.parent()?.file_name()?.to_str()
+    }
+
+    /// The session record `<id>.json` for the root session id `id`, or
+    /// defaults when absent or unreadable — it only supplies fallbacks, so
+    /// losing it must not drop the usage.
+    fn session_record(path: &Path, id: Option<&str>) -> ClineSessionRecord {
+        let Some(id) = id else {
             return ClineSessionRecord::default();
         };
         let Ok(mut bytes) = std::fs::read(path.with_file_name(format!("{id}.json"))) else {
@@ -326,7 +384,27 @@ impl ClineParser {
         }
 
         let session_id = Self::session_id(path);
-        let record = Self::session_record(path, session_id.as_deref());
+        // Subagent / team-task files sit beside the root's as
+        // `<root>/<agentId>.messages.json` and have no record of their own, so
+        // they take the root's. They are created by the running session, never
+        // seeded from a parent, so the root's fork/import cutoff is not theirs.
+        // A file with its own `<stem>.json` (e.g. a renamed copy of a root) is
+        // a session in its own right; a child needs the root's record to exist.
+        let root_id = Self::root_id(path);
+        let is_child = match (root_id, session_id.as_deref()) {
+            (Some(r), Some(s)) if r != s => {
+                !path.with_file_name(format!("{s}.json")).exists()
+                    && path.with_file_name(format!("{r}.json")).exists()
+            }
+            _ => false,
+        };
+        let root_id = if is_child { root_id } else { None };
+        let record = Self::session_record(path, root_id.or(session_id.as_deref()));
+        let request_id = match (is_child, root_id, session_id.as_deref()) {
+            // Agent ids can repeat across roots; keep the dedup key unique.
+            (true, Some(root), Some(stem)) => Some(format!("{root}/{stem}")),
+            _ => session_id.clone(),
+        };
         let project = non_empty(record.cwd.as_deref())
             .or_else(|| non_empty(record.workspace_root.as_deref()))
             .map(String::from);
@@ -336,61 +414,83 @@ impl ClineParser {
             .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.with_timezone(&Utc));
 
-        let seed_cutoff = record.seed_cutoff();
+        let seed_cutoff = if is_child { None } else { record.seed_cutoff() };
 
         let mut entries = Vec::new();
         let mut dropped = 0usize;
         let mut drifted = 0usize;
 
-        for msg in &parsed.messages {
-            let Some(metrics) = msg.metrics.filter(has_usage) else {
-                continue;
-            };
+        for (index, msg) in parsed.messages.iter().enumerate() {
             let own_ts = msg.ts.and_then(|ms| Utc.timestamp_millis_opt(ms).single());
             if matches!((own_ts, seed_cutoff), (Some(ts), Some(cutoff)) if ts < cutoff) {
                 continue;
             }
-            let Some(timestamp) = own_ts.or(fallback_ts) else {
-                dropped += 1;
-                continue;
-            };
 
-            let info = msg.model_info.as_ref();
-            let model = non_empty(info.and_then(|i| i.id.as_deref()))
-                .or_else(|| non_empty(record.model.as_deref()))
-                .map(|m| strip_provider_prefix(m).to_string());
-            let provider = non_empty(info.and_then(|i| i.provider.as_deref()))
-                .or_else(|| non_empty(record.provider.as_deref()))
-                .map(String::from);
+            // Compaction strips the folded messages' `metrics` and sums them
+            // into the first message's `metadata.usageBefore` (repeated
+            // compactions add into the same field), so each call is counted in
+            // exactly one of the two places. The aggregate has no per-day
+            // split; it is dated at the session start, which is stable across
+            // re-compactions (see .dev/DECISIONS.md).
+            let own = msg.metrics.filter(has_usage);
+            let aggregate = msg
+                .metadata
+                .as_ref()
+                .and_then(|m| m.usage_before)
+                .filter(has_usage);
+            for (metrics, ts, is_aggregate) in [
+                (own, own_ts, false),
+                (aggregate, fallback_ts.or(own_ts), true),
+            ] {
+                let Some(metrics) = metrics else {
+                    continue;
+                };
+                let Some(timestamp) = ts.or(fallback_ts) else {
+                    dropped += 1;
+                    continue;
+                };
 
-            let mapped = map_tokens(&metrics);
-            if mapped.drifted {
-                drifted += 1;
+                let info = msg.model_info.as_ref();
+                let model = non_empty(info.and_then(|i| i.id.as_deref()))
+                    .or_else(|| non_empty(record.model.as_deref()))
+                    .map(|m| strip_provider_prefix(m).to_string());
+                let provider = non_empty(info.and_then(|i| i.provider.as_deref()))
+                    .or_else(|| non_empty(record.provider.as_deref()))
+                    .map(String::from);
+
+                let mapped = map_tokens(&metrics);
+                if mapped.drifted {
+                    drifted += 1;
+                }
+
+                entries.push(UsageEntry {
+                    fast_speed: false,
+                    timestamp,
+                    model,
+                    input_tokens: mapped.input_tokens,
+                    output_tokens: metrics.output_tokens.unwrap_or(0),
+                    cache_read_tokens: metrics.cache_read_tokens.unwrap_or(0),
+                    cache_creation_tokens: metrics.cache_write_tokens.unwrap_or(0),
+                    reasoning_tokens: 0,
+                    cache_creation_5m_tokens: 0,
+                    cache_creation_1h_tokens: 0,
+                    web_search_requests: 0,
+                    web_fetch_requests: 0,
+                    reported_total_tokens: mapped.reported_total_tokens,
+                    cost_usd: metrics.cost,
+                    // Message ids are unique within a session; pairing with the
+                    // session id keeps the dedup hash unique across sessions.
+                    message_id: match (is_aggregate, msg.id.as_deref()) {
+                        (false, id) => id.map(String::from),
+                        (true, Some(id)) => Some(format!("{id}#usageBefore")),
+                        (true, None) => Some(format!("@{index}#usageBefore")),
+                    },
+                    request_id: request_id.clone(),
+                    source: Some("cline".into()),
+                    provider,
+                    project: project.clone(),
+                });
             }
-
-            entries.push(UsageEntry {
-                fast_speed: false,
-                timestamp,
-                model,
-                input_tokens: mapped.input_tokens,
-                output_tokens: metrics.output_tokens.unwrap_or(0),
-                cache_read_tokens: metrics.cache_read_tokens.unwrap_or(0),
-                cache_creation_tokens: metrics.cache_write_tokens.unwrap_or(0),
-                reasoning_tokens: 0,
-                cache_creation_5m_tokens: 0,
-                cache_creation_1h_tokens: 0,
-                web_search_requests: 0,
-                web_fetch_requests: 0,
-                reported_total_tokens: mapped.reported_total_tokens,
-                cost_usd: metrics.cost,
-                // Message ids are unique within a session; pairing with the
-                // session id keeps the dedup hash unique across sessions.
-                message_id: msg.id.as_deref().map(String::from),
-                request_id: session_id.clone(),
-                source: Some("cline".into()),
-                provider,
-                project: project.clone(),
-            });
         }
 
         if drifted > 0 {
@@ -493,6 +593,11 @@ mod tests {
                 "1793300000000_eeeee.messages.json",
                 "1793400000000_fffff.messages.json",
                 "1793500000000_ggggg.messages.json",
+                "1793600000000_hhhhh.messages.json",
+                "1793700000000_iiiii.messages.json",
+                "1793800000000_jjjjj.messages.json",
+                "1793900000000_kkkkk.messages.json",
+                "agent_abc.messages.json",
             ],
             "session records (<id>.json) must not be collected as message files"
         );
@@ -648,7 +753,7 @@ mod tests {
             .parse_file(&session_file("1793200000000_ddddd"))
             .is_err());
         let entries = parser().parse_all().unwrap();
-        assert_eq!(entries.len(), 10);
+        assert_eq!(entries.len(), 17);
     }
 
     #[test]
@@ -692,7 +797,7 @@ mod tests {
 
         let files = parser().collect_files();
         let doubled: Vec<PathBuf> = files.iter().chain(files.iter()).cloned().collect();
-        assert_eq!(parser().parse_and_dedup(&doubled).unwrap().len(), 10);
+        assert_eq!(parser().parse_and_dedup(&doubled).unwrap().len(), 17);
     }
 
     /// Numbers from disk are untrusted: extreme values must not panic inside
@@ -805,6 +910,220 @@ mod tests {
             .parse_file(&file)
             .unwrap();
         (entries, temp)
+    }
+
+    /// Compaction strips every message's `metrics` and keeps the totals in the
+    /// first message's `metadata.usageBefore`; that aggregate is the usage.
+    #[test]
+    fn test_compaction_usage_before_becomes_one_entry() {
+        let entries = parser()
+            .parse_file(&session_file("1793600000000_hhhhh"))
+            .unwrap();
+        assert_eq!(entries.len(), 1);
+        let e = &entries[0];
+        // inputTokens nests cache: 1000 - 400 - 100.
+        assert_eq!(e.input_tokens, 500);
+        assert_eq!(e.output_tokens, 100);
+        assert_eq!(e.cache_read_tokens, 400);
+        assert_eq!(e.cache_creation_tokens, 100);
+        assert_eq!(e.reported_total_tokens, Some(1100));
+        assert_eq!(e.cost_usd, Some(0.5));
+        assert_eq!(e.model.as_deref(), Some("claude-opus-4.8"));
+        assert_eq!(e.provider.as_deref(), Some("cline"));
+        assert_eq!(e.project.as_deref(), Some("/home/me/proj-compacted"));
+        assert_eq!(e.message_id.as_deref(), Some("msg_compact01#usageBefore"));
+        assert_eq!(e.request_id.as_deref(), Some("1793600000000_hhhhh"));
+        // One aggregate has no per-day split: it is dated at the session start.
+        assert_eq!(
+            e.timestamp,
+            DateTime::parse_from_rfc3339("2026-11-02T06:13:20.000Z")
+                .unwrap()
+                .with_timezone(&Utc)
+        );
+    }
+
+    /// Without a session record the compaction message's own `ts` is used.
+    #[test]
+    fn test_usage_before_without_record_uses_message_ts() {
+        let (entries, _t) = parse_inline(
+            r#"{"messages":[{"id":"c","ts":1793000000000,"metadata":{"kind":"compaction","usageBefore":{"inputTokens":10,"outputTokens":1}}}]}"#,
+        );
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].timestamp.timestamp_millis(), 1793000000000);
+        assert_eq!(entries[0].message_id.as_deref(), Some("c#usageBefore"));
+    }
+
+    #[test]
+    fn test_usage_before_all_zero_or_missing_is_ignored() {
+        let (entries, _t) = parse_inline(
+            r#"{"messages":[
+{"id":"a","ts":1793000000000,"metadata":{"kind":"compaction","usageBefore":{"inputTokens":0,"cost":0}}},
+{"id":"b","ts":1793000000000,"metadata":{"kind":"compaction"}},
+{"id":"c","ts":1793000000000,"metadata":{"usageBefore":"oops"}}]}"#,
+        );
+        assert!(entries.is_empty());
+    }
+
+    /// A partially compacted session keeps metrics on surviving messages;
+    /// upstream strips what it folds into `usageBefore`, so both are added
+    /// and neither is counted twice.
+    #[test]
+    fn test_partial_compaction_counts_aggregate_and_survivors_once() {
+        let entries = parser()
+            .parse_file(&session_file("1793700000000_iiiii"))
+            .unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(
+            by_id(&entries, "msg_partial_c#usageBefore").input_tokens,
+            2000
+        );
+        assert_eq!(by_id(&entries, "msg_partial_a").input_tokens, 300);
+        let hashes: std::collections::HashSet<_> =
+            entries.iter().filter_map(|e| e.dedup_hash()).collect();
+        assert_eq!(hashes.len(), 2);
+    }
+
+    /// A fork copies the parent's compaction message along with its
+    /// `usageBefore`; stamped before `forkedAt`, it is the parent's usage.
+    #[test]
+    fn test_forked_session_skips_copied_compaction_aggregate() {
+        let entries = parser()
+            .parse_file(&session_file("1793800000000_jjjjj"))
+            .unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].message_id.as_deref(), Some("msg_jnew01"));
+    }
+
+    fn subagent_file() -> PathBuf {
+        root()
+            .join("sessions")
+            .join("1793900000000_kkkkk")
+            .join("agent_abc.messages.json")
+    }
+
+    /// Subagents write `<root>/<agentId>.messages.json` with no manifest of
+    /// their own, so project/model/provider/start come from the root record.
+    #[test]
+    fn test_subagent_file_inherits_root_session_record() {
+        let entries = parser().parse_file(&subagent_file()).unwrap();
+        assert_eq!(entries.len(), 2);
+        for e in &entries {
+            assert_eq!(e.project.as_deref(), Some("/home/me/proj-subagents"));
+        }
+        let e = by_id(&entries, "msg_subnots");
+        assert_eq!(e.model.as_deref(), Some("claude-sonnet-5.5"));
+        assert_eq!(e.provider.as_deref(), Some("anthropic"));
+        assert_eq!(
+            e.timestamp,
+            DateTime::parse_from_rfc3339("2026-11-05T17:33:20.000Z")
+                .unwrap()
+                .with_timezone(&Utc)
+        );
+    }
+
+    /// Subagent message ids may repeat the root's; the dedup key must differ.
+    #[test]
+    fn test_subagent_ids_do_not_collide_with_root_under_dedup() {
+        let root_entries = parser()
+            .parse_file(&session_file("1793900000000_kkkkk"))
+            .unwrap();
+        let sub_entries = parser().parse_file(&subagent_file()).unwrap();
+        // The root's pre-fork message is skipped; its new one shares an id
+        // with a subagent message.
+        assert_eq!(root_entries.len(), 1);
+        assert_eq!(
+            root_entries[0].request_id.as_deref(),
+            Some("1793900000000_kkkkk")
+        );
+        let sub = by_id(&sub_entries, "msg_same0001");
+        assert_eq!(
+            sub.request_id.as_deref(),
+            Some("1793900000000_kkkkk/agent_abc")
+        );
+        assert_ne!(root_entries[0].dedup_hash(), sub.dedup_hash());
+
+        let files = [session_file("1793900000000_kkkkk"), subagent_file()];
+        let deduped = parser().parse_and_dedup(&files).unwrap();
+        assert_eq!(deduped.len(), 3, "root 1 + subagent 2, none merged");
+        let input: u64 = deduped.iter().map(|e| e.input_tokens).sum();
+        assert_eq!(input, 100 + 200 + 40);
+    }
+
+    /// The root's fork cutoff is not applied to subagent files: they are
+    /// created by the forked session, never seeded from the parent.
+    #[test]
+    fn test_subagent_is_not_filtered_by_root_fork_cutoff() {
+        let (entries, _t) = {
+            let temp = tempfile::tempdir().unwrap();
+            let dir = temp.path().join("sessions").join("r1");
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join("r1.json"),
+                r#"{"started_at":"2026-11-05T00:00:00.000Z","metadata":{"fork":{"forkedAt":"2026-11-05T00:00:00.000Z"}}}"#,
+            )
+            .unwrap();
+            let file = dir.join("a1.messages.json");
+            std::fs::write(
+                &file,
+                r#"{"messages":[{"id":"m","ts":1700000000000,"metrics":{"inputTokens":7}}]}"#,
+            )
+            .unwrap();
+            let entries = ClineParser::with_data_dir(temp.path().to_path_buf())
+                .parse_file(&file)
+                .unwrap();
+            (entries, temp)
+        };
+        assert_eq!(entries.len(), 1);
+    }
+
+    /// A message `metadata` that is not an object must not fail the file.
+    #[test]
+    fn test_non_object_message_metadata_does_not_drop_the_file() {
+        let (entries, _t) = parse_inline(
+            r#"{"messages":[
+{"id":"a","ts":1793000000000,"metrics":{"inputTokens":5},"metadata":"x"},
+{"id":"b","ts":1793000000000,"metrics":{"inputTokens":6},"metadata":[1]},
+{"id":"c","ts":1793000000000,"metrics":{"inputTokens":7},"metadata":null}]}"#,
+        );
+        assert_eq!(entries.len(), 3);
+    }
+
+    /// A root session file copied or renamed within its own directory still
+    /// has its own record: it is not a subagent and keeps its fork cutoff.
+    #[test]
+    fn test_renamed_root_file_with_own_record_is_not_a_child() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("sessions").join("backup");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("123.json"),
+            r#"{"cwd":"/p","started_at":"2026-11-05T00:00:00.000Z","metadata":{"fork":{"forkedAt":"2026-11-05T00:00:00.000Z"}}}"#,
+        )
+        .unwrap();
+        let file = dir.join("123.messages.json");
+        std::fs::write(
+            &file,
+            r#"{"messages":[
+{"id":"seed","ts":1700000000000,"metrics":{"inputTokens":1}},
+{"id":"new","ts":1794000000000,"metrics":{"inputTokens":2}}]}"#,
+        )
+        .unwrap();
+        let entries = ClineParser::with_data_dir(temp.path().to_path_buf())
+            .parse_file(&file)
+            .unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].message_id.as_deref(), Some("new"));
+        assert_eq!(entries[0].project.as_deref(), Some("/p"));
+        assert_eq!(entries[0].request_id.as_deref(), Some("123"));
+    }
+
+    /// No id on the compaction message: the index keeps the entry's id stable.
+    #[test]
+    fn test_usage_before_without_message_id_uses_index() {
+        let (entries, _t) = parse_inline(
+            r#"{"messages":[{"ts":1793000000000,"metadata":{"usageBefore":{"inputTokens":10}}}]}"#,
+        );
+        assert_eq!(entries[0].message_id.as_deref(), Some("@0#usageBefore"));
     }
 
     /// One bad value must not drop the whole file.
