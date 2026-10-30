@@ -1,0 +1,4 @@
+{"version":1,"messages":[
+{"id":"msg_partial_c","role":"user","ts":1793700100000,"metadata":{"kind":"compaction","usageBefore":{"inputTokens":2000,"outputTokens":200,"cacheReadTokens":0,"cacheWriteTokens":0,"cost":0.2}}},
+{"id":"msg_partial_a","role":"assistant","ts":1793700200000,"modelInfo":{"id":"anthropic/claude-opus-4.8","provider":"cline"},"metrics":{"inputTokens":300,"outputTokens":30,"cacheReadTokens":0,"cacheWriteTokens":0,"cost":0.03}}
+]}
