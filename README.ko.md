@@ -190,7 +190,7 @@ zsh/bash/fish 몇 줄이면 됩니다 — **[셸 통합 가이드](docs/shell-in
 | `OPENCODE_DATA_DIR` / `XDG_DATA_HOME` | OpenCode | `~/.local/share/opencode` |
 | `PI_CODING_AGENT_SESSION_DIR` (이후 `PI_AGENT_DIR`) | PI Agent | `~/.pi/agent/sessions` |
 | `GROK_HOME` | Grok CLI | `~/.grok` (+ `/sessions`) |
-| `CLINE_DATA_DIR` (그다음 `CLINE_DIR`) | Cline | `~/.cline/data` (`CLINE_DIR` + `/data`) |
+| `CLINE_SESSION_DATA_DIR` (그다음 `CLINE_DATA_DIR`, `CLINE_DIR`) | Cline | `~/.cline/data/sessions` (`CLINE_DATA_DIR` + `/sessions`, `CLINE_DIR` + `/data/sessions`) |
 
 ```bash
 export CLAUDE_CONFIG_DIR="/path/to/.claude"

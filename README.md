@@ -256,7 +256,7 @@ Each source's data directory can be overridden (matching the upstream CLI's own 
 | `OPENCODE_DATA_DIR` / `XDG_DATA_HOME` | OpenCode | `~/.local/share/opencode` |
 | `PI_CODING_AGENT_SESSION_DIR` (then `PI_AGENT_DIR`) | PI Agent | `~/.pi/agent/sessions` |
 | `GROK_HOME` | Grok CLI | `~/.grok` (+ `/sessions`) |
-| `CLINE_DATA_DIR` (then `CLINE_DIR`) | Cline | `~/.cline/data` (`CLINE_DIR` + `/data`) |
+| `CLINE_SESSION_DATA_DIR` (then `CLINE_DATA_DIR`, `CLINE_DIR`) | Cline | `~/.cline/data/sessions` (`CLINE_DATA_DIR` + `/sessions`, `CLINE_DIR` + `/data/sessions`) |
 
 ```bash
 export CLAUDE_CONFIG_DIR="/path/to/.claude"
