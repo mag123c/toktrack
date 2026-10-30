@@ -235,8 +235,9 @@ impl ProjectsView<'_> {
             };
             let bar = format_percentage_bar(percent, 12);
 
-            // Root rows reserve two columns of the name cell for " ★".
-            let star = if project.is_root { " ★" } else { "" };
+            // Root rows reserve two columns of the name cell for " *". ASCII
+            // rather than "★", which CJK terminals may draw two cells wide.
+            let star = if project.is_root { " *" } else { "" };
             let max_name = 32 - star.chars().count();
             let name = if project.display.chars().count() > max_name {
                 format!(
@@ -426,8 +427,8 @@ mod tests {
             .collect();
         let repo = rows.iter().find(|r| r.contains("w/repo")).unwrap();
         let other = rows.iter().find(|r| r.contains("w/other")).unwrap();
-        assert!(repo.contains("★"));
-        assert!(!other.contains("★"));
+        assert!(repo.contains("repo *"));
+        assert!(!other.contains("other *"));
         // The star must not shift the numeric columns.
         let dollar_col = |row: &str| row.chars().position(|c| c == '$');
         assert_eq!(dollar_col(repo), dollar_col(other));
