@@ -1,6 +1,6 @@
 //! Application state and event loop
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
@@ -17,8 +17,9 @@ use super::theme::Theme;
 use crate::parsers::ParserRegistry;
 use crate::services::audit::{self, AuditReport};
 use crate::services::config::ConfigService;
-use crate::services::project_roots;
+use crate::services::project_roots::{self, ProjectAliases};
 use crate::services::update_checker::{check_for_update, execute_update, UpdateCheckResult};
+use crate::services::worktrees;
 use crate::services::{
     Aggregator, DailySummaryCacheService, DataLoaderService, RemoteOptions, RemoteSourceService,
 };
@@ -118,6 +119,9 @@ pub struct AppData {
     pub raw_project_summaries: HashMap<String, Vec<DailySummary>>,
     /// Roots the project views were last built with.
     pub applied_project_roots: Vec<String>,
+    /// Worktree project keys mapped into their main repository, resolved on
+    /// the loader thread so refolding never touches the filesystem.
+    pub project_aliases: ProjectAliases,
     /// Cache warning indicator for display in TUI
     #[allow(dead_code)] // Reserved for warning indicator feature
     pub cache_warning: Option<CacheWarning>,
@@ -128,10 +132,15 @@ impl AppData {
     /// under a starred root folded into it. Daily tables come back
     /// date-ascending; callers re-apply the active sort.
     fn apply_project_roots(&mut self, roots: &[String]) {
-        let usage = project_roots::collapse_usage(&self.raw_project_usage, roots);
+        let usage =
+            project_roots::collapse_usage(&self.raw_project_usage, &self.project_aliases, roots);
         self.projects_data = ProjectsData::from_project_usage(&usage, roots);
 
-        let summaries = project_roots::collapse_daily(&self.raw_project_summaries, roots);
+        let summaries = project_roots::collapse_daily(
+            &self.raw_project_summaries,
+            &self.project_aliases,
+            roots,
+        );
         self.project_daily_data.clear();
         self.project_stats_data.clear();
         for (project, days) in summaries {
@@ -642,7 +651,8 @@ impl App {
 
         // Keep the cursor on the toggled project, or on the root it folded into.
         if let AppState::Ready { data } = &self.state {
-            let shown = project_roots::root_for(&key, &self.project_roots).unwrap_or(&key);
+            let shown =
+                project_roots::display_key(&key, &data.project_aliases, &self.project_roots);
             let projects = &data.projects_data.projects;
             self.project_selected = projects
                 .iter()
@@ -660,9 +670,11 @@ impl App {
             project_roots::toggle(&mut roots, key);
             return Ok(roots);
         };
-        let mut config = ConfigService::load_or_default(path).map_err(|e| e.to_string())?;
-        config.toggle_project_root(key);
-        ConfigService::save(path, &config).map_err(|e| e.to_string())?;
+        let config = ConfigService::update(path, |config| {
+            config.toggle_project_root(key);
+            true
+        })
+        .map_err(|e| e.to_string())?;
         Ok(config.project_roots)
     }
 
@@ -1272,6 +1284,15 @@ fn load_data_sync(
     let result = DataLoaderService::with_extra_sources(extra_sources)
         .load()
         .map_err(|e| e.to_string())?;
+    let project_keys: HashSet<&str> = result
+        .summaries
+        .iter()
+        .flat_map(|day| day.projects.keys().map(String::as_str))
+        .collect();
+    let project_aliases = worktrees::link_projects(
+        project_keys,
+        ConfigService::default_config_path().ok().as_deref(),
+    );
 
     build_app_data_from_summaries(
         result.summaries,
@@ -1279,6 +1300,7 @@ fn load_data_sync(
         result.source_summaries,
         result.cache_warning,
         &project_roots,
+        project_aliases,
     )
 }
 
@@ -1289,6 +1311,7 @@ fn build_app_data_from_summaries(
     source_summaries: HashMap<String, Vec<DailySummary>>,
     cache_warning: Option<CacheWarning>,
     project_roots: &[String],
+    project_aliases: ProjectAliases,
 ) -> Result<Box<AppData>, String> {
     let total = Aggregator::total_from_daily(&summaries);
 
@@ -1354,6 +1377,7 @@ fn build_app_data_from_summaries(
         raw_project_usage,
         raw_project_summaries,
         applied_project_roots: Vec::new(),
+        project_aliases,
         cache_warning,
     });
     data.apply_project_roots(project_roots);
@@ -1510,6 +1534,7 @@ mod tests {
                 raw_project_usage: HashMap::new(),
                 raw_project_summaries: HashMap::new(),
                 applied_project_roots: Vec::new(),
+                project_aliases: ProjectAliases::new(),
                 cache_warning: None,
             }),
         };
@@ -1624,8 +1649,15 @@ mod tests {
             ("codex".to_string(), vec![sort_test_summary(1, 100, 0, 2.0)]),
         ]);
         let merged = sort_test_summary(1, 200, 0, 3.0);
-        let data = build_app_data_from_summaries(vec![merged], vec![], source_summaries, None, &[])
-            .unwrap();
+        let data = build_app_data_from_summaries(
+            vec![merged],
+            vec![],
+            source_summaries,
+            None,
+            &[],
+            ProjectAliases::new(),
+        )
+        .unwrap();
         let mut app = App {
             state: AppState::Ready { data },
             ..Default::default()
@@ -2088,6 +2120,7 @@ mod tests {
             raw_project_usage: HashMap::new(),
             raw_project_summaries: HashMap::new(),
             applied_project_roots: Vec::new(),
+            project_aliases: ProjectAliases::new(),
             cache_warning: None,
         })));
 
@@ -2579,8 +2612,15 @@ mod tests {
             summary.total_cost_usd += cost;
         }
 
-        let data = build_app_data_from_summaries(vec![summary], vec![], HashMap::new(), None, &[])
-            .unwrap();
+        let data = build_app_data_from_summaries(
+            vec![summary],
+            vec![],
+            HashMap::new(),
+            None,
+            &[],
+            ProjectAliases::new(),
+        )
+        .unwrap();
         App {
             state: AppState::Ready { data },
             ..App::default()
@@ -2640,6 +2680,38 @@ mod tests {
         assert!(app.project_roots.is_empty());
         assert_eq!(project_rows(&app).len(), 4);
         assert!(project_rows(&app).iter().all(|(_, _, root)| !root));
+    }
+
+    #[test]
+    fn test_star_folds_worktrees_into_their_repo_root() {
+        let mut app = ready_app_with_projects(&[
+            ("/w/repo", 100, 3.0),
+            ("/home/u/.t3/worktrees/repo/feat-x", 20, 2.0),
+            ("/home/u/.t3/worktrees/repo/gone", 5, 1.0),
+            ("/w/other", 1, 0.5),
+        ]);
+        // Linked worktree (resolved by the loader); "gone" folds by name.
+        if let AppState::Ready { data } = &mut app.state {
+            data.project_aliases.insert(
+                "/home/u/.t3/worktrees/repo/feat-x".to_string(),
+                "/w/repo".to_string(),
+            );
+        }
+        press(&mut app, KeyCode::Char('4'));
+        select_project(&mut app, "/w/repo");
+
+        press(&mut app, KeyCode::Char('*'));
+        assert_eq!(
+            project_rows(&app),
+            vec![
+                ("/w/repo".to_string(), 125, true),
+                ("/w/other".to_string(), 1, false),
+            ]
+        );
+
+        // Unstarring brings the worktrees back as their own rows.
+        press(&mut app, KeyCode::Char('*'));
+        assert_eq!(project_rows(&app).len(), 4);
     }
 
     #[test]
@@ -2706,6 +2778,7 @@ mod tests {
             HashMap::new(),
             None,
             &["/w/repo".to_string()],
+            ProjectAliases::new(),
         )
         .unwrap();
         assert_eq!(data.applied_project_roots, vec!["/w/repo"]);
@@ -2793,6 +2866,7 @@ mod tests {
             raw_project_usage: HashMap::new(),
             raw_project_summaries: HashMap::new(),
             applied_project_roots: Vec::new(),
+            project_aliases: ProjectAliases::new(),
             cache_warning: None,
         })
     }

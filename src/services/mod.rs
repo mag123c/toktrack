@@ -10,6 +10,7 @@ pub mod pricing;
 pub mod project_roots;
 pub mod remote;
 pub mod update_checker;
+pub mod worktrees;
 
 pub use aggregator::Aggregator;
 pub use cache::DailySummaryCacheService;
