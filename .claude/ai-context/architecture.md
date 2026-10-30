@@ -8,7 +8,7 @@ TUI[ratatui] → CLI[clap] → Services → Parsers[trait] → Cache
 ## Paths
 - `src/tui/` - TUI (app.rs, theme.rs, widgets/)
 - `src/cli/` - CLI commands
-- `src/services/` - aggregator, pricing, cache, update_checker, normalizer, data_loader, config, project_roots
+- `src/services/` - aggregator, pricing, cache, update_checker, normalizer, data_loader, config, project_roots, worktrees
 - `src/parsers/` - CLIParser trait + impls
 - `src/types/` - UsageEntry, errors
 
@@ -29,7 +29,7 @@ TUI[ratatui] → CLI[clap] → Services → Parsers[trait] → Cache
 | `widgets/quit_confirm.rs` | Quit confirm popup (Ctrl+C trigger, y/n/Enter/Esc response) |
 | `widgets/model_breakdown.rs` | Model breakdown popup (Enter on Daily row, shows per-model cost) |
 | `widgets/legend.rs` | Heatmap intensity legend |
-| `widgets/projects.rs` | Projects tab (per-project list, `*`-marked root rows, `*` toggles root; folding via `services/project_roots.rs`, display-only — AppData keeps raw per-project maps, loader thread folds with current roots, persisted as `project_roots` in config.toml; `d/w/m/a` scope the list to Today/This week/This month/All time via `ProjectPeriod` — Sunday-start weeks like `Aggregator::weekly`, lists built in `apply_project_roots` into `period_projects_data`, read via `AppData::projects_for`) |
+| `widgets/projects.rs` | Projects tab (per-project list, `*`-marked root rows, `*` toggles root; folding via `services/project_roots.rs`, display-only — AppData keeps raw per-project maps, loader thread folds with current roots, persisted as `project_roots` in config.toml; `d/w/m/a` scope the list to Today/This week/This month/All time via `ProjectPeriod` — Sunday-start weeks like `Aggregator::weekly`, lists built in `apply_project_roots` into `period_projects_data`, read via `AppData::projects_for`; git worktree keys fold via their main repo — `services/worktrees.rs` reads `<key>/.git` on the loader thread into `AppData.project_aliases`, links persisted as `[worktree_repos]`; unknown `.t3/worktrees/<name>` keys fall back to a root named `<name>`) |
 
 ## Core Trait
 ```rust

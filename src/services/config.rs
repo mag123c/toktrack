@@ -1,9 +1,10 @@
 //! Configuration loading for toktrack.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use directories::BaseDirs;
 use serde::{Deserialize, Serialize};
@@ -25,6 +26,11 @@ pub struct ToktrackConfig {
     /// root are folded into it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub project_roots: Vec<String>,
+    /// Git worktree folders mapped to the main repository they belong to, so
+    /// a worktree's projects fold into the repo's root even after the
+    /// worktree folder is deleted. Filled in by the data loader.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub worktree_repos: BTreeMap<String, String>,
 }
 
 /// One configured SSH remote.
@@ -216,6 +222,22 @@ impl ConfigService {
         Ok(Self::load_optional(path)?.unwrap_or_default())
     }
 
+    /// Load the config at `path` (or a default one), let `edit` change it and
+    /// save it if `edit` reports a change. Returns the resulting config. The
+    /// whole round trip holds a process-wide lock, so the data loader and the
+    /// TUI cannot drop each other's edits.
+    pub fn update(
+        path: &Path,
+        edit: impl FnOnce(&mut ToktrackConfig) -> bool,
+    ) -> Result<ToktrackConfig> {
+        let _guard = UPDATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut config = Self::load_or_default(path)?;
+        if edit(&mut config) {
+            Self::save(path, &config)?;
+        }
+        Ok(config)
+    }
+
     pub fn save(path: &Path, config: &ToktrackConfig) -> Result<()> {
         config.validate()?;
         // Replace the real file behind a symlinked config (dotfile managers),
@@ -263,7 +285,15 @@ impl ConfigService {
 
 /// Top-level keys written by [`ToktrackConfig`]. Every other key in the file
 /// belongs to the user (or a newer toktrack) and is left alone on save.
-const OWNED_KEYS: [&str; 3] = ["default_remotes", "remotes", "project_roots"];
+const OWNED_KEYS: [&str; 4] = [
+    "default_remotes",
+    "remotes",
+    "project_roots",
+    "worktree_repos",
+];
+
+/// Serializes [`ConfigService::update`] round trips within this process.
+static UPDATE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Symlink hops followed when resolving a dangling config link.
 const MAX_SYMLINK_HOPS: usize = 40;
@@ -671,6 +701,71 @@ target = "ubuntu@devbox"
     }
 
     #[test]
+    fn worktree_repos_round_trip_with_windows_paths_and_comments() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        fs::write(&path, "# starred\nproject_roots = ['G:\\Scripts\\annex']\n").unwrap();
+
+        ConfigService::update(&path, |config| {
+            config.worktree_repos.insert(
+                r"C:\Users\me\.t3\worktrees\annex\x".to_string(),
+                "G:/Scripts/annex".to_string(),
+            );
+            true
+        })
+        .unwrap();
+
+        let saved = fs::read_to_string(&path).unwrap();
+        assert!(saved.contains("# starred"));
+        assert!(saved.contains(r"project_roots = ['G:\Scripts\annex']"));
+        let loaded = ConfigService::load_optional(&path).unwrap().unwrap();
+        assert_eq!(
+            loaded
+                .worktree_repos
+                .get(r"C:\Users\me\.t3\worktrees\annex\x")
+                .map(String::as_str),
+            Some("G:/Scripts/annex")
+        );
+    }
+
+    #[test]
+    fn update_returns_the_saved_config() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("config.toml");
+
+        let config = ConfigService::update(&path, |config| {
+            config.toggle_project_root("/w/a");
+            true
+        })
+        .unwrap();
+
+        assert_eq!(config.project_roots, vec!["/w/a"]);
+        let loaded = ConfigService::load_optional(&path).unwrap().unwrap();
+        assert_eq!(loaded.project_roots, vec!["/w/a"]);
+    }
+
+    #[test]
+    fn update_without_a_change_does_not_write() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("config.toml");
+
+        ConfigService::update(&path, |_| false).unwrap();
+
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn update_does_not_overwrite_an_unparseable_config() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        fs::write(&path, "project_roots = [").unwrap();
+
+        assert!(ConfigService::update(&path, |_| true).is_err());
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "project_roots = [");
+    }
+
+    #[test]
     fn save_keeps_comments_around_a_changed_key() {
         let temp_dir = tempfile::tempdir().unwrap();
         let path = temp_dir.path().join("config.toml");
@@ -783,6 +878,9 @@ claude = "~/c"
             )
             .unwrap();
         config.toggle_project_root("/w/a");
+        config
+            .worktree_repos
+            .insert("/wt/repo/x".to_string(), "/w/repo".to_string());
 
         let table: toml::Table = toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
         let mut keys: Vec<&str> = table.keys().map(String::as_str).collect();
