@@ -197,6 +197,7 @@ existing snapshot/cache for that remote.
 | `d` / `w` / `m` | Daily / Weekly / Monthly view (Daily tab) |
 | `s` / `S` | Sort by date → cost → tokens / Reverse direction (detail views) |
 | `*` | Star / unstar a root folder (Projects tab) |
+| `d` / `w` / `m` / `a` | Today / This week / This month / All time spend (Projects tab) |
 | `r` | Refresh data |
 | `?` | Toggle help |
 | `Ctrl+C` | Quit |

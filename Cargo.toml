@@ -50,6 +50,7 @@ fs2 = "0.4"
 # Terminal theme detection (light/dark background)
 terminal-light = "1"
 toml = "1.1.2"
+toml_edit = { version = "0.25.17", default-features = false, features = ["parse", "display"] }
 
 [dev-dependencies]
 # Benchmarking

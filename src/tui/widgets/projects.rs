@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 
+use chrono::{Datelike, Duration, NaiveDate};
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Layout, Rect},
@@ -15,7 +16,7 @@ use super::models::format_percentage_bar;
 use super::overview::format_number;
 use super::tabs::{Tab, TabBar};
 use crate::tui::theme::Theme;
-use crate::types::{ProjectUsage, NO_PROJECT};
+use crate::types::{DailySummary, ProjectUsage, NO_PROJECT};
 
 /// Turn a raw project identifier (the session working directory for Claude
 /// Code) into a compact display label: the last two path segments, e.g.
@@ -30,6 +31,84 @@ pub fn project_display_name(key: &str) -> String {
         [only] => (*only).to_string(),
         [.., parent, leaf] => format!("{}/{}", parent, leaf),
     }
+}
+
+/// Time window the Projects list is scoped to.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum ProjectPeriod {
+    Today,
+    Week,
+    Month,
+    #[default]
+    All,
+}
+
+impl ProjectPeriod {
+    pub const ALL: [ProjectPeriod; 4] = [Self::Today, Self::Week, Self::Month, Self::All];
+
+    pub fn key(self) -> char {
+        match self {
+            Self::Today => 'd',
+            Self::Week => 'w',
+            Self::Month => 'm',
+            Self::All => 'a',
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Today => "Today",
+            Self::Week => "This week",
+            Self::Month => "This month",
+            Self::All => "All time",
+        }
+    }
+
+    /// First day included in the period, or `None` for all time. Weeks start
+    /// on Sunday and months on the 1st, matching `Aggregator::weekly/monthly`
+    /// so the totals line up with the drill-down tables.
+    pub fn start(self, today: NaiveDate) -> Option<NaiveDate> {
+        match self {
+            Self::Today => Some(today),
+            Self::Week => {
+                Some(today - Duration::days(today.weekday().num_days_from_sunday() as i64))
+            }
+            Self::Month => today.with_day(1),
+            Self::All => None,
+        }
+    }
+}
+
+/// Sum each project's days on or after `since` into a `ProjectUsage`, so a
+/// period list can be built with `ProjectsData::from_project_usage`.
+/// Projects with no days in range are left out.
+pub fn usage_since(
+    daily: &HashMap<String, Vec<DailySummary>>,
+    since: NaiveDate,
+) -> HashMap<String, ProjectUsage> {
+    let mut out: HashMap<String, ProjectUsage> = HashMap::new();
+    for (key, days) in daily {
+        let mut in_range = days.iter().filter(|d| d.date >= since).peekable();
+        if in_range.peek().is_none() {
+            continue;
+        }
+        let usage = out.entry(key.clone()).or_default();
+        for day in in_range {
+            usage.input_tokens = usage.input_tokens.saturating_add(day.total_input_tokens);
+            usage.output_tokens = usage.output_tokens.saturating_add(day.total_output_tokens);
+            usage.cache_read_tokens = usage
+                .cache_read_tokens
+                .saturating_add(day.total_cache_read_tokens);
+            usage.cache_creation_tokens = usage
+                .cache_creation_tokens
+                .saturating_add(day.total_cache_creation_tokens);
+            usage.reasoning_tokens = usage
+                .reasoning_tokens
+                .saturating_add(day.total_reasoning_tokens);
+            usage.cost_usd += day.total_cost_usd;
+        }
+    }
+    out
 }
 
 /// A single project's rolled-up usage for display (pre-sorted).
@@ -101,6 +180,7 @@ pub struct ProjectsView<'a> {
     selected: Option<usize>,
     theme: Theme,
     tab: Tab,
+    period: ProjectPeriod,
     /// Shown in place of the keybindings (e.g. a failed root-folder save).
     error: Option<&'a str>,
 }
@@ -112,12 +192,18 @@ impl<'a> ProjectsView<'a> {
             selected,
             theme,
             tab: Tab::Projects,
+            period: ProjectPeriod::All,
             error: None,
         }
     }
 
     pub fn with_tab(mut self, tab: Tab) -> Self {
         self.tab = tab;
+        self
+    }
+
+    pub fn with_period(mut self, period: ProjectPeriod) -> Self {
+        self.period = period;
         self
     }
 
@@ -141,19 +227,21 @@ impl Widget for ProjectsView<'_> {
         let chunks = Layout::vertical([
             Constraint::Length(1), // 0: Tabs
             Constraint::Length(1), // 1: Separator
-            Constraint::Length(1), // 2: Header
-            Constraint::Fill(1),   // 3: Project rows
-            Constraint::Length(1), // 4: Separator
-            Constraint::Length(1), // 5: Keybindings
+            Constraint::Length(1), // 2: Period indicator
+            Constraint::Length(1), // 3: Header
+            Constraint::Fill(1),   // 4: Project rows
+            Constraint::Length(1), // 5: Separator
+            Constraint::Length(1), // 6: Keybindings
         ])
         .split(centered_area);
 
         TabBar::new(self.tab, self.theme).render(chunks[0], buf);
         self.render_separator(chunks[1], buf);
-        self.render_header(chunks[2], buf);
-        self.render_projects(chunks[3], buf);
-        self.render_separator(chunks[4], buf);
-        self.render_keybindings(chunks[5], buf);
+        self.render_period_indicator(chunks[2], buf);
+        self.render_header(chunks[3], buf);
+        self.render_projects(chunks[4], buf);
+        self.render_separator(chunks[5], buf);
+        self.render_keybindings(chunks[6], buf);
     }
 }
 
@@ -170,6 +258,37 @@ impl ProjectsView<'_> {
             &line,
             Style::default().fg(self.theme.muted()),
         );
+    }
+
+    fn render_period_indicator(&self, area: Rect, buf: &mut Buffer) {
+        let mut spans = Vec::new();
+        for period in ProjectPeriod::ALL {
+            if !spans.is_empty() {
+                spans.push(Span::raw("  "));
+            }
+            let style = if period == self.period {
+                Style::default()
+                    .fg(self.theme.accent())
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(self.theme.text())
+            };
+            spans.push(Span::styled(
+                format!("{}:{}", period.key(), period.label()),
+                style,
+            ));
+        }
+        spans.push(Span::styled(
+            "  │  ",
+            Style::default().fg(self.theme.muted()),
+        ));
+        spans.push(Span::styled(
+            format!("${:.2}", self.data.total_cost),
+            Style::default().fg(self.theme.cost()),
+        ));
+        Paragraph::new(Line::from(spans))
+            .alignment(Alignment::Center)
+            .render(area, buf);
     }
 
     fn render_header(&self, area: Rect, buf: &mut Buffer) {
@@ -200,8 +319,16 @@ impl ProjectsView<'_> {
         let height = area.height as usize;
         if height == 0 || self.data.projects.is_empty() {
             if self.data.projects.is_empty() {
+                let text = match self.period {
+                    ProjectPeriod::All => {
+                        "No project data yet — usage from supported CLIs populates this view."
+                    }
+                    ProjectPeriod::Today => "No project usage today.",
+                    ProjectPeriod::Week => "No project usage this week.",
+                    ProjectPeriod::Month => "No project usage this month.",
+                };
                 let msg = Paragraph::new(Line::from(Span::styled(
-                    "No project data yet — usage from supported CLIs populates this view.",
+                    text,
                     Style::default().fg(self.theme.muted()),
                 )))
                 .alignment(Alignment::Center);
@@ -235,8 +362,9 @@ impl ProjectsView<'_> {
             };
             let bar = format_percentage_bar(percent, 12);
 
-            // Root rows reserve two columns of the name cell for " ★".
-            let star = if project.is_root { " ★" } else { "" };
+            // Root rows reserve two columns of the name cell for " *". ASCII
+            // rather than "★", which CJK terminals may draw two cells wide.
+            let star = if project.is_root { " *" } else { "" };
             let max_name = 32 - star.chars().count();
             let name = if project.display.chars().count() > max_name {
                 format!(
@@ -311,6 +439,9 @@ impl ProjectsView<'_> {
             Span::raw("  "),
             Span::styled("*", Style::default().fg(self.theme.accent())),
             Span::styled(": Root", Style::default().fg(self.theme.muted())),
+            Span::raw("  "),
+            Span::styled("d/w/m/a", Style::default().fg(self.theme.accent())),
+            Span::styled(": Period", Style::default().fg(self.theme.muted())),
             Span::raw("  "),
             Span::styled("Tab", Style::default().fg(self.theme.accent())),
             Span::styled(": Switch view", Style::default().fg(self.theme.muted())),
@@ -426,8 +557,8 @@ mod tests {
             .collect();
         let repo = rows.iter().find(|r| r.contains("w/repo")).unwrap();
         let other = rows.iter().find(|r| r.contains("w/other")).unwrap();
-        assert!(repo.contains("★"));
-        assert!(!other.contains("★"));
+        assert!(repo.contains("repo *"));
+        assert!(!other.contains("other *"));
         // The star must not shift the numeric columns.
         let dollar_col = |row: &str| row.chars().position(|c| c == '$');
         assert_eq!(dollar_col(repo), dollar_col(other));
@@ -445,6 +576,104 @@ mod tests {
             .map(|x| buf[(x, area.height - 1)].symbol())
             .collect();
         assert!(footer.contains("disk full"));
+    }
+
+    fn oct(day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(2026, 10, day).unwrap()
+    }
+
+    fn day_summary(date: NaiveDate, input: u64, cost: f64) -> DailySummary {
+        DailySummary {
+            date,
+            total_input_tokens: input,
+            total_output_tokens: 0,
+            total_cache_read_tokens: 0,
+            total_cache_creation_tokens: 0,
+            total_reasoning_tokens: 0,
+            total_cache_creation_5m_tokens: 0,
+            total_cache_creation_1h_tokens: 0,
+            total_web_search_requests: 0,
+            total_cost_usd: cost,
+            models: HashMap::new(),
+            projects: HashMap::new(),
+        }
+    }
+
+    fn render_rows(view: ProjectsView<'_>) -> Vec<String> {
+        let area = Rect::new(0, 0, 120, 20);
+        let mut buf = Buffer::empty(area);
+        view.render(area, &mut buf);
+        (0..area.height)
+            .map(|y| (0..area.width).map(|x| buf[(x, y)].symbol()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn test_project_period_start_dates() {
+        // 2026-10-30 is a Friday; weeks start on Sunday like Aggregator::weekly.
+        let today = oct(30);
+        assert_eq!(ProjectPeriod::Today.start(today), Some(oct(30)));
+        assert_eq!(ProjectPeriod::Week.start(today), Some(oct(25)));
+        assert_eq!(ProjectPeriod::Month.start(today), Some(oct(1)));
+        assert_eq!(ProjectPeriod::All.start(today), None);
+        // A Sunday starts its own week.
+        assert_eq!(ProjectPeriod::Week.start(oct(25)), Some(oct(25)));
+    }
+
+    #[test]
+    fn test_project_period_default_is_all() {
+        assert_eq!(ProjectPeriod::default(), ProjectPeriod::All);
+    }
+
+    #[test]
+    fn test_usage_since_sums_days_on_or_after_start() {
+        let mut daily: HashMap<String, Vec<DailySummary>> = HashMap::new();
+        daily.insert(
+            "/w/a".to_string(),
+            vec![
+                day_summary(oct(24), 1000, 1.0),
+                day_summary(oct(25), 100, 0.25),
+                day_summary(oct(30), 10, 0.5),
+            ],
+        );
+        daily.insert("/w/old".to_string(), vec![day_summary(oct(1), 50, 2.0)]);
+
+        let usage = usage_since(&daily, oct(25));
+        assert_eq!(usage.len(), 1);
+        let a = usage.get("/w/a").unwrap();
+        assert_eq!(a.total_tokens(), 110);
+        assert!((a.cost_usd - 0.75).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_projects_view_shows_period_indicator_and_total() {
+        let mut map: HashMap<String, ProjectUsage> = HashMap::new();
+        map.insert("/w/repo".to_string(), usage(1.5, 100));
+        let data = ProjectsData::from_project_usage(&map, &[]);
+        let rows = render_rows(
+            ProjectsView::new(&data, Some(0), Theme::Dark).with_period(ProjectPeriod::Week),
+        );
+        let indicator = rows.iter().find(|r| r.contains("w:This week")).unwrap();
+        assert!(indicator.contains("d:Today"));
+        assert!(indicator.contains("m:This month"));
+        assert!(indicator.contains("a:All time"));
+        assert!(indicator.contains("$1.50"));
+    }
+
+    #[test]
+    fn test_projects_view_empty_period_message() {
+        let data = ProjectsData::default();
+        let rows = render_rows(
+            ProjectsView::new(&data, None, Theme::Dark).with_period(ProjectPeriod::Today),
+        );
+        assert!(rows.iter().any(|r| r.contains("No project usage today")));
+    }
+
+    #[test]
+    fn test_projects_view_footer_lists_period_keys() {
+        let data = ProjectsData::default();
+        let rows = render_rows(ProjectsView::new(&data, None, Theme::Dark));
+        assert!(rows.last().unwrap().contains("d/w/m/a"));
     }
 
     #[test]

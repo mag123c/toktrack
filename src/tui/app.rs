@@ -32,7 +32,7 @@ use super::widgets::{
     model_breakdown::{ModelBreakdownPopup, ModelBreakdownState},
     models::ModelsData,
     overview::{Overview, OverviewData},
-    projects::{project_display_name, ProjectsData, ProjectsView},
+    projects::{project_display_name, usage_since, ProjectPeriod, ProjectsData, ProjectsView},
     quit_confirm::{QuitConfirmPopup, QuitConfirmState},
     source_detail::SourceDetailView,
     spinner::{LoadingStage, Spinner},
@@ -105,8 +105,10 @@ pub struct AppData {
     pub source_models_data: HashMap<String, ModelsData>,
     /// Per-source stats data
     pub source_stats_data: HashMap<String, StatsData>,
-    /// High-level per-project usage list (Projects tab).
+    /// High-level per-project usage list (Projects tab), all time.
     pub projects_data: ProjectsData,
+    /// Project lists scoped to Today / This week / This month.
+    pub period_projects_data: HashMap<ProjectPeriod, ProjectsData>,
     /// Per-project daily data, keyed by raw project identifier (drill-down).
     pub project_daily_data: HashMap<String, DailyData>,
     /// Per-project stats data, keyed by raw project identifier (drill-down).
@@ -132,6 +134,16 @@ impl AppData {
         self.projects_data = ProjectsData::from_project_usage(&usage, roots);
 
         let summaries = project_roots::collapse_daily(&self.raw_project_summaries, roots);
+        let today = Local::now().date_naive();
+        self.period_projects_data = ProjectPeriod::ALL
+            .into_iter()
+            .filter_map(|period| {
+                let since = period.start(today)?;
+                let usage = usage_since(&summaries, since);
+                Some((period, ProjectsData::from_project_usage(&usage, roots)))
+            })
+            .collect();
+
         self.project_daily_data.clear();
         self.project_stats_data.clear();
         for (project, days) in summaries {
@@ -141,6 +153,18 @@ impl AppData {
                 .insert(project, DailyData::from_daily_summaries(days));
         }
         self.applied_project_roots = roots.to_vec();
+    }
+
+    /// The project list for `period` (empty if nothing was built for it).
+    pub fn projects_for(&self, period: ProjectPeriod) -> &ProjectsData {
+        static EMPTY: ProjectsData = ProjectsData {
+            projects: Vec::new(),
+            total_cost: 0.0,
+        };
+        match period {
+            ProjectPeriod::All => &self.projects_data,
+            _ => self.period_projects_data.get(&period).unwrap_or(&EMPTY),
+        }
     }
 
     /// Apply the sort to every daily table: the aggregate one plus the
@@ -202,6 +226,8 @@ pub struct App {
     total_selected: bool,
     /// Selected row in the Projects tab list.
     project_selected: usize,
+    /// Time window the Projects tab list is scoped to.
+    project_period: ProjectPeriod,
     /// Project folders starred as roots (Projects tab folds subfolders in).
     project_roots: Vec<String>,
     /// Config file the roots are persisted to; `None` keeps them in memory
@@ -258,6 +284,7 @@ impl App {
             source_selected: 0,
             total_selected: false,
             project_selected: 0,
+            project_period: ProjectPeriod::default(),
             project_roots: Vec::new(),
             config_path: None,
             project_roots_error: None,
@@ -581,7 +608,11 @@ impl App {
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
                     if let AppState::Ready { data } = &self.state {
-                        let max = data.projects_data.projects.len().saturating_sub(1);
+                        let max = data
+                            .projects_for(self.project_period)
+                            .projects
+                            .len()
+                            .saturating_sub(1);
                         if self.project_selected < max {
                             self.project_selected += 1;
                         }
@@ -589,6 +620,10 @@ impl App {
                 }
                 KeyCode::Enter => self.open_project_detail(),
                 KeyCode::Char('*') => self.toggle_selected_project_root(),
+                KeyCode::Char('d') => self.set_project_period(ProjectPeriod::Today),
+                KeyCode::Char('w') => self.set_project_period(ProjectPeriod::Week),
+                KeyCode::Char('m') => self.set_project_period(ProjectPeriod::Month),
+                KeyCode::Char('a') => self.set_project_period(ProjectPeriod::All),
                 _ => {}
             },
             Tab::Stats | Tab::Models | Tab::Audit => {
@@ -620,7 +655,11 @@ impl App {
         let AppState::Ready { data } = &self.state else {
             return;
         };
-        let Some(project) = data.projects_data.projects.get(self.project_selected) else {
+        let Some(project) = data
+            .projects_for(self.project_period)
+            .projects
+            .get(self.project_selected)
+        else {
             return;
         };
         if project.key == NO_PROJECT {
@@ -643,7 +682,7 @@ impl App {
         // Keep the cursor on the toggled project, or on the root it folded into.
         if let AppState::Ready { data } = &self.state {
             let shown = project_roots::root_for(&key, &self.project_roots).unwrap_or(&key);
-            let projects = &data.projects_data.projects;
+            let projects = &data.projects_for(self.project_period).projects;
             self.project_selected = projects
                 .iter()
                 .position(|p| p.key == shown)
@@ -666,16 +705,46 @@ impl App {
         Ok(config.project_roots)
     }
 
+    /// Re-scope the Projects list to `period`, keeping the cursor on the same
+    /// project when it is listed there and on the first row otherwise.
+    fn set_project_period(&mut self, period: ProjectPeriod) {
+        if let AppState::Ready { data } = &self.state {
+            let selected = data
+                .projects_for(self.project_period)
+                .projects
+                .get(self.project_selected)
+                .map(|p| p.key.as_str());
+            self.project_selected = data
+                .projects_for(period)
+                .projects
+                .iter()
+                .position(|p| Some(p.key.as_str()) == selected)
+                .unwrap_or(0);
+        }
+        self.project_period = period;
+    }
+
     /// Enter the per-project drill-down for the currently selected project.
     fn open_project_detail(&mut self) {
         let AppState::Ready { data } = &self.state else {
             return;
         };
-        let Some(project) = data.projects_data.projects.get(self.project_selected) else {
+        let Some(project) = data
+            .projects_for(self.project_period)
+            .projects
+            .get(self.project_selected)
+        else {
             return;
         };
         let key = project.key.clone();
 
+        // Open the drill-down at the granularity of the period being viewed.
+        match self.project_period {
+            ProjectPeriod::Today => self.daily_view_mode = DailyViewMode::Daily,
+            ProjectPeriod::Week => self.daily_view_mode = DailyViewMode::Weekly,
+            ProjectPeriod::Month => self.daily_view_mode = DailyViewMode::Monthly,
+            ProjectPeriod::All => {}
+        }
         self.view_mode = ViewMode::ProjectDetail { project: key };
         self.reset_detail_selection_and_scroll();
     }
@@ -882,6 +951,9 @@ impl App {
                 }
                 // Fresh loads arrive date-ascending; re-apply the user's sort.
                 data.apply_sort(self.sort_key, self.sort_direction);
+                // The fresh list (period lists especially) may be shorter.
+                let rows = data.projects_for(self.project_period).projects.len();
+                self.project_selected = self.project_selected.min(rows.saturating_sub(1));
                 self.state = AppState::Ready { data };
                 self.reset_detail_selection_and_scroll();
                 // Fresh data invalidates any previously computed audit.
@@ -1110,11 +1182,12 @@ impl Widget for &App {
                         }
                         Tab::Projects => {
                             ProjectsView::new(
-                                &data.projects_data,
+                                data.projects_for(self.project_period),
                                 Some(self.project_selected),
                                 self.theme,
                             )
                             .with_tab(*tab)
+                            .with_period(self.project_period)
                             .with_error(self.project_roots_error.as_deref())
                             .render(area, buf);
                         }
@@ -1349,6 +1422,7 @@ fn build_app_data_from_summaries(
         source_models_data,
         source_stats_data,
         projects_data: ProjectsData::default(),
+        period_projects_data: HashMap::new(),
         project_daily_data: HashMap::new(),
         project_stats_data: HashMap::new(),
         raw_project_usage,
@@ -1505,6 +1579,7 @@ mod tests {
                 source_models_data: HashMap::new(),
                 source_stats_data: HashMap::new(),
                 projects_data: Default::default(),
+                period_projects_data: HashMap::new(),
                 project_daily_data: HashMap::new(),
                 project_stats_data: HashMap::new(),
                 raw_project_usage: HashMap::new(),
@@ -2083,6 +2158,7 @@ mod tests {
             source_models_data: HashMap::new(),
             source_stats_data: HashMap::new(),
             projects_data: Default::default(),
+            period_projects_data: HashMap::new(),
             project_daily_data: HashMap::new(),
             project_stats_data: HashMap::new(),
             raw_project_usage: HashMap::new(),
@@ -2698,6 +2774,156 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "not = [valid");
     }
 
+    /// Build a Ready app whose per-project usage falls on the given days
+    /// (`(date, project, input tokens, cost)`), through the production builder.
+    fn ready_app_with_dated_projects(rows: &[(NaiveDate, &str, u64, f64)]) -> App {
+        let mut by_date: std::collections::BTreeMap<NaiveDate, DailySummary> =
+            std::collections::BTreeMap::new();
+        for &(date, key, input, cost) in rows {
+            let summary = by_date.entry(date).or_insert_with(|| DailySummary {
+                date,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                total_cache_read_tokens: 0,
+                total_cache_creation_tokens: 0,
+                total_reasoning_tokens: 0,
+                total_cache_creation_5m_tokens: 0,
+                total_cache_creation_1h_tokens: 0,
+                total_web_search_requests: 0,
+                total_cost_usd: 0.0,
+                models: HashMap::new(),
+                projects: HashMap::new(),
+            });
+            summary.projects.insert(
+                key.to_string(),
+                crate::types::ProjectUsage {
+                    input_tokens: input,
+                    cost_usd: cost,
+                    count: 1,
+                    ..Default::default()
+                },
+            );
+            summary.total_input_tokens += input;
+            summary.total_cost_usd += cost;
+        }
+        let summaries = by_date.into_values().collect();
+        let data =
+            build_app_data_from_summaries(summaries, vec![], HashMap::new(), None, &[]).unwrap();
+        App {
+            state: AppState::Ready { data },
+            ..App::default()
+        }
+    }
+
+    fn visible_project_keys(app: &App) -> Vec<String> {
+        match &app.state {
+            AppState::Ready { data } => data
+                .projects_for(app.project_period)
+                .projects
+                .iter()
+                .map(|p| p.key.clone())
+                .collect(),
+            _ => panic!("app not ready"),
+        }
+    }
+
+    /// `today` holds /w/now and /w/both; a year ago holds /w/old and /w/both.
+    fn app_with_today_and_old_projects() -> App {
+        let today = Local::now().date_naive();
+        let old = today - chrono::Duration::days(400);
+        ready_app_with_dated_projects(&[
+            (today, "/w/now", 10, 1.0),
+            (today, "/w/both", 5, 0.5),
+            (old, "/w/old", 1000, 50.0),
+            (old, "/w/both", 1000, 40.0),
+        ])
+    }
+
+    #[test]
+    fn test_period_keys_rescope_project_list() {
+        let mut app = app_with_today_and_old_projects();
+        press(&mut app, KeyCode::Char('4'));
+        assert_eq!(app.project_period, ProjectPeriod::All);
+        assert_eq!(
+            visible_project_keys(&app),
+            vec!["/w/old", "/w/both", "/w/now"]
+        );
+
+        press(&mut app, KeyCode::Char('d'));
+        assert_eq!(app.project_period, ProjectPeriod::Today);
+        assert_eq!(visible_project_keys(&app), vec!["/w/now", "/w/both"]);
+        match &app.state {
+            AppState::Ready { data } => {
+                let today = data.projects_for(ProjectPeriod::Today);
+                assert!((today.total_cost - 1.5).abs() < 1e-9);
+            }
+            _ => unreachable!(),
+        }
+
+        press(&mut app, KeyCode::Char('w'));
+        assert_eq!(app.project_period, ProjectPeriod::Week);
+        assert_eq!(visible_project_keys(&app), vec!["/w/now", "/w/both"]);
+        press(&mut app, KeyCode::Char('m'));
+        assert_eq!(app.project_period, ProjectPeriod::Month);
+        assert_eq!(visible_project_keys(&app), vec!["/w/now", "/w/both"]);
+
+        press(&mut app, KeyCode::Char('a'));
+        assert_eq!(app.project_period, ProjectPeriod::All);
+        assert_eq!(visible_project_keys(&app).len(), 3);
+        // Period keys on the Projects tab leave the drill-down granularity alone.
+        assert_eq!(app.daily_view_mode, DailyViewMode::Daily);
+    }
+
+    #[test]
+    fn test_period_switch_keeps_selected_project_or_resets() {
+        let mut app = app_with_today_and_old_projects();
+        press(&mut app, KeyCode::Char('4'));
+        app.project_selected = 1; // /w/both
+        press(&mut app, KeyCode::Char('d'));
+        assert_eq!(visible_project_keys(&app)[app.project_selected], "/w/both");
+
+        press(&mut app, KeyCode::Char('a'));
+        app.project_selected = 0; // /w/old, absent today
+        press(&mut app, KeyCode::Char('d'));
+        assert_eq!(app.project_selected, 0);
+    }
+
+    #[test]
+    fn test_period_navigation_and_drill_down_use_period_list() {
+        let mut app = app_with_today_and_old_projects();
+        press(&mut app, KeyCode::Char('4'));
+        press(&mut app, KeyCode::Char('w'));
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Down);
+        assert_eq!(app.project_selected, 1);
+
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(
+            app.view_mode,
+            ViewMode::ProjectDetail {
+                project: "/w/both".to_string()
+            }
+        );
+        // The drill-down opens at the granularity of the period being viewed.
+        assert_eq!(app.daily_view_mode, DailyViewMode::Weekly);
+
+        press(&mut app, KeyCode::Esc);
+        press(&mut app, KeyCode::Char('m'));
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.daily_view_mode, DailyViewMode::Monthly);
+    }
+
+    #[test]
+    fn test_star_in_period_view_targets_period_row() {
+        let mut app = app_with_today_and_old_projects();
+        press(&mut app, KeyCode::Char('4'));
+        press(&mut app, KeyCode::Char('d'));
+        app.project_selected = 1; // /w/both in the Today list
+        press(&mut app, KeyCode::Char('*'));
+        assert_eq!(app.project_roots, vec!["/w/both"]);
+        assert_eq!(visible_project_keys(&app)[app.project_selected], "/w/both");
+    }
+
     #[test]
     fn test_loader_builds_with_current_project_roots() {
         let data = build_app_data_from_summaries(
@@ -2723,6 +2949,20 @@ mod tests {
         };
         app.apply_data_result(Ok(data));
         assert_eq!(project_rows(&app), vec![("/w/repo".to_string(), 15, true)]);
+    }
+
+    #[test]
+    fn test_fresh_data_load_clamps_project_selection() {
+        let mut app = app_with_today_and_old_projects();
+        press(&mut app, KeyCode::Char('4'));
+        press(&mut app, KeyCode::Char('d'));
+        app.project_selected = 1;
+        let fresh = ready_app_with_one_project("/w/now");
+        let AppState::Ready { data } = fresh.state else {
+            unreachable!()
+        };
+        app.apply_data_result(Ok(data));
+        assert_eq!(app.project_selected, 0);
     }
 
     #[test]
@@ -2788,6 +3028,7 @@ mod tests {
             source_models_data: HashMap::new(),
             source_stats_data: HashMap::new(),
             projects_data: Default::default(),
+            period_projects_data: HashMap::new(),
             project_daily_data: HashMap::new(),
             project_stats_data: HashMap::new(),
             raw_project_usage: HashMap::new(),
