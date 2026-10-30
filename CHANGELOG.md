@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.18.0](https://github.com/mag123c/toktrack/compare/v2.17.5...v2.18.0) (2026-10-30)
+
+
+### Features
+
+* **tui:** select overview total to drill into all sources ([#279](https://github.com/mag123c/toktrack/issues/279)) ([f689780](https://github.com/mag123c/toktrack/commit/f689780a4e57a11e5e831e0cdb070c13b0b6b6c7))
+* **tui:** star project root folders to fold subfolders ([#278](https://github.com/mag123c/toktrack/issues/278)) ([0f99051](https://github.com/mag123c/toktrack/commit/0f99051def36394898ec264e1fe10279c219bc08))
+
 ## [2.17.5](https://github.com/mag123c/toktrack/compare/v2.17.4...v2.17.5) (2026-10-20)
 
 
