@@ -19,6 +19,11 @@
 //! equals `Σ(inputTokens − cacheReadTokens − cacheWriteTokens)` exactly, so
 //! that difference is the v2 `input_tokens`. Cline reports no reasoning count.
 //!
+//! Fork / checkpoint-restore sessions are seeded with the parent's messages and
+//! imported sessions carry another tool's usage, both with metrics intact. The
+//! session record's `metadata.fork.forkedAt` / `metadata.importedFrom.importedAt`
+//! mark where new usage starts; earlier messages are skipped.
+//!
 //! The legacy VS Code `globalStorage/saoudrizwan.claude-dev/tasks/` layout is
 //! not read.
 
@@ -36,6 +41,8 @@ const MESSAGES_SUFFIX: &str = ".messages.json";
 /// message's `content` are skipped by serde without being materialized.
 #[derive(Deserialize)]
 struct ClineMessagesFile<'a> {
+    #[serde(default, deserialize_with = "lenient_u64")]
+    version: Option<u64>,
     #[serde(default, borrow)]
     messages: Vec<ClineMessage<'a>>,
 }
@@ -45,7 +52,7 @@ struct ClineMessage<'a> {
     #[serde(default, borrow)]
     id: Option<Cow<'a, str>>,
     /// Epoch milliseconds.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_i64")]
     ts: Option<i64>,
     #[serde(default, borrow, rename = "modelInfo")]
     model_info: Option<ClineModelInfo<'a>>,
@@ -61,21 +68,75 @@ struct ClineModelInfo<'a> {
     provider: Option<Cow<'a, str>>,
 }
 
-/// Fields are optional so a single `null` cannot fail the whole file.
+/// A number-ish JSON value of any shape; anything else is ignored.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Lenient {
+    Int(i64),
+    Uint(u64),
+    Float(f64),
+    Other(serde::de::IgnoredAny),
+}
+
+impl Lenient {
+    fn as_f64(&self) -> Option<f64> {
+        match *self {
+            Lenient::Int(v) => Some(v as f64),
+            Lenient::Uint(v) => Some(v as f64),
+            Lenient::Float(v) if v.is_finite() => Some(v),
+            _ => None,
+        }
+    }
+}
+
+/// Token counts: integers pass through; floats truncate; negatives, strings
+/// and other shapes become `None` instead of failing the whole file.
+fn lenient_u64<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<u64>, D::Error> {
+    Ok(match Option::<Lenient>::deserialize(d)? {
+        Some(Lenient::Uint(v)) => Some(v),
+        Some(Lenient::Int(v)) => u64::try_from(v).ok(),
+        Some(l @ Lenient::Float(_)) => l.as_f64().filter(|f| *f >= 0.0).map(|f| f as u64),
+        _ => None,
+    })
+}
+
+/// Timestamps: a non-numeric `ts` falls back to the session start.
+fn lenient_i64<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<i64>, D::Error> {
+    Ok(match Option::<Lenient>::deserialize(d)? {
+        Some(Lenient::Int(v)) => Some(v),
+        Some(Lenient::Uint(v)) => i64::try_from(v).ok(),
+        Some(l @ Lenient::Float(_)) => l.as_f64().map(|f| f as i64),
+        _ => None,
+    })
+}
+
+/// Cost: any finite number; everything else stays unknown.
+fn lenient_f64<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<f64>, D::Error> {
+    Ok(Option::<Lenient>::deserialize(d)?.and_then(|l| l.as_f64()))
+}
+
+/// Fields are optional and lenient: a `null`, float, negative or string value
+/// drops only that field, never the whole file.
 #[derive(Deserialize, Default, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
 struct ClineMetrics {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_u64")]
     input_tokens: Option<u64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_u64")]
     output_tokens: Option<u64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_u64")]
     cache_read_tokens: Option<u64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_u64")]
     cache_write_tokens: Option<u64>,
     /// `None` when absent: a missing figure must stay unknown rather than
     /// become a confident $0.00 that suppresses the estimated-cost fallback.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_f64")]
     cost: Option<f64>,
 }
 
@@ -92,6 +153,46 @@ struct ClineSessionRecord {
     cwd: Option<String>,
     #[serde(default)]
     workspace_root: Option<String>,
+    #[serde(default)]
+    metadata: Option<ClineSessionMetadata>,
+}
+
+/// Markers of sessions seeded with another session's messages.
+#[derive(Deserialize, Default)]
+struct ClineSessionMetadata {
+    #[serde(default)]
+    fork: Option<ClineSeedMarker>,
+    #[serde(default, rename = "importedFrom")]
+    imported_from: Option<ClineSeedMarker>,
+}
+
+/// `fork.forkedAt` / `importedFrom.importedAt` (ISO strings).
+#[derive(Deserialize, Default)]
+struct ClineSeedMarker {
+    #[serde(default, rename = "forkedAt")]
+    forked_at: Option<String>,
+    #[serde(default, rename = "importedAt")]
+    imported_at: Option<String>,
+}
+
+impl ClineSessionRecord {
+    /// Messages stamped before this instant were copied in from a parent
+    /// session (fork / checkpoint restore) or another tool (import). Their
+    /// usage is already counted under the original session or source.
+    fn seed_cutoff(&self) -> Option<DateTime<Utc>> {
+        let meta = self.metadata.as_ref()?;
+        let parse = |s: &Option<String>| {
+            s.as_deref()
+                .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                .map(|dt| dt.with_timezone(&Utc))
+        };
+        let forked = meta.fork.as_ref().and_then(|m| parse(&m.forked_at));
+        let imported = meta
+            .imported_from
+            .as_ref()
+            .and_then(|m| parse(&m.imported_at));
+        forked.max(imported)
+    }
 }
 
 /// v2 token fields derived from one message's `metrics`.
@@ -153,32 +254,42 @@ fn has_usage(m: &ClineMetrics) -> bool {
 
 /// Parser for Cline usage data
 pub struct ClineParser {
-    /// `~/.cline/data` (or an override). Sessions live under `sessions/`.
-    data_dir: PathBuf,
+    /// The sessions directory: `CLINE_SESSION_DATA_DIR`, else `<data>/sessions`.
+    sessions_dir: PathBuf,
 }
 
 impl ClineParser {
     /// Create a parser with the default data directory.
     ///
-    /// Honors `CLINE_DATA_DIR` (replaces `~/.cline/data`), then `CLINE_DIR`
+    /// Honors `CLINE_SESSION_DATA_DIR` (the sessions directory itself), then
+    /// `CLINE_DATA_DIR` (replaces `~/.cline/data`), then `CLINE_DIR`
     /// (replaces `~/.cline`, data under `data/`) — the upstream variables.
     pub fn new() -> Self {
-        let data_dir = super::discovery::first_env_dir(&["CLINE_DATA_DIR"])
-            .or_else(|| super::discovery::first_env_dir(&["CLINE_DIR"]).map(|d| d.join("data")))
+        let sessions_dir = super::discovery::first_env_dir(&["CLINE_SESSION_DATA_DIR"])
             .or_else(|| {
-                directories::BaseDirs::new().map(|d| d.home_dir().join(".cline").join("data"))
+                super::discovery::first_env_dir(&["CLINE_DATA_DIR"])
+                    .or_else(|| {
+                        super::discovery::first_env_dir(&["CLINE_DIR"]).map(|d| d.join("data"))
+                    })
+                    .or_else(|| {
+                        directories::BaseDirs::new()
+                            .map(|d| d.home_dir().join(".cline").join("data"))
+                    })
+                    .map(|d| d.join("sessions"))
             })
             .unwrap_or_else(|| {
                 eprintln!("[toktrack] Warning: Could not determine home directory");
                 PathBuf::from(".")
             });
-        Self { data_dir }
+        Self { sessions_dir }
     }
 
     /// Create a parser rooted at a custom data directory (for testing).
     #[allow(dead_code)] // Used in tests
     pub fn with_data_dir(data_dir: PathBuf) -> Self {
-        Self { data_dir }
+        Self {
+            sessions_dir: data_dir.join("sessions"),
+        }
     }
 
     /// Session id from `<id>.messages.json`.
@@ -206,6 +317,14 @@ impl ClineParser {
         let parsed: ClineMessagesFile = simd_json::from_slice(&mut bytes)
             .map_err(|e| ToktrackError::Parse(format!("Cline messages {:?}: {}", path, e)))?;
 
+        if let Some(v) = parsed.version.filter(|v| *v != 1) {
+            eprintln!(
+                "[toktrack] Warning: Cline messages {:?} use format version {} (expected 1); \
+                 token fields may have changed",
+                path, v
+            );
+        }
+
         let session_id = Self::session_id(path);
         let record = Self::session_record(path, session_id.as_deref());
         let project = non_empty(record.cwd.as_deref())
@@ -217,6 +336,8 @@ impl ClineParser {
             .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.with_timezone(&Utc));
 
+        let seed_cutoff = record.seed_cutoff();
+
         let mut entries = Vec::new();
         let mut dropped = 0usize;
         let mut drifted = 0usize;
@@ -225,11 +346,11 @@ impl ClineParser {
             let Some(metrics) = msg.metrics.filter(has_usage) else {
                 continue;
             };
-            let Some(timestamp) = msg
-                .ts
-                .and_then(|ms| Utc.timestamp_millis_opt(ms).single())
-                .or(fallback_ts)
-            else {
+            let own_ts = msg.ts.and_then(|ms| Utc.timestamp_millis_opt(ms).single());
+            if matches!((own_ts, seed_cutoff), (Some(ts), Some(cutoff)) if ts < cutoff) {
+                continue;
+            }
+            let Some(timestamp) = own_ts.or(fallback_ts) else {
                 dropped += 1;
                 continue;
             };
@@ -297,11 +418,11 @@ impl CLIParser for ClineParser {
     }
 
     fn data_dir(&self) -> &Path {
-        &self.data_dir
+        &self.sessions_dir
     }
 
     fn file_pattern(&self) -> &str {
-        "sessions/*/*.messages.json"
+        "*/*.messages.json"
     }
 
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>> {
@@ -351,7 +472,7 @@ mod tests {
     fn test_parser_name_and_pattern() {
         let p = parser();
         assert_eq!(p.name(), "cline");
-        assert_eq!(p.file_pattern(), "sessions/*/*.messages.json");
+        assert_eq!(p.file_pattern(), "*/*.messages.json");
     }
 
     #[test]
@@ -370,6 +491,8 @@ mod tests {
                 "1793100000000_ccccc.messages.json",
                 "1793200000000_ddddd.messages.json",
                 "1793300000000_eeeee.messages.json",
+                "1793400000000_fffff.messages.json",
+                "1793500000000_ggggg.messages.json",
             ],
             "session records (<id>.json) must not be collected as message files"
         );
@@ -525,7 +648,7 @@ mod tests {
             .parse_file(&session_file("1793200000000_ddddd"))
             .is_err());
         let entries = parser().parse_all().unwrap();
-        assert_eq!(entries.len(), 8);
+        assert_eq!(entries.len(), 10);
     }
 
     #[test]
@@ -569,7 +692,7 @@ mod tests {
 
         let files = parser().collect_files();
         let doubled: Vec<PathBuf> = files.iter().chain(files.iter()).cloned().collect();
-        assert_eq!(parser().parse_and_dedup(&doubled).unwrap().len(), 8);
+        assert_eq!(parser().parse_and_dedup(&doubled).unwrap().len(), 10);
     }
 
     /// Numbers from disk are untrusted: extreme values must not panic inside
@@ -612,7 +735,9 @@ mod tests {
     fn test_data_dir_env_precedence() {
         let saved_data = std::env::var("CLINE_DATA_DIR").ok();
         let saved_dir = std::env::var("CLINE_DIR").ok();
+        let saved_sessions = std::env::var("CLINE_SESSION_DATA_DIR").ok();
 
+        std::env::remove_var("CLINE_SESSION_DATA_DIR");
         std::env::remove_var("CLINE_DATA_DIR");
         std::env::set_var("CLINE_DIR", "/tmp/toktrack-cline-root");
         let from_dir = ClineParser::new().data_dir().to_path_buf();
@@ -620,6 +745,13 @@ mod tests {
         std::env::set_var("CLINE_DATA_DIR", "/tmp/toktrack-cline-data");
         let from_data = ClineParser::new().data_dir().to_path_buf();
 
+        std::env::set_var("CLINE_SESSION_DATA_DIR", "/tmp/toktrack-cline-sessions");
+        let from_sessions = ClineParser::new().data_dir().to_path_buf();
+
+        match saved_sessions {
+            Some(v) => std::env::set_var("CLINE_SESSION_DATA_DIR", v),
+            None => std::env::remove_var("CLINE_SESSION_DATA_DIR"),
+        }
         match saved_data {
             Some(v) => std::env::set_var("CLINE_DATA_DIR", v),
             None => std::env::remove_var("CLINE_DATA_DIR"),
@@ -629,8 +761,78 @@ mod tests {
             None => std::env::remove_var("CLINE_DIR"),
         }
 
-        assert_eq!(from_dir, PathBuf::from("/tmp/toktrack-cline-root/data"));
-        assert_eq!(from_data, PathBuf::from("/tmp/toktrack-cline-data"));
+        assert_eq!(
+            from_dir,
+            PathBuf::from("/tmp/toktrack-cline-root/data/sessions")
+        );
+        assert_eq!(
+            from_data,
+            PathBuf::from("/tmp/toktrack-cline-data/sessions")
+        );
+        assert_eq!(from_sessions, PathBuf::from("/tmp/toktrack-cline-sessions"));
+    }
+
+    /// A fork copies the parent's messages (metrics intact); only messages
+    /// stamped at/after `fork.forkedAt` are new usage.
+    #[test]
+    fn test_forked_session_skips_messages_inherited_from_parent() {
+        let entries = parser()
+            .parse_file(&session_file("1793400000000_fffff"))
+            .unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].message_id.as_deref(), Some("msg_forknew01"));
+        assert_eq!(entries[0].input_tokens, 1000);
+    }
+
+    /// Imported sessions carry another tool's usage (with `cost: 0` from
+    /// Claude/Codex); toktrack already reads those tools directly.
+    #[test]
+    fn test_imported_session_skips_messages_before_import() {
+        let entries = parser()
+            .parse_file(&session_file("1793500000000_ggggg"))
+            .unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].message_id.as_deref(), Some("msg_impnew01"));
+    }
+
+    fn parse_inline(json: &str) -> (Vec<UsageEntry>, tempfile::TempDir) {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("sessions").join("s1");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("s1.messages.json");
+        std::fs::write(&file, json).unwrap();
+        let entries = ClineParser::with_data_dir(temp.path().to_path_buf())
+            .parse_file(&file)
+            .unwrap();
+        (entries, temp)
+    }
+
+    /// One bad value must not drop the whole file.
+    #[test]
+    fn test_bad_values_degrade_per_field_not_per_file() {
+        let (entries, _t) = parse_inline(
+            r#"{"version":"x","messages":[
+{"id":"a","ts":"yesterday","metrics":{"inputTokens":10.0,"outputTokens":-5,"cacheReadTokens":"7","cost":"free"}},
+{"id":"b","ts":1793000000000,"metrics":{"inputTokens":20,"outputTokens":2}}]}"#,
+        );
+        // "a": ts unusable and no session record -> dropped; "b" survives.
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].message_id.as_deref(), Some("b"));
+
+        let (entries, _t) = parse_inline(
+            r#"{"messages":[{"id":"a","ts":1793000000000,"metrics":{"inputTokens":10.0,"outputTokens":-5,"cost":"free"}}]}"#,
+        );
+        assert_eq!(entries[0].input_tokens, 10);
+        assert_eq!(entries[0].output_tokens, 0);
+        assert_eq!(entries[0].cost_usd, None);
+    }
+
+    #[test]
+    fn test_unexpected_version_still_parses() {
+        let (entries, _t) = parse_inline(
+            r#"{"version":2,"messages":[{"id":"a","ts":1793000000000,"metrics":{"inputTokens":10}}]}"#,
+        );
+        assert_eq!(entries.len(), 1);
     }
 
     #[test]
