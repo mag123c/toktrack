@@ -14,7 +14,7 @@
 
 **The token & cost tracker that never loses your history.** Most tools re-read your CLI's session files on every run — so when Claude Code deletes them after 30 days, your cost history goes with them. toktrack keeps a **persistent cache**, so your history survives.
 
-Track usage across **all your AI coding CLIs** — Claude Code, GitHub Copilot CLI, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, Antigravity, and Grok CLI — in one dashboard. Built in Rust, so it stays fast even on huge histories (simd-json + rayon).
+Track usage across **all your AI coding CLIs** — Claude Code, GitHub Copilot CLI, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, Antigravity, Grok CLI, and Cline — in one dashboard. Built in Rust, so it stays fast even on huge histories (simd-json + rayon).
 
 ![toktrack overview](assets/demo.gif)
 
@@ -23,13 +23,13 @@ Track usage across **all your AI coding CLIs** — Claude Code, GitHub Copilot C
 | Problem | Solution |
 |---------|----------|
 | 🗑️ **Claude Code deletes data after 30 days** — your cost history disappears | 💾 **Persistent cache** — history survives even after the CLI deletes its files |
-| 📊 **No unified view** — each CLI keeps its own separate data | 🎯 **One dashboard** — Claude Code, Copilot, Codex, Gemini, Qwen, OpenCode, PI Agent, Grok in one place |
+| 📊 **No unified view** — each CLI keeps its own separate data | 🎯 **One dashboard** — Claude Code, Copilot, Codex, Gemini, Qwen, OpenCode, PI Agent, Grok, Cline in one place |
 | 🐌 **Re-scanning big histories is slow** | ⚡ **Cached queries in ~0.04s** — instant on every run |
 
 ## Features
 
 - **Data Preservation** — Persistent cache keeps your cost history even after a CLI deletes its own session files
-- **Multi-CLI Support** — Claude Code, GitHub Copilot CLI, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, Antigravity, Grok CLI in one place
+- **Multi-CLI Support** — Claude Code, GitHub Copilot CLI, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, Antigravity, Grok CLI, Cline in one place
 - **TUI Dashboard** — 5 tabs (Overview, Stats, Models, Projects, Audit) with daily/weekly/monthly views
 - **Per-Project Breakdown** — the Projects tab shows token & cost usage per project (the session working directory), for CLIs that record one. Drill into any project for its day-by-day, per-model breakdown. Usage from CLIs that don't record a project is grouped under `(no project)`. Press `*` on a project to star it as a root folder: every project under it folds into its row (saved to `~/.toktrack/config.toml` as `project_roots`). Project details are cached, so they survive past the CLI's 30-day deletion
 - **CLI Commands** — `daily`, `weekly`, `monthly`, `stats` with JSON output support
@@ -214,11 +214,12 @@ existing snapshot/cache for that remote.
 | PI Agent | ✅ | `~/.pi/agent/sessions/` |
 | Antigravity | ✅ | `~/.gemini/antigravity-{ide,cli}/conversations/*.db` |
 | Grok CLI | ✅ | `~/.grok/sessions/*/*/updates.jsonl` |
+| Cline | ✅ | `~/.cline/data/sessions/*/*.messages.json` |
 
 > Costs from sources that don't record their own price (Gemini, Qwen, Codex, Antigravity, GitHub Copilot, and modern Claude logs)
 > are computed from [LiteLLM](https://github.com/BerriAI/litellm) API list-price estimates and shown with a `~` marker
 > (estimated). For GitHub Copilot CLI, the displayed value is the API-equivalent cost rather than your actual subscription/credit spend.
-> Sources that do record their own cost (Grok CLI, OpenCode, PI Agent, and older Claude logs) have it
+> Sources that do record their own cost (Grok CLI, Cline, OpenCode, PI Agent, and older Claude logs) have it
 > used verbatim rather than estimated. The `~` marker is per source, not per entry: if any one entry in
 > a source lacks an upstream cost, the whole source is marked estimated. A Grok turn that reports no
 > cost of its own falls back to the pricing table, which has no bare `grok-4.6` key, so it contributes
@@ -255,6 +256,7 @@ Each source's data directory can be overridden (matching the upstream CLI's own 
 | `OPENCODE_DATA_DIR` / `XDG_DATA_HOME` | OpenCode | `~/.local/share/opencode` |
 | `PI_CODING_AGENT_SESSION_DIR` (then `PI_AGENT_DIR`) | PI Agent | `~/.pi/agent/sessions` |
 | `GROK_HOME` | Grok CLI | `~/.grok` (+ `/sessions`) |
+| `CLINE_SESSION_DATA_DIR` (then `CLINE_DATA_DIR`, `CLINE_DIR`) | Cline | `~/.cline/data/sessions` (`CLINE_DATA_DIR` + `/sessions`, `CLINE_DIR` + `/data/sessions`) |
 
 ```bash
 export CLAUDE_CONFIG_DIR="/path/to/.claude"

@@ -1,0 +1,4 @@
+{"version":1,"messages":[
+{"id":"msg_compact01","role":"user","ts":1793600500000,"metadata":{"kind":"compaction","usageBefore":{"inputTokens":1000,"outputTokens":100,"cacheReadTokens":400,"cacheWriteTokens":100,"cost":0.5}}},
+{"id":"msg_jnew01","role":"assistant","ts":1793801000000,"modelInfo":{"id":"claude-opus-4.8","provider":"cline"},"metrics":{"inputTokens":50,"outputTokens":5,"cacheReadTokens":0,"cacheWriteTokens":0,"cost":0.01}}
+]}

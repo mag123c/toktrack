@@ -1,0 +1,5 @@
+{"version":1,"updated_at":"2026-10-27T10:00:00.000Z","agent":"lead","sessionId":"1793100000000_ccccc","messages":[
+{"id":"msg_nosessionfile","role":"assistant","content":[],"ts":1793100010000,"modelInfo":{"id":"openrouter/anthropic/claude-opus-5.5","provider":"openrouter"},"metrics":{"inputTokens":1200,"outputTokens":300,"cacheReadTokens":1000,"cacheWriteTokens":0,"cost":0.01}},
+{"id":"msg_notnested","role":"assistant","content":[],"ts":1793100020000,"modelInfo":{"id":"gpt-5.5","provider":"openai"},"metrics":{"inputTokens":500,"outputTokens":40,"cacheReadTokens":800,"cacheWriteTokens":0,"cost":0.002}},
+{"id":"msg_nots","role":"assistant","content":[],"modelInfo":{"id":"gpt-5.5","provider":"openai"},"metrics":{"inputTokens":10,"outputTokens":5,"cacheReadTokens":0,"cacheWriteTokens":0,"cost":0.0001}}
+]}

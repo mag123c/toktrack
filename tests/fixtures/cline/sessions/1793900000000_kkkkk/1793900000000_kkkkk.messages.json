@@ -1,0 +1,4 @@
+{"version":1,"messages":[
+{"id":"msg_seedroot","role":"assistant","ts":1792996792728,"modelInfo":{"id":"claude-sonnet-5.5","provider":"anthropic"},"metrics":{"inputTokens":9999,"outputTokens":99,"cacheReadTokens":0,"cacheWriteTokens":0,"cost":0.9}},
+{"id":"msg_same0001","role":"assistant","ts":1793900100000,"modelInfo":{"id":"claude-sonnet-5.5","provider":"anthropic"},"metrics":{"inputTokens":100,"outputTokens":10,"cacheReadTokens":0,"cacheWriteTokens":0,"cost":0.01}}
+]}
