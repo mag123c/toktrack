@@ -220,22 +220,36 @@ impl ConfigService {
         config.validate()?;
         // Replace the real file behind a symlinked config (dotfile managers),
         // not the link itself.
-        let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let target = resolve_save_target(path);
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent)?;
         }
-        let content = toml::to_string_pretty(config)
+        let fresh = toml::to_string_pretty(config)
             .map_err(|e| ToktrackError::Config(format!("failed to serialize config: {}", e)))?;
+        // Edit the existing file rather than rewriting it, so comments,
+        // formatting and keys this version doesn't know about survive. A file
+        // that can't be read or parsed here (callers load it first, so only a
+        // concurrent edit gets this far) is replaced by the fresh output.
+        let content = fs::read_to_string(&target)
+            .ok()
+            .and_then(|existing| merge_owned_keys(&existing, &fresh))
+            .unwrap_or(fresh);
         // Write a sibling temp file and rename it over the target, so a full
         // disk or a crash mid-write cannot leave a truncated config behind.
         let tmp = target.with_extension(format!("toml.{}.tmp", std::process::id()));
         let write = || -> std::io::Result<()> {
-            let mut file = fs::File::create(&tmp)?;
-            file.write_all(content.as_bytes())?;
-            // Keep the existing mode (e.g. 0600) instead of the umask default.
+            // A temp file left by an earlier crashed save would block create_new.
+            let _ = fs::remove_file(&tmp);
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&tmp)?;
+            // Keep the existing mode (e.g. 0600) instead of the umask default,
+            // and apply it before any content lands in the file.
             if let Ok(meta) = fs::metadata(&target) {
                 file.set_permissions(meta.permissions())?;
             }
+            file.write_all(content.as_bytes())?;
             file.sync_all()?;
             fs::rename(&tmp, &target)
         };
@@ -245,6 +259,93 @@ impl ConfigService {
         }
         Ok(())
     }
+}
+
+/// Top-level keys written by [`ToktrackConfig`]. Every other key in the file
+/// belongs to the user (or a newer toktrack) and is left alone on save.
+const OWNED_KEYS: [&str; 3] = ["default_remotes", "remotes", "project_roots"];
+
+/// Symlink hops followed when resolving a dangling config link.
+const MAX_SYMLINK_HOPS: usize = 40;
+
+/// The file a save should replace: `path` with its symlinks resolved.
+/// `canonicalize` needs the target to exist, so a dangling link is followed by
+/// hand; otherwise the first save would replace the link with a regular file.
+fn resolve_save_target(path: &Path) -> PathBuf {
+    if let Ok(real) = fs::canonicalize(path) {
+        return real;
+    }
+    let mut target = path.to_path_buf();
+    for _ in 0..MAX_SYMLINK_HOPS {
+        match fs::read_link(&target) {
+            Ok(next) => {
+                target = match target.parent() {
+                    Some(parent) => parent.join(next),
+                    None => next,
+                }
+            }
+            Err(_) => return target,
+        }
+    }
+    // Symlink loop: fall back to the path as given.
+    path.to_path_buf()
+}
+
+/// Apply the owned keys of `fresh` to `existing`, replacing only the keys
+/// whose value changed. A changed key is rewritten whole, so comments and
+/// unknown fields inside it (e.g. in one `[[remotes]]` entry) are not kept;
+/// everything outside it is. Returns `None` if either side fails to parse, so
+/// the caller falls back to writing `fresh` as is.
+fn merge_owned_keys(existing: &str, fresh: &str) -> Option<String> {
+    let mut doc: toml_edit::DocumentMut = existing.parse().ok()?;
+    let new_doc: toml_edit::DocumentMut = fresh.parse().ok()?;
+    // Compare what this version understands, so a key holding fields it
+    // doesn't know about isn't seen as changed (and rewritten without them).
+    let old_config: ToktrackConfig = toml::from_str(existing).ok()?;
+    let old_values: toml::Table =
+        toml::from_str(&toml::to_string_pretty(&old_config).ok()?).ok()?;
+    let new_values: toml::Table = toml::from_str(fresh).ok()?;
+
+    for key in OWNED_KEYS {
+        // Unchanged keys keep their formatting and inner comments.
+        if old_values.get(key) == new_values.get(key) {
+            continue;
+        }
+        // Edit existing items in place: comments above a key belong to the
+        // key, so replacing or removing the key would drop them.
+        match (doc.get_mut(key), new_doc.get(key)) {
+            (Some(old_item), Some(new_item)) => {
+                let mut new_item = new_item.clone();
+                // Keep a trailing comment on a plain `key = value` line.
+                if let (Some(old), Some(new)) = (old_item.as_value(), new_item.as_value_mut()) {
+                    *new.decor_mut() = old.decor().clone();
+                }
+                *old_item = new_item;
+            }
+            // An emptied `key = [...]` stays as `key = []`, keeping its
+            // comments. Emptied `[[tables]]` have no line to keep.
+            (Some(old_item), None) => match old_item.as_value_mut() {
+                Some(old) => {
+                    let mut empty = toml_edit::Value::Array(toml_edit::Array::new());
+                    *empty.decor_mut() = old.decor().clone();
+                    *old = empty;
+                }
+                None => {
+                    doc.remove(key);
+                }
+            },
+            (None, Some(new_item)) => {
+                doc.insert(key, new_item.clone());
+            }
+            (None, None) => {}
+        }
+    }
+    // toml_edit writes `\n`; keep a CRLF file CRLF.
+    let merged = doc.to_string();
+    if existing.contains("\r\n") {
+        return Some(merged.replace("\r\n", "\n").replace('\n', "\r\n"));
+    }
+    Some(merged)
 }
 
 fn validate_remote_name(name: &str) -> Result<()> {
@@ -523,6 +624,179 @@ target = "ubuntu@devbox"
         let real = temp_dir.path().join("dotfiles").join("config.toml");
         fs::create_dir_all(real.parent().unwrap()).unwrap();
         fs::write(&real, "").unwrap();
+        let link = temp_dir.path().join("config.toml");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let mut config = ToktrackConfig::default();
+        config.toggle_project_root("/w/a");
+
+        ConfigService::save(&link, &config).unwrap();
+
+        assert!(fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        let loaded = ConfigService::load_optional(&real).unwrap().unwrap();
+        assert_eq!(loaded.project_roots, vec!["/w/a"]);
+    }
+
+    #[test]
+    fn save_keeps_comments_and_unknown_keys() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        fs::write(
+            &path,
+            r#"# my toktrack config
+future_option = true # keep me
+
+# remotes
+[[remotes]]
+name = "devbox" # the box
+target = "ubuntu@devbox"
+"#,
+        )
+        .unwrap();
+        let mut config = ConfigService::load_or_default(&path).unwrap();
+        config.toggle_project_root("/w/a");
+
+        ConfigService::save(&path, &config).unwrap();
+
+        let saved = fs::read_to_string(&path).unwrap();
+        assert!(saved.contains("# my toktrack config"));
+        assert!(saved.contains("future_option = true # keep me"));
+        assert!(saved.contains("# remotes"));
+        assert!(saved.contains(r#"name = "devbox" # the box"#));
+        let loaded = ConfigService::load_optional(&path).unwrap().unwrap();
+        assert_eq!(loaded.project_roots, vec!["/w/a"]);
+        assert_eq!(loaded.remote("devbox").unwrap().target, "ubuntu@devbox");
+    }
+
+    #[test]
+    fn save_keeps_comments_around_a_changed_key() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        fs::write(
+            &path,
+            "# starred folders\nproject_roots = [\"/w/a\"] # mine\n",
+        )
+        .unwrap();
+        let mut config = ConfigService::load_or_default(&path).unwrap();
+        config.toggle_project_root("/w/b");
+
+        ConfigService::save(&path, &config).unwrap();
+
+        let saved = fs::read_to_string(&path).unwrap();
+        assert!(saved.contains("# starred folders"));
+        assert!(saved.contains("# mine"));
+        let loaded = ConfigService::load_optional(&path).unwrap().unwrap();
+        assert_eq!(loaded.project_roots, vec!["/w/a", "/w/b"]);
+    }
+
+    #[test]
+    fn save_empties_a_cleared_list_without_dropping_its_comments() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        fs::write(&path, "# header\nproject_roots = [\"/w/a\"] # mine\n").unwrap();
+        let mut config = ConfigService::load_or_default(&path).unwrap();
+        config.toggle_project_root("/w/a");
+
+        ConfigService::save(&path, &config).unwrap();
+
+        let saved = fs::read_to_string(&path).unwrap();
+        assert!(saved.contains("# header"));
+        assert!(saved.contains("project_roots = [] # mine"));
+        let loaded = ConfigService::load_optional(&path).unwrap().unwrap();
+        assert!(loaded.project_roots.is_empty());
+    }
+
+    #[test]
+    fn save_removes_the_last_remote_table() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        fs::write(
+            &path,
+            "future_option = 1\n\n[[remotes]]\nname = \"devbox\"\ntarget = \"ubuntu@devbox\"\n",
+        )
+        .unwrap();
+        let mut config = ConfigService::load_or_default(&path).unwrap();
+        config.remove_remote("devbox").unwrap();
+
+        ConfigService::save(&path, &config).unwrap();
+
+        let saved = fs::read_to_string(&path).unwrap();
+        assert!(saved.contains("future_option = 1"));
+        assert!(!saved.contains("remotes"));
+    }
+
+    #[test]
+    fn save_keeps_unknown_fields_in_unchanged_remotes() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        fs::write(
+            &path,
+            r#"[[remotes]]
+name = "devbox"
+target = "ubuntu@devbox"
+future = "x" # keep
+
+[remotes.paths]
+codex = "~/s"
+claude = "~/c"
+"#,
+        )
+        .unwrap();
+        let mut config = ConfigService::load_or_default(&path).unwrap();
+        config.toggle_project_root("/w/a");
+
+        ConfigService::save(&path, &config).unwrap();
+
+        let saved = fs::read_to_string(&path).unwrap();
+        assert!(saved.contains(r#"future = "x" # keep"#));
+        assert!(saved.contains(r#"claude = "~/c""#));
+        let loaded = ConfigService::load_optional(&path).unwrap().unwrap();
+        assert_eq!(loaded.project_roots, vec!["/w/a"]);
+    }
+
+    #[test]
+    fn save_keeps_crlf_line_endings() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        fs::write(&path, "# header\r\nproject_roots = [\"/w/a\"]\r\n").unwrap();
+        let mut config = ConfigService::load_or_default(&path).unwrap();
+        config.toggle_project_root("/w/b");
+
+        ConfigService::save(&path, &config).unwrap();
+
+        let saved = fs::read_to_string(&path).unwrap();
+        assert!(saved.contains("# header\r\n"));
+        assert!(!saved.replace("\r\n", "").contains('\n'));
+        let loaded = ConfigService::load_optional(&path).unwrap().unwrap();
+        assert_eq!(loaded.project_roots, vec!["/w/a", "/w/b"]);
+    }
+
+    #[test]
+    fn owned_keys_cover_every_config_field() {
+        let mut config = ToktrackConfig::default();
+        config
+            .add_remote(
+                RemoteConfig::new("devbox", "ubuntu@devbox", Some("~/s".into())),
+                true,
+            )
+            .unwrap();
+        config.toggle_project_root("/w/a");
+
+        let table: toml::Table = toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
+        let mut keys: Vec<&str> = table.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        let mut owned = OWNED_KEYS.to_vec();
+        owned.sort_unstable();
+        assert_eq!(keys, owned);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_through_a_dangling_symlink_keeps_the_link() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let real = temp_dir.path().join("dotfiles").join("config.toml");
         let link = temp_dir.path().join("config.toml");
         std::os::unix::fs::symlink(&real, &link).unwrap();
         let mut config = ToktrackConfig::default();
