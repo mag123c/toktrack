@@ -1,17 +1,22 @@
 //! Git worktree links for the Projects tab: a project whose folder is a linked
 //! worktree folds by its main repository's path rather than its own (T3 Code
-//! keeps worktrees outside the repository). Runs on the loader thread.
+//! keeps worktrees outside the repository). Runs on the loader thread, and
+//! only once a root is starred, since nothing folds before that.
 //!
-//! Links are persisted as `worktree_repos` in config.toml the first time they
-//! are seen, because worktree folders are deleted after merging while their
-//! cached usage lives on.
+//! Links describe the data, not the user's choices, so they are saved next to
+//! the cache (`~/.toktrack/cache/worktree_links.json`) rather than in
+//! config.toml. They outlive the worktree folder, which is deleted after
+//! merging while its cached usage lives on, and are re-checked while the
+//! folder exists, so a reused path follows its current repository.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
+use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
-use crate::services::config::ConfigService;
-use crate::services::project_roots::{normalize, path_rest, ProjectAliases};
+use directories::BaseDirs;
+
+use crate::services::project_roots::{normalize, path_rest, ProjectLinks};
 use crate::types::NO_PROJECT;
 
 /// Where git keeps a linked worktree's admin folder:
@@ -19,70 +24,105 @@ use crate::types::NO_PROJECT;
 /// separate-git-dir repository have no such path and are not linked.
 const GIT_WORKTREES: &str = "/.git/worktrees/";
 
-/// Aliases for the project `keys`, from the links saved in the config at
-/// `config_path` plus any found by reading the keys' `.git` files. Newly found
-/// links are saved (best effort: an unsaved one is just found again).
-pub fn link_projects<'a>(
-    keys: impl IntoIterator<Item = &'a str>,
-    config_path: Option<&Path>,
-) -> ProjectAliases {
-    let known = config_path
-        .and_then(|path| ConfigService::load_optional(path).ok().flatten())
-        .map(|config| config.worktree_repos)
-        .unwrap_or_default();
-    let (aliases, found) = resolve(keys, &known, probe_worktree);
-    if let Some(path) = config_path.filter(|_| !found.is_empty()) {
-        // An unreadable config is left alone: `update` fails before saving.
-        let _ = ConfigService::update(path, |config| {
-            let before = config.worktree_repos.len();
-            for (worktree, repo) in found {
-                config.worktree_repos.entry(worktree).or_insert(repo);
-            }
-            config.worktree_repos.len() != before
-        });
-    }
-    aliases
+/// Worktree folder → main repository path, as saved between runs.
+type Links = BTreeMap<String, String>;
+
+/// What probing a project folder found.
+#[derive(Debug, PartialEq)]
+enum Probe {
+    /// A linked worktree of this repository.
+    Worktree(String),
+    /// An existing folder that is not a linked worktree.
+    Other,
+    /// No such folder, e.g. a worktree deleted after merging.
+    Missing,
 }
 
-/// Aliases for `keys` from the `known` links, probing (via `probe`) the
-/// absolute keys no link covers. Returns the aliases and the newly found links.
-fn resolve<'a>(
-    keys: impl IntoIterator<Item = &'a str>,
-    known: &BTreeMap<String, String>,
-    probe: impl Fn(&Path) -> Option<String>,
-) -> (ProjectAliases, BTreeMap<String, String>) {
-    let keys: Vec<(&str, String)> = keys
-        .into_iter()
-        .filter(|key| *key != NO_PROJECT)
-        .map(|key| (key, normalize(key)))
-        .collect();
-    let mut links: Vec<(String, &str)> = known
-        .iter()
-        .map(|(worktree, repo)| (normalize(worktree), repo.as_str()))
-        .collect();
+/// The saved links file, `~/.toktrack/cache/worktree_links.json`.
+pub fn default_links_path() -> Option<PathBuf> {
+    Some(
+        BaseDirs::new()?
+            .home_dir()
+            .join(".toktrack")
+            .join("cache")
+            .join("worktree_links.json"),
+    )
+}
 
-    // Only a worktree's own folder holds its `.git` file; a subfolder key is
-    // covered once its worktree's link is known (see the second pass).
-    let mut found = BTreeMap::new();
+/// Folding links for the project `keys` under the starred `roots`. Without a
+/// root nothing folds, so nothing is read or probed. Otherwise the links saved
+/// at `links_path` are checked against the keys' `.git` files and saved back
+/// if they changed (best effort: an unsaved link is just found again).
+pub fn link_projects<'a>(
+    keys: impl IntoIterator<Item = &'a str>,
+    roots: &[String],
+    links_path: Option<&Path>,
+) -> ProjectLinks {
+    let mut links = ProjectLinks::default();
+    if roots.is_empty() {
+        return links;
+    }
+    let keys: Vec<&str> = keys.into_iter().collect();
+    let saved = links_path.map(load_links).unwrap_or_default();
+    let (aliases, updated) = resolve(&keys, &saved, probe_worktree);
+    if let Some(path) = links_path.filter(|_| updated != saved) {
+        let _ = save_links(path, &updated);
+    }
+    links.aliases = aliases;
+    links.resolved_roots = resolve_roots(roots);
+    links.index_names(keys);
+    links.probed = true;
+    links
+}
+
+/// Aliases for `keys` from the `saved` links, re-checked (via `probe`) for
+/// the folders that still exist. Returns the aliases and the updated links.
+fn resolve(
+    keys: &[&str],
+    saved: &Links,
+    probe: impl Fn(&Path) -> Probe,
+) -> (HashMap<String, String>, Links) {
+    let keys: Vec<(&str, String)> = keys
+        .iter()
+        .filter(|key| **key != NO_PROJECT)
+        .map(|key| (*key, normalize(key)))
+        .collect();
+    let saved_paths = normalized(saved);
+    let mut links = saved.clone();
     for (key, normalized) in &keys {
-        if repo_path(normalized, &links).is_some() || !is_local_dir(key) {
+        // A subfolder of a linked worktree has no `.git` of its own.
+        let subfolder = saved_paths.iter().any(|(worktree, _)| {
+            path_rest(normalized, worktree).is_some_and(|rest| !rest.is_empty())
+        });
+        if subfolder || !is_local_dir(key) {
             continue;
         }
-        if let Some(repo) = probe(Path::new(key)) {
-            found.insert(key.to_string(), repo);
+        match probe(Path::new(key)) {
+            Probe::Worktree(repo) => {
+                links.insert(key.to_string(), repo);
+            }
+            Probe::Other => {
+                links.remove(*key);
+            }
+            // Keep a deleted worktree's link for its cached history.
+            Probe::Missing => {}
         }
     }
-    links.extend(
-        found
-            .iter()
-            .map(|(worktree, repo)| (normalize(worktree), repo.as_str())),
-    );
 
+    let paths = normalized(&links);
     let aliases = keys
         .iter()
-        .filter_map(|(key, normalized)| Some((key.to_string(), repo_path(normalized, &links)?)))
+        .filter_map(|(key, normalized)| Some((key.to_string(), repo_path(normalized, &paths)?)))
         .collect();
-    (aliases, found)
+    (aliases, links)
+}
+
+/// `links` with normalized worktree paths, for prefix matching.
+fn normalized(links: &Links) -> Vec<(String, &str)> {
+    links
+        .iter()
+        .map(|(worktree, repo)| (normalize(worktree), repo.as_str()))
+        .collect()
 }
 
 /// Whether `key` is worth probing: an absolute path that is not on a network
@@ -101,15 +141,20 @@ fn repo_path(key: &str, links: &[(String, &str)]) -> Option<String> {
         .map(|(_, rest, repo)| format!("{}{rest}", repo.trim_end_matches(['/', '\\'])))
 }
 
-/// Main repository of `dir` if it is a linked worktree, i.e. its `.git` is a
-/// file pointing into `<repository>/.git/worktrees/`.
-fn probe_worktree(dir: &Path) -> Option<String> {
+/// Whether `dir` is a linked worktree, i.e. its `.git` is a file pointing
+/// into `<repository>/.git/worktrees/`.
+fn probe_worktree(dir: &Path) -> Probe {
     let git = dir.join(".git");
-    // A main checkout's `.git` is a folder: one stat, nothing read.
-    if !fs::metadata(&git).ok()?.is_file() {
-        return None;
+    match fs::metadata(&git) {
+        Ok(meta) if meta.is_file() => fs::read_to_string(&git)
+            .ok()
+            .and_then(|content| repo_from_gitfile(dir, &content))
+            .map_or(Probe::Other, Probe::Worktree),
+        // A main checkout's `.git` is a folder: one stat, nothing read.
+        Ok(_) => Probe::Other,
+        Err(_) if dir.is_dir() => Probe::Other,
+        Err(_) => Probe::Missing,
     }
-    repo_from_gitfile(dir, &fs::read_to_string(git).ok()?)
 }
 
 /// Main repository named by the `.git` file content of the worktree at `dir`:
@@ -142,12 +187,66 @@ fn clean(path: &Path) -> PathBuf {
     out
 }
 
+/// Starred roots whose symlink-resolved path differs from the starred one.
+/// git records a worktree's repository by its resolved path, so a root
+/// starred through a symlink (`/tmp` → `/private/tmp`) is matched by both.
+fn resolve_roots(roots: &[String]) -> HashMap<String, String> {
+    roots
+        .iter()
+        .filter(|root| is_local_dir(root))
+        .filter_map(|root| {
+            let resolved = strip_verbatim(&fs::canonicalize(root).ok()?);
+            (normalize(&resolved) != normalize(root)).then(|| (root.clone(), resolved))
+        })
+        .collect()
+}
+
+/// `path` as a string without the verbatim prefix Windows `canonicalize`
+/// adds (`\\?\C:\...`, `\\?\UNC\server\...`), so it compares with plain paths.
+fn strip_verbatim(path: &Path) -> String {
+    let path = path.to_string_lossy();
+    match path.strip_prefix(r"\\?\") {
+        Some(rest) => match rest.strip_prefix(r"UNC\") {
+            Some(share) => format!(r"\\{share}"),
+            None => rest.to_string(),
+        },
+        None => path.into_owned(),
+    }
+}
+
+/// The links saved at `path`; a missing or unreadable file reads as none.
+fn load_links(path: &Path) -> Links {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|content| serde_json::from_str(&content).ok())
+        .unwrap_or_default()
+}
+
+/// Save `links` to `path` through a sibling temp file, so a crash mid-write
+/// cannot leave a truncated file behind.
+fn save_links(path: &Path, links: &Links) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let content = serde_json::to_vec_pretty(links).map_err(std::io::Error::other)?;
+    let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    let write = || -> std::io::Result<()> {
+        let mut file = fs::File::create(&tmp)?;
+        file.write_all(&content)?;
+        file.sync_all()?;
+        fs::rename(&tmp, path)
+    };
+    write().inspect_err(|_| {
+        let _ = fs::remove_file(&tmp);
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::cell::RefCell;
 
-    fn links(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+    fn links(pairs: &[(&str, &str)]) -> Links {
         pairs
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -156,6 +255,10 @@ mod tests {
 
     fn path_str(path: &Path) -> String {
         path.to_str().unwrap().to_string()
+    }
+
+    fn roots(paths: &[&str]) -> Vec<String> {
+        paths.iter().map(|p| p.to_string()).collect()
     }
 
     /// A worktree folder at `dir` whose `.git` file points at `repo`.
@@ -209,37 +312,6 @@ mod tests {
     }
 
     #[test]
-    fn resolve_skips_network_shares() {
-        let probed = RefCell::new(0);
-        let (aliases, _) = resolve(
-            [r"\\wsl.localhost\Ubuntu\home\me\x", "//server/share/x"],
-            &BTreeMap::new(),
-            |_| {
-                *probed.borrow_mut() += 1;
-                Some("/w/repo".to_string())
-            },
-        );
-        assert_eq!(*probed.borrow(), 0);
-        assert!(aliases.is_empty());
-    }
-
-    #[test]
-    fn link_projects_leaves_an_unparseable_config_untouched() {
-        let base = tempfile::tempdir().unwrap();
-        let config = base.path().join("config.toml");
-        fs::write(&config, "project_roots = [").unwrap();
-        let repo = base.path().join("repo");
-        let worktree = base.path().join("wt");
-        make_worktree(&worktree, &repo);
-        let key = path_str(&worktree);
-
-        let aliases = link_projects([key.as_str()], Some(&config));
-
-        assert!(aliases.contains_key(&key));
-        assert_eq!(fs::read_to_string(&config).unwrap(), "project_roots = [");
-    }
-
-    #[test]
     fn repo_from_gitfile_rejects_other_git_files() {
         let base = tempfile::tempdir().unwrap();
         let repo = path_str(&base.path().join("repo"));
@@ -256,121 +328,205 @@ mod tests {
     }
 
     #[test]
-    fn probe_worktree_reads_only_a_git_file() {
+    fn probe_worktree_tells_worktrees_other_folders_and_missing_ones_apart() {
         let base = tempfile::tempdir().unwrap();
         let repo = base.path().join("repo");
         fs::create_dir_all(repo.join(".git")).unwrap();
         let worktree = base.path().join("wt");
         make_worktree(&worktree, &repo);
 
-        assert_eq!(
-            probe_worktree(&worktree).map(|r| normalize(&r)),
-            Some(normalize(&path_str(&repo)))
-        );
+        match probe_worktree(&worktree) {
+            Probe::Worktree(found) => assert_eq!(normalize(&found), normalize(&path_str(&repo))),
+            other => panic!("expected a worktree, got {other:?}"),
+        }
         // A main checkout has a `.git` folder; a plain folder has none.
-        assert_eq!(probe_worktree(&repo), None);
-        assert_eq!(probe_worktree(base.path()), None);
-        assert_eq!(probe_worktree(&base.path().join("gone")), None);
+        assert_eq!(probe_worktree(&repo), Probe::Other);
+        assert_eq!(probe_worktree(base.path()), Probe::Other);
+        assert_eq!(probe_worktree(&base.path().join("gone")), Probe::Missing);
     }
 
     #[test]
-    fn resolve_uses_known_links_without_probing() {
-        let known = links(&[("/wt/x", "/w/repo")]);
-        let probed = RefCell::new(Vec::new());
-        let (aliases, found) = resolve(["/wt/x", "/wt/x/src"], &known, |dir| {
-            probed.borrow_mut().push(dir.to_path_buf());
-            None
-        });
-
-        assert!(probed.borrow().is_empty());
-        assert!(found.is_empty());
-        assert_eq!(aliases.get("/wt/x").map(String::as_str), Some("/w/repo"));
-        assert_eq!(
-            aliases.get("/wt/x/src").map(String::as_str),
-            Some("/w/repo/src")
-        );
-    }
-
-    #[test]
-    fn resolve_probes_unknown_absolute_keys_once() {
+    fn resolve_maps_saved_links_and_their_subfolders() {
         let base = tempfile::tempdir().unwrap();
         let wt = path_str(&base.path().join("wt"));
         let sub = path_str(&base.path().join("wt").join("src"));
-        let other = path_str(&base.path().join("other"));
+        let saved = links(&[(wt.as_str(), "/w/repo")]);
         let probed = RefCell::new(Vec::new());
-        let (aliases, found) = resolve(
-            [
-                sub.as_str(),
-                wt.as_str(),
-                other.as_str(),
-                "relative/dir",
-                NO_PROJECT,
-            ],
-            &BTreeMap::new(),
-            |dir| {
-                probed.borrow_mut().push(path_str(dir));
-                (path_str(dir) == wt).then(|| "/w/repo".to_string())
-            },
-        );
+        let (aliases, updated) = resolve(&[wt.as_str(), sub.as_str()], &saved, |dir| {
+            probed.borrow_mut().push(path_str(dir));
+            Probe::Missing
+        });
+
+        // Only the worktree folder itself is probed, not its subfolder.
+        assert_eq!(probed.into_inner(), vec![wt.clone()]);
+        assert_eq!(updated, saved);
+        assert_eq!(aliases.get(&wt).map(String::as_str), Some("/w/repo"));
+        assert_eq!(aliases.get(&sub).map(String::as_str), Some("/w/repo/src"));
+    }
+
+    #[test]
+    fn resolve_rechecks_saved_links_while_the_folder_exists() {
+        let base = tempfile::tempdir().unwrap();
+        let moved = path_str(&base.path().join("moved"));
+        let plain = path_str(&base.path().join("plain"));
+        let saved = links(&[(moved.as_str(), "/w/a"), (plain.as_str(), "/w/a")]);
+        let (aliases, updated) = resolve(&[moved.as_str(), plain.as_str()], &saved, |dir| {
+            if path_str(dir) == moved {
+                Probe::Worktree("/w/b".to_string())
+            } else {
+                Probe::Other
+            }
+        });
+
+        // A reused path follows its current repository; a path that is no
+        // longer a worktree loses its link.
+        assert_eq!(updated, links(&[(moved.as_str(), "/w/b")]));
+        assert_eq!(aliases.get(&moved).map(String::as_str), Some("/w/b"));
+        assert!(!aliases.contains_key(&plain));
+    }
+
+    #[test]
+    fn resolve_finds_new_worktrees_and_skips_unprobeable_keys() {
+        let base = tempfile::tempdir().unwrap();
+        let wt = path_str(&base.path().join("wt"));
+        let sub = path_str(&base.path().join("wt").join("src"));
+        let probed = RefCell::new(Vec::new());
+        let keys = [
+            sub.as_str(),
+            wt.as_str(),
+            "relative/dir",
+            r"\\wsl.localhost\Ubuntu\home\me\x",
+            "//server/share/x",
+            NO_PROJECT,
+        ];
+        let (aliases, updated) = resolve(&keys, &Links::new(), |dir| {
+            probed.borrow_mut().push(path_str(dir));
+            if path_str(dir) == wt {
+                Probe::Worktree("/w/repo".to_string())
+            } else {
+                Probe::Other
+            }
+        });
 
         let mut probed = probed.into_inner();
         probed.sort();
-        let mut expected = vec![sub.clone(), wt.clone(), other.clone()];
+        let mut expected = vec![sub.clone(), wt.clone()];
         expected.sort();
         assert_eq!(probed, expected);
-        assert_eq!(found, links(&[(wt.as_str(), "/w/repo")]));
+        assert_eq!(updated, links(&[(wt.as_str(), "/w/repo")]));
         assert_eq!(aliases.get(&wt).map(String::as_str), Some("/w/repo"));
         // A subfolder seen before its worktree still folds through it.
         assert_eq!(aliases.get(&sub).map(String::as_str), Some("/w/repo/src"));
-        assert!(!aliases.contains_key(&other));
-        assert!(!aliases.contains_key("relative/dir"));
+        assert_eq!(aliases.len(), 2);
     }
 
     #[test]
-    fn link_projects_persists_links_that_outlive_the_worktree() {
+    fn link_projects_without_a_root_reads_and_probes_nothing() {
         let base = tempfile::tempdir().unwrap();
-        let config = base.path().join("config.toml");
-        fs::write(&config, "# mine\nproject_roots = [\"/w/a\"]\n").unwrap();
+        let saved = base.path().join("cache").join("worktree_links.json");
+        let worktree = base.path().join("wt");
+        make_worktree(&worktree, &base.path().join("repo"));
+        let key = path_str(&worktree);
+
+        let links = link_projects([key.as_str()], &[], Some(&saved));
+
+        assert!(!links.probed);
+        assert!(links.aliases.is_empty());
+        assert!(!saved.exists());
+    }
+
+    #[test]
+    fn link_projects_saves_links_that_outlive_the_worktree() {
+        let base = tempfile::tempdir().unwrap();
+        let saved = base.path().join("cache").join("worktree_links.json");
         let repo = base.path().join("repo");
         let worktree = base.path().join("wt");
         make_worktree(&worktree, &repo);
         let key = path_str(&worktree);
+        let r = roots(&["/w/root"]);
 
-        let first = link_projects([key.as_str()], Some(&config));
+        let first = link_projects([key.as_str()], &r, Some(&saved));
         fs::remove_dir_all(&worktree).unwrap();
-        let second = link_projects([key.as_str()], Some(&config));
+        let second = link_projects([key.as_str()], &r, Some(&saved));
 
         let expected = Some(normalize(&path_str(&repo)));
-        assert_eq!(first.get(&key).map(|r| normalize(r)), expected);
-        assert_eq!(second.get(&key).map(|r| normalize(r)), expected);
-        let saved = fs::read_to_string(&config).unwrap();
-        assert!(saved.contains("# mine"));
-        let loaded = ConfigService::load_optional(&config).unwrap().unwrap();
-        assert_eq!(loaded.project_roots, vec!["/w/a"]);
-        assert!(loaded.worktree_repos.contains_key(&key));
+        assert!(first.probed);
+        assert_eq!(first.aliases.get(&key).map(|r| normalize(r)), expected);
+        assert_eq!(second.aliases.get(&key).map(|r| normalize(r)), expected);
+        assert!(load_links(&saved).contains_key(&key));
     }
 
     #[test]
-    fn link_projects_without_new_links_leaves_the_config_alone() {
+    fn link_projects_rebuilds_from_an_unreadable_links_file() {
         let base = tempfile::tempdir().unwrap();
-        let config = base.path().join("config.toml");
-
-        let aliases = link_projects([path_str(base.path()).as_str()], Some(&config));
-
-        assert!(aliases.is_empty());
-        assert!(!config.exists());
-    }
-
-    #[test]
-    fn link_projects_works_without_a_config() {
-        let base = tempfile::tempdir().unwrap();
-        let repo = base.path().join("repo");
+        let saved = base.path().join("worktree_links.json");
+        fs::write(&saved, "{ not json").unwrap();
         let worktree = base.path().join("wt");
-        make_worktree(&worktree, &repo);
+        make_worktree(&worktree, &base.path().join("repo"));
         let key = path_str(&worktree);
 
-        let aliases = link_projects([key.as_str()], None);
+        let links = link_projects([key.as_str()], &roots(&["/w/root"]), Some(&saved));
 
-        assert!(aliases.contains_key(&key));
+        assert!(links.aliases.contains_key(&key));
+        assert!(load_links(&saved).contains_key(&key));
+    }
+
+    #[test]
+    fn link_projects_without_changes_does_not_write() {
+        let base = tempfile::tempdir().unwrap();
+        let saved = base.path().join("worktree_links.json");
+
+        let links = link_projects(
+            [path_str(base.path()).as_str()],
+            &roots(&["/w"]),
+            Some(&saved),
+        );
+
+        assert!(links.aliases.is_empty());
+        assert!(!saved.exists());
+    }
+
+    #[test]
+    fn link_projects_indexes_project_names_for_the_name_fallback() {
+        let links = link_projects(["/w/web", "/u/.t3/worktrees/web/x"], &roots(&["/w"]), None);
+        assert_eq!(links.names.get("web"), Some(&vec!["/w/web".to_string()]));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_roots_maps_a_symlinked_root_to_its_target() {
+        let base = tempfile::tempdir().unwrap();
+        let real = base.path().join("real");
+        fs::create_dir_all(&real).unwrap();
+        let link = base.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let resolved = resolve_roots(&roots(&[&path_str(&link), &path_str(&real)]));
+
+        let real = path_str(&fs::canonicalize(&real).unwrap());
+        assert_eq!(resolved.get(&path_str(&link)), Some(&real));
+        // A root that is already resolved needs no entry (unless the temp
+        // dir itself sits behind a link, as on macOS).
+        assert!(resolved.len() <= 2);
+    }
+
+    #[test]
+    fn strip_verbatim_drops_the_windows_prefix() {
+        assert_eq!(strip_verbatim(Path::new(r"\\?\C:\w\repo")), r"C:\w\repo");
+        assert_eq!(
+            strip_verbatim(Path::new(r"\\?\UNC\srv\share\repo")),
+            r"\\srv\share\repo"
+        );
+        assert_eq!(strip_verbatim(Path::new("/w/repo")), "/w/repo");
+    }
+
+    #[test]
+    fn resolve_roots_skips_plain_roots_and_missing_ones() {
+        let base = tempfile::tempdir().unwrap();
+        let real = fs::canonicalize(base.path()).unwrap();
+        let real = strip_verbatim(&real);
+        let gone = path_str(&base.path().join("gone"));
+
+        assert!(resolve_roots(&roots(&[&real, &gone, "relative"])).is_empty());
     }
 }
