@@ -261,7 +261,7 @@ Each source's data directory can be overridden (matching the upstream CLI's own 
 export CLAUDE_CONFIG_DIR="/path/to/.claude"
 ```
 
-Custom pricing (including `web_search` / `web_fetch` per-request rates) can be set in `~/.toktrack/pricing.toml`.
+Custom pricing (including `web_search` / `web_fetch` per-request rates) can be set in `~/.toktrack/pricing.toml`. Enter every rate in US dollars: token rates as USD per 1M tokens, and `web_search` / `web_fetch` as USD per request. toktrack has no currency setting; all costs are computed, summed and shown in USD.
 
 
 ## Performance
