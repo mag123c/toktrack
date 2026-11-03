@@ -212,6 +212,10 @@ fn build_rsync_args_for(spec: &str, dest: &Path) -> Vec<OsString> {
         OsString::from("*/"),
         OsString::from("--include"),
         OsString::from("*.jsonl"),
+        // Codex compresses idle rollouts; without this, `--delete` would also
+        // drop the snapshot's old plain copy.
+        OsString::from("--include"),
+        OsString::from("*.jsonl.zst"),
         OsString::from("--exclude"),
         OsString::from("*"),
         OsString::from("--"),
@@ -488,6 +492,8 @@ mod tests {
                 "*/",
                 "--include",
                 "*.jsonl",
+                "--include",
+                "*.jsonl.zst",
                 "--exclude",
                 "*",
                 "--",
@@ -568,6 +574,8 @@ mod tests {
                 "*/",
                 "--include",
                 "*.jsonl",
+                "--include",
+                "*.jsonl.zst",
                 "--exclude",
                 "*",
                 "--",
