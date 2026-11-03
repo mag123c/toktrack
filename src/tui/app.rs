@@ -1,6 +1,6 @@
 //! Application state and event loop
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
@@ -17,8 +17,9 @@ use super::theme::Theme;
 use crate::parsers::ParserRegistry;
 use crate::services::audit::{self, AuditReport};
 use crate::services::config::ConfigService;
-use crate::services::project_roots;
+use crate::services::project_roots::{self, ProjectLinks};
 use crate::services::update_checker::{check_for_update, execute_update, UpdateCheckResult};
+use crate::services::worktrees;
 use crate::services::{
     Aggregator, DailySummaryCacheService, DataLoaderService, RemoteOptions, RemoteSourceService,
 };
@@ -120,6 +121,9 @@ pub struct AppData {
     pub raw_project_summaries: HashMap<String, Vec<DailySummary>>,
     /// Roots the project views were last built with.
     pub applied_project_roots: Vec<String>,
+    /// Worktree links and the like, resolved on the loader thread so
+    /// refolding never touches the filesystem.
+    pub project_links: ProjectLinks,
     /// Cache warning indicator for display in TUI
     #[allow(dead_code)] // Reserved for warning indicator feature
     pub cache_warning: Option<CacheWarning>,
@@ -130,10 +134,12 @@ impl AppData {
     /// under a starred root folded into it. Daily tables come back
     /// date-ascending; callers re-apply the active sort.
     fn apply_project_roots(&mut self, roots: &[String]) {
-        let usage = project_roots::collapse_usage(&self.raw_project_usage, roots);
+        let usage =
+            project_roots::collapse_usage(&self.raw_project_usage, &self.project_links, roots);
         self.projects_data = ProjectsData::from_project_usage(&usage, roots);
 
-        let summaries = project_roots::collapse_daily(&self.raw_project_summaries, roots);
+        let summaries =
+            project_roots::collapse_daily(&self.raw_project_summaries, &self.project_links, roots);
         let today = Local::now().date_naive();
         self.period_projects_data = ProjectPeriod::ALL
             .into_iter()
@@ -679,9 +685,17 @@ impl App {
         }
         self.refresh_project_roots();
 
+        // Worktrees are only probed once a root is starred: reload in the
+        // background so the first root picks them up.
+        if let AppState::Ready { data } = &self.state {
+            if !data.project_links.probed && !self.project_roots.is_empty() {
+                self.start_data_load();
+            }
+        }
+
         // Keep the cursor on the toggled project, or on the root it folded into.
         if let AppState::Ready { data } = &self.state {
-            let shown = project_roots::root_for(&key, &self.project_roots).unwrap_or(&key);
+            let shown = project_roots::display_key(&key, &data.project_links, &self.project_roots);
             let projects = &data.projects_for(self.project_period).projects;
             self.project_selected = projects
                 .iter()
@@ -949,6 +963,9 @@ impl App {
                 if data.applied_project_roots != self.project_roots {
                     data.apply_project_roots(&self.project_roots);
                 }
+                // A load started before the first root was starred skipped the
+                // worktree probe; load again now that something folds.
+                let reprobe = !data.project_links.probed && !self.project_roots.is_empty();
                 // Fresh loads arrive date-ascending; re-apply the user's sort.
                 data.apply_sort(self.sort_key, self.sort_direction);
                 // The fresh list (period lists especially) may be shorter.
@@ -962,6 +979,9 @@ impl App {
                 self.audit_rx = None;
                 if self.current_tab() == Tab::Audit {
                     self.ensure_audit_loading();
+                }
+                if reprobe {
+                    self.start_data_load();
                 }
             }
             Err(message) => {
@@ -1345,6 +1365,16 @@ fn load_data_sync(
     let result = DataLoaderService::with_extra_sources(extra_sources)
         .load()
         .map_err(|e| e.to_string())?;
+    let project_keys: HashSet<&str> = result
+        .summaries
+        .iter()
+        .flat_map(|day| day.projects.keys().map(String::as_str))
+        .collect();
+    let project_links = worktrees::link_projects(
+        project_keys,
+        &project_roots,
+        worktrees::default_links_path().as_deref(),
+    );
 
     build_app_data_from_summaries(
         result.summaries,
@@ -1352,6 +1382,7 @@ fn load_data_sync(
         result.source_summaries,
         result.cache_warning,
         &project_roots,
+        project_links,
     )
 }
 
@@ -1362,6 +1393,7 @@ fn build_app_data_from_summaries(
     source_summaries: HashMap<String, Vec<DailySummary>>,
     cache_warning: Option<CacheWarning>,
     project_roots: &[String],
+    mut project_links: ProjectLinks,
 ) -> Result<Box<AppData>, String> {
     let total = Aggregator::total_from_daily(&summaries);
 
@@ -1388,6 +1420,7 @@ fn build_app_data_from_summaries(
     // `apply_project_roots`.
     let raw_project_usage = Aggregator::by_project_from_daily(&summaries);
     let raw_project_summaries = Aggregator::project_daily_summaries(&summaries);
+    project_links.index_names(raw_project_usage.keys().map(String::as_str));
 
     let daily_data = DailyData::from_daily_summaries(summaries);
 
@@ -1428,6 +1461,7 @@ fn build_app_data_from_summaries(
         raw_project_usage,
         raw_project_summaries,
         applied_project_roots: Vec::new(),
+        project_links,
         cache_warning,
     });
     data.apply_project_roots(project_roots);
@@ -1585,6 +1619,7 @@ mod tests {
                 raw_project_usage: HashMap::new(),
                 raw_project_summaries: HashMap::new(),
                 applied_project_roots: Vec::new(),
+                project_links: ProjectLinks::default(),
                 cache_warning: None,
             }),
         };
@@ -1699,8 +1734,15 @@ mod tests {
             ("codex".to_string(), vec![sort_test_summary(1, 100, 0, 2.0)]),
         ]);
         let merged = sort_test_summary(1, 200, 0, 3.0);
-        let data = build_app_data_from_summaries(vec![merged], vec![], source_summaries, None, &[])
-            .unwrap();
+        let data = build_app_data_from_summaries(
+            vec![merged],
+            vec![],
+            source_summaries,
+            None,
+            &[],
+            ProjectLinks::default(),
+        )
+        .unwrap();
         let mut app = App {
             state: AppState::Ready { data },
             ..Default::default()
@@ -2164,6 +2206,7 @@ mod tests {
             raw_project_usage: HashMap::new(),
             raw_project_summaries: HashMap::new(),
             applied_project_roots: Vec::new(),
+            project_links: ProjectLinks::default(),
             cache_warning: None,
         })));
 
@@ -2655,8 +2698,19 @@ mod tests {
             summary.total_cost_usd += cost;
         }
 
-        let data = build_app_data_from_summaries(vec![summary], vec![], HashMap::new(), None, &[])
-            .unwrap();
+        let data = build_app_data_from_summaries(
+            vec![summary],
+            vec![],
+            HashMap::new(),
+            None,
+            &[],
+            // Probed already, so starring never starts a real data load.
+            ProjectLinks {
+                probed: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         App {
             state: AppState::Ready { data },
             ..App::default()
@@ -2716,6 +2770,112 @@ mod tests {
         assert!(app.project_roots.is_empty());
         assert_eq!(project_rows(&app).len(), 4);
         assert!(project_rows(&app).iter().all(|(_, _, root)| !root));
+    }
+
+    #[test]
+    fn test_star_folds_worktrees_into_their_repo_root() {
+        let mut app = ready_app_with_projects(&[
+            ("/w/repo", 100, 3.0),
+            ("/home/u/.t3/worktrees/repo/feat-x", 20, 2.0),
+            ("/home/u/.t3/worktrees/repo/gone", 5, 1.0),
+            ("/w/other", 1, 0.5),
+        ]);
+        // Linked worktree (resolved by the loader); "gone" folds by name.
+        if let AppState::Ready { data } = &mut app.state {
+            data.project_links.aliases.insert(
+                "/home/u/.t3/worktrees/repo/feat-x".to_string(),
+                "/w/repo".to_string(),
+            );
+        }
+        press(&mut app, KeyCode::Char('4'));
+        select_project(&mut app, "/w/repo");
+
+        press(&mut app, KeyCode::Char('*'));
+        assert_eq!(
+            project_rows(&app),
+            vec![
+                ("/w/repo".to_string(), 125, true),
+                ("/w/other".to_string(), 1, false),
+            ]
+        );
+
+        // Unstarring brings the worktrees back as their own rows.
+        press(&mut app, KeyCode::Char('*'));
+        assert_eq!(project_rows(&app).len(), 4);
+    }
+
+    #[test]
+    fn test_first_star_reloads_to_probe_worktrees() {
+        let mut app = ready_app_with_projects(&[("/w/repo", 10, 1.0)]);
+        app.data_loader = stub_loader;
+        if let AppState::Ready { data } = &mut app.state {
+            data.project_links.probed = false;
+        }
+        press(&mut app, KeyCode::Char('4'));
+
+        press(&mut app, KeyCode::Char('*'));
+        assert!(app.data_rx.is_some());
+        assert!(app.refreshing);
+
+        // Unstarring the last root leaves nothing to probe.
+        app.data_rx = None;
+        app.refreshing = false;
+        press(&mut app, KeyCode::Char('*'));
+        assert!(app.data_rx.is_none());
+    }
+
+    /// A starred-to-be `/work/web`, an unstarred same-named project, and a
+    /// T3 worktree named `web` with no known link.
+    const SAME_NAME_PROJECTS: [(&str, u64, f64); 3] = [
+        ("/work/web", 100, 3.0),
+        ("/home/u/personal/web", 10, 1.0),
+        ("/home/u/.t3/worktrees/web/x", 5, 0.5),
+    ];
+
+    fn assert_web_worktree_not_folded(app: &App) {
+        let rows = project_rows(app);
+        assert!(rows.contains(&("/work/web".to_string(), 100, true)));
+        assert!(rows.contains(&("/home/u/.t3/worktrees/web/x".to_string(), 5, false)));
+    }
+
+    #[test]
+    fn test_first_star_keeps_the_name_guard_before_the_reload() {
+        let mut app = ready_app_with_projects(&SAME_NAME_PROJECTS);
+        app.data_loader = stub_loader;
+        if let AppState::Ready { data } = &mut app.state {
+            data.project_links.probed = false;
+        }
+        press(&mut app, KeyCode::Char('4'));
+        select_project(&mut app, "/work/web");
+
+        press(&mut app, KeyCode::Char('*'));
+
+        // Shown right away, before the background reload finishes.
+        assert_web_worktree_not_folded(&app);
+    }
+
+    #[test]
+    fn test_star_during_a_refresh_reprobes_after_the_load() {
+        let mut app = ready_app_with_projects(&SAME_NAME_PROJECTS);
+        app.data_loader = stub_loader;
+        let (tx, rx) = mpsc::channel();
+        app.data_rx = Some(rx);
+        app.refreshing = true;
+        press(&mut app, KeyCode::Char('4'));
+        select_project(&mut app, "/work/web");
+        press(&mut app, KeyCode::Char('*'));
+
+        // The in-flight load started with no roots, so it skipped the probe.
+        let AppState::Ready { mut data } = ready_app_with_projects(&SAME_NAME_PROJECTS).state
+        else {
+            unreachable!()
+        };
+        data.project_links.probed = false;
+        tx.send(Ok(data)).unwrap();
+        app.poll_data();
+
+        assert_web_worktree_not_folded(&app);
+        assert!(app.data_rx.is_some(), "a probing load should follow");
     }
 
     #[test]
@@ -2807,8 +2967,14 @@ mod tests {
             summary.total_cost_usd += cost;
         }
         let summaries = by_date.into_values().collect();
+        // Probed already, so starring never starts a real data load.
+        let links = ProjectLinks {
+            probed: true,
+            ..Default::default()
+        };
         let data =
-            build_app_data_from_summaries(summaries, vec![], HashMap::new(), None, &[]).unwrap();
+            build_app_data_from_summaries(summaries, vec![], HashMap::new(), None, &[], links)
+                .unwrap();
         App {
             state: AppState::Ready { data },
             ..App::default()
@@ -2932,6 +3098,7 @@ mod tests {
             HashMap::new(),
             None,
             &["/w/repo".to_string()],
+            ProjectLinks::default(),
         )
         .unwrap();
         assert_eq!(data.applied_project_roots, vec!["/w/repo"]);
@@ -3034,6 +3201,7 @@ mod tests {
             raw_project_usage: HashMap::new(),
             raw_project_summaries: HashMap::new(),
             applied_project_roots: Vec::new(),
+            project_links: ProjectLinks::default(),
             cache_warning: None,
         })
     }

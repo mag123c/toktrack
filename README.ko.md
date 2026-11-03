@@ -27,7 +27,7 @@
 - **데이터 보존** — 영구 캐시로 CLI가 세션 파일을 삭제한 뒤에도 비용 기록 유지
 - **멀티 CLI 지원** — Claude Code, GitHub Copilot CLI, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, Antigravity, Grok CLI 한 곳에서
 - **TUI 대시보드** — 5개 탭 (Overview, Stats, Models, Projects, Audit), 일별/주별/월별 뷰
-- **프로젝트별 분석** — Projects 탭에서 프로젝트(세션 작업 디렉토리)별 토큰/비용 표시 (기록하는 CLI 한정). 프로젝트를 열면 일별·모델별 분석으로 드릴다운. 프로젝트를 기록하지 않는 CLI는 `(no project)`로 묶임. 프로젝트 상세는 캐시되므로 CLI의 30일 삭제 후에도 유지
+- **프로젝트별 분석** — Projects 탭에서 프로젝트(세션 작업 디렉토리)별 토큰/비용 표시 (기록하는 CLI 한정). 프로젝트를 열면 일별·모델별 분석으로 드릴다운. 프로젝트를 기록하지 않는 CLI는 `(no project)`로 묶임. 프로젝트에서 `*`를 누르면 루트 폴더로 지정되어 하위 프로젝트가 그 행으로 합쳐지고(`~/.toktrack/config.toml`의 `project_roots`에 저장), git worktree에서 실행한 세션은 worktree가 삭제된 뒤에도 메인 저장소의 루트로 합쳐짐(링크는 `~/.toktrack/cache/worktree_links.json`에 보관). worktree는 `.git` 링크로 연결되므로 어떤 도구에서든 동작함. 유일한 도구별 예외: toktrack이 보기 전에 삭제된 T3 Code worktree(`~/.t3/worktrees/<repo>/…`)는 `<repo>`라는 이름의 루트로 합쳐지되, 같은 폴더 이름의 다른 프로젝트가 그 루트 밖에 있으면 합쳐지지 않음. 프로젝트 상세는 캐시되므로 CLI의 30일 삭제 후에도 유지
 - **CLI 명령어** — `daily`, `weekly`, `monthly`, `stats` (JSON 출력 지원)
 - **사용량 리포트** — 공유 가능한 텍스트 & SVG 영수증 (`toktrack report`)
 - **대용량에서도 빠름** — simd-json + rayon 병렬 파싱 (~3 GiB/s), 캐시 시 ~0.04초
@@ -232,7 +232,8 @@ export CLAUDE_CONFIG_DIR="/path/to/.claude"
 │   ├── codex@devbox_daily.json
 │   ├── gemini_daily.json
 │   ├── opencode_daily.json
-│   └── pi-agent_daily.json
+│   ├── pi-agent_daily.json
+│   └── worktree_links.json      # git worktree → 메인 저장소 (루트 폴더 합산용)
 ├── remotes/
 │   └── devbox/codex/sessions/   # 동기화된 원격 Codex JSONL 스냅샷
 ├── config.toml                  # 선택: 원격 소스 설정
