@@ -195,7 +195,7 @@ zsh/bash/fish 몇 줄이면 됩니다 — **[셸 통합 가이드](docs/shell-in
 export CLAUDE_CONFIG_DIR="/path/to/.claude"
 ```
 
-커스텀 가격(`web_search`/`web_fetch` 요청당 단가 포함)은 `~/.toktrack/pricing.toml`에 설정할 수 있습니다.
+커스텀 가격(`web_search`/`web_fetch` 요청당 단가 포함)은 `~/.toktrack/pricing.toml`에 설정할 수 있습니다. 모든 단가는 미국 달러로 입력합니다. 토큰 단가는 100만 토큰당 USD, `web_search`/`web_fetch`는 요청당 USD입니다. toktrack에는 통화 설정이 없으며, 모든 비용은 USD로 계산·합산·표시됩니다.
 
 ## 성능
 
