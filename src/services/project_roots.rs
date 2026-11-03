@@ -24,6 +24,7 @@ pub struct ProjectLinks {
     pub resolved_roots: HashMap<String, String>,
     /// Normalized project keys outside T3's worktree folder, by folder name
     /// (see `name_key`), so the name fallback can spot same-named projects.
+    /// Pure string work, so it is built on every load, probed or not.
     pub names: HashMap<String, Vec<String>>,
     /// Whether worktrees were probed. Without a starred root nothing folds,
     /// so the loader skips probing until a root is starred.
@@ -46,6 +47,8 @@ impl ProjectLinks {
 }
 
 /// Folder T3 Code keeps its worktrees in, as `<this>/<repo name>/<branch>`.
+/// The only tool-specific name rule: other tools' worktrees should fold
+/// through their `.git` link (`services::worktrees`), not more name matching.
 const T3_WORKTREES: &str = "/.t3/worktrees/";
 
 /// Star `path` as a root, or unstar it if already starred. Returns whether it

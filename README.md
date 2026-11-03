@@ -31,7 +31,7 @@ Track usage across **all your AI coding CLIs** — Claude Code, GitHub Copilot C
 - **Data Preservation** — Persistent cache keeps your cost history even after a CLI deletes its own session files
 - **Multi-CLI Support** — Claude Code, GitHub Copilot CLI, Codex CLI, Gemini CLI, Qwen Code, OpenCode, PI Agent, Antigravity, Grok CLI in one place
 - **TUI Dashboard** — 5 tabs (Overview, Stats, Models, Projects, Audit) with daily/weekly/monthly views
-- **Per-Project Breakdown** — the Projects tab shows token & cost usage per project (the session working directory), for CLIs that record one. Drill into any project for its day-by-day, per-model breakdown. Usage from CLIs that don't record a project is grouped under `(no project)`. Press `*` on a project to star it as a root folder: every project under it folds into its row (saved to `~/.toktrack/config.toml` as `project_roots`). Project details are cached, so they survive past the CLI's 30-day deletion
+- **Per-Project Breakdown** — the Projects tab shows token & cost usage per project (the session working directory), for CLIs that record one. Drill into any project for its day-by-day, per-model breakdown. Usage from CLIs that don't record a project is grouped under `(no project)`. Press `*` on a project to star it as a root folder: every project under it folds into its row (saved to `~/.toktrack/config.toml` as `project_roots`). Sessions in a git worktree fold into the root of their main repository, even after the worktree is deleted (links are kept in `~/.toktrack/cache/worktree_links.json`). Project details are cached, so they survive past the CLI's 30-day deletion
 - **CLI Commands** — `daily`, `weekly`, `monthly`, `stats` with JSON output support
 - **Usage Reports** — Shareable text & SVG receipts via `toktrack report`
 - **Fast on huge histories** — simd-json + rayon parallel parsing (~3 GiB/s); cached runs in ~0.04s
@@ -299,7 +299,8 @@ Custom pricing (including `web_search` / `web_fetch` per-request rates) can be s
 │   ├── codex@devbox_daily.json
 │   ├── gemini_daily.json
 │   ├── opencode_daily.json
-│   └── pi-agent_daily.json
+│   ├── pi-agent_daily.json
+│   └── worktree_links.json      # Git worktree → main repo, for root folding
 ├── remotes/
 │   └── devbox/codex/sessions/   # Synced remote Codex JSONL snapshots
 ├── config.toml                  # Optional remotes + starred project roots

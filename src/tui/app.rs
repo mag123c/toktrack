@@ -963,6 +963,9 @@ impl App {
                 if data.applied_project_roots != self.project_roots {
                     data.apply_project_roots(&self.project_roots);
                 }
+                // A load started before the first root was starred skipped the
+                // worktree probe; load again now that something folds.
+                let reprobe = !data.project_links.probed && !self.project_roots.is_empty();
                 // Fresh loads arrive date-ascending; re-apply the user's sort.
                 data.apply_sort(self.sort_key, self.sort_direction);
                 // The fresh list (period lists especially) may be shorter.
@@ -976,6 +979,9 @@ impl App {
                 self.audit_rx = None;
                 if self.current_tab() == Tab::Audit {
                     self.ensure_audit_loading();
+                }
+                if reprobe {
+                    self.start_data_load();
                 }
             }
             Err(message) => {
@@ -1387,7 +1393,7 @@ fn build_app_data_from_summaries(
     source_summaries: HashMap<String, Vec<DailySummary>>,
     cache_warning: Option<CacheWarning>,
     project_roots: &[String],
-    project_links: ProjectLinks,
+    mut project_links: ProjectLinks,
 ) -> Result<Box<AppData>, String> {
     let total = Aggregator::total_from_daily(&summaries);
 
@@ -1414,6 +1420,7 @@ fn build_app_data_from_summaries(
     // `apply_project_roots`.
     let raw_project_usage = Aggregator::by_project_from_daily(&summaries);
     let raw_project_summaries = Aggregator::project_daily_summaries(&summaries);
+    project_links.index_names(raw_project_usage.keys().map(String::as_str));
 
     let daily_data = DailyData::from_daily_summaries(summaries);
 
@@ -2815,6 +2822,60 @@ mod tests {
         app.refreshing = false;
         press(&mut app, KeyCode::Char('*'));
         assert!(app.data_rx.is_none());
+    }
+
+    /// A starred-to-be `/work/web`, an unstarred same-named project, and a
+    /// T3 worktree named `web` with no known link.
+    const SAME_NAME_PROJECTS: [(&str, u64, f64); 3] = [
+        ("/work/web", 100, 3.0),
+        ("/home/u/personal/web", 10, 1.0),
+        ("/home/u/.t3/worktrees/web/x", 5, 0.5),
+    ];
+
+    fn assert_web_worktree_not_folded(app: &App) {
+        let rows = project_rows(app);
+        assert!(rows.contains(&("/work/web".to_string(), 100, true)));
+        assert!(rows.contains(&("/home/u/.t3/worktrees/web/x".to_string(), 5, false)));
+    }
+
+    #[test]
+    fn test_first_star_keeps_the_name_guard_before_the_reload() {
+        let mut app = ready_app_with_projects(&SAME_NAME_PROJECTS);
+        app.data_loader = stub_loader;
+        if let AppState::Ready { data } = &mut app.state {
+            data.project_links.probed = false;
+        }
+        press(&mut app, KeyCode::Char('4'));
+        select_project(&mut app, "/work/web");
+
+        press(&mut app, KeyCode::Char('*'));
+
+        // Shown right away, before the background reload finishes.
+        assert_web_worktree_not_folded(&app);
+    }
+
+    #[test]
+    fn test_star_during_a_refresh_reprobes_after_the_load() {
+        let mut app = ready_app_with_projects(&SAME_NAME_PROJECTS);
+        app.data_loader = stub_loader;
+        let (tx, rx) = mpsc::channel();
+        app.data_rx = Some(rx);
+        app.refreshing = true;
+        press(&mut app, KeyCode::Char('4'));
+        select_project(&mut app, "/work/web");
+        press(&mut app, KeyCode::Char('*'));
+
+        // The in-flight load started with no roots, so it skipped the probe.
+        let AppState::Ready { mut data } = ready_app_with_projects(&SAME_NAME_PROJECTS).state
+        else {
+            unreachable!()
+        };
+        data.project_links.probed = false;
+        tx.send(Ok(data)).unwrap();
+        app.poll_data();
+
+        assert_web_worktree_not_folded(&app);
+        assert!(app.data_rx.is_some(), "a probing load should follow");
     }
 
     #[test]

@@ -49,10 +49,11 @@ pub fn default_links_path() -> Option<PathBuf> {
     )
 }
 
-/// Folding links for the project `keys` under the starred `roots`. Without a
-/// root nothing folds, so nothing is read or probed. Otherwise the links saved
-/// at `links_path` are checked against the keys' `.git` files and saved back
-/// if they changed (best effort: an unsaved link is just found again).
+/// Worktree links for the project `keys` under the starred `roots`. Without
+/// a root nothing folds, so nothing is read or probed. Otherwise the links
+/// saved at `links_path` are checked against the keys' `.git` files and saved
+/// back if they changed (best effort: an unsaved link is just found again).
+/// Folder names are indexed separately, on every load (see `ProjectLinks`).
 pub fn link_projects<'a>(
     keys: impl IntoIterator<Item = &'a str>,
     roots: &[String],
@@ -70,7 +71,6 @@ pub fn link_projects<'a>(
     }
     links.aliases = aliases;
     links.resolved_roots = resolve_roots(roots);
-    links.index_names(keys);
     links.probed = true;
     links
 }
@@ -484,12 +484,6 @@ mod tests {
 
         assert!(links.aliases.is_empty());
         assert!(!saved.exists());
-    }
-
-    #[test]
-    fn link_projects_indexes_project_names_for_the_name_fallback() {
-        let links = link_projects(["/w/web", "/u/.t3/worktrees/web/x"], &roots(&["/w"]), None);
-        assert_eq!(links.names.get("web"), Some(&vec!["/w/web".to_string()]));
     }
 
     #[cfg(unix)]
