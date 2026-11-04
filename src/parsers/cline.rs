@@ -19,11 +19,14 @@
 //! equals `Σ(inputTokens − cacheReadTokens − cacheWriteTokens)` exactly, so
 //! that difference is the v2 `input_tokens`. Cline reports no reasoning count.
 //!
-//! Compaction strips `metrics` from the messages it folds and sums them into
-//! the first message's `metadata.usageBefore` (same five fields, same nesting;
-//! repeated compactions add into it). It becomes one extra entry per such
-//! message, id `<id>#usageBefore`, dated at the session's `started_at` because
-//! the aggregate has no per-day split.
+//! Known gap, compacted sessions: compaction strips `metrics` from the
+//! messages it folds and sums them into the first message's
+//! `metadata.usageBefore`, with no per-day split. Those calls were usually
+//! counted on their own days before the compaction, and the daily-summary
+//! cache keeps no per-session memory of what it already counted, so adding
+//! the aggregate back can double count permanently. It is not read: usage
+//! that was never seen before a compaction is missing, which is recoverable
+//! later, whereas a double count in the cache is not.
 //!
 //! Subagent and team-task files are `<root>/<agentId>.messages.json` with no
 //! record of their own: they use the root's `<root>/<root>.json` (but not its
@@ -69,15 +72,6 @@ struct ClineMessage<'a> {
     model_info: Option<ClineModelInfo<'a>>,
     #[serde(default)]
     metrics: Option<ClineMetrics>,
-    #[serde(default, deserialize_with = "lenient_message_metadata")]
-    metadata: Option<ClineMessageMetadata>,
-}
-
-/// Only `usageBefore` is read from a message's `metadata`.
-#[derive(Deserialize)]
-struct ClineMessageMetadata {
-    #[serde(default, rename = "usageBefore", deserialize_with = "lenient_metrics")]
-    usage_before: Option<ClineMetrics>,
 }
 
 #[derive(Deserialize)]
@@ -139,38 +133,6 @@ fn lenient_f64<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> std::result::Result<Option<f64>, D::Error> {
     Ok(Option::<Lenient>::deserialize(d)?.and_then(|l| l.as_f64()))
-}
-
-/// A message `metadata` object, or `None` for any other shape.
-fn lenient_message_metadata<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> std::result::Result<Option<ClineMessageMetadata>, D::Error> {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Shape {
-        Meta(ClineMessageMetadata),
-        Other(serde::de::IgnoredAny),
-    }
-    Ok(match Option::<Shape>::deserialize(d)? {
-        Some(Shape::Meta(m)) => Some(m),
-        _ => None,
-    })
-}
-
-/// A metrics object, or `None` for any other shape instead of failing the file.
-fn lenient_metrics<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> std::result::Result<Option<ClineMetrics>, D::Error> {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Shape {
-        Metrics(ClineMetrics),
-        Other(serde::de::IgnoredAny),
-    }
-    Ok(match Option::<Shape>::deserialize(d)? {
-        Some(Shape::Metrics(m)) => Some(m),
-        _ => None,
-    })
 }
 
 /// Fields are optional and lenient: a `null`, float, negative or string value
@@ -420,77 +382,57 @@ impl ClineParser {
         let mut dropped = 0usize;
         let mut drifted = 0usize;
 
-        for (index, msg) in parsed.messages.iter().enumerate() {
+        for msg in &parsed.messages {
+            // Compaction aggregates (`metadata.usageBefore`) are deliberately
+            // not read; see "Known gap" in the module docs.
+            let Some(metrics) = msg.metrics.filter(has_usage) else {
+                continue;
+            };
             let own_ts = msg.ts.and_then(|ms| Utc.timestamp_millis_opt(ms).single());
             if matches!((own_ts, seed_cutoff), (Some(ts), Some(cutoff)) if ts < cutoff) {
                 continue;
             }
+            let Some(timestamp) = own_ts.or(fallback_ts) else {
+                dropped += 1;
+                continue;
+            };
 
-            // Compaction strips the folded messages' `metrics` and sums them
-            // into the first message's `metadata.usageBefore` (repeated
-            // compactions add into the same field), so each call is counted in
-            // exactly one of the two places. The aggregate has no per-day
-            // split; it is dated at the session start, which is stable across
-            // re-compactions (see .dev/DECISIONS.md).
-            let own = msg.metrics.filter(has_usage);
-            let aggregate = msg
-                .metadata
-                .as_ref()
-                .and_then(|m| m.usage_before)
-                .filter(has_usage);
-            for (metrics, ts, is_aggregate) in [
-                (own, own_ts, false),
-                (aggregate, fallback_ts.or(own_ts), true),
-            ] {
-                let Some(metrics) = metrics else {
-                    continue;
-                };
-                let Some(timestamp) = ts.or(fallback_ts) else {
-                    dropped += 1;
-                    continue;
-                };
+            let info = msg.model_info.as_ref();
+            let model = non_empty(info.and_then(|i| i.id.as_deref()))
+                .or_else(|| non_empty(record.model.as_deref()))
+                .map(|m| strip_provider_prefix(m).to_string());
+            let provider = non_empty(info.and_then(|i| i.provider.as_deref()))
+                .or_else(|| non_empty(record.provider.as_deref()))
+                .map(String::from);
 
-                let info = msg.model_info.as_ref();
-                let model = non_empty(info.and_then(|i| i.id.as_deref()))
-                    .or_else(|| non_empty(record.model.as_deref()))
-                    .map(|m| strip_provider_prefix(m).to_string());
-                let provider = non_empty(info.and_then(|i| i.provider.as_deref()))
-                    .or_else(|| non_empty(record.provider.as_deref()))
-                    .map(String::from);
-
-                let mapped = map_tokens(&metrics);
-                if mapped.drifted {
-                    drifted += 1;
-                }
-
-                entries.push(UsageEntry {
-                    fast_speed: false,
-                    timestamp,
-                    model,
-                    input_tokens: mapped.input_tokens,
-                    output_tokens: metrics.output_tokens.unwrap_or(0),
-                    cache_read_tokens: metrics.cache_read_tokens.unwrap_or(0),
-                    cache_creation_tokens: metrics.cache_write_tokens.unwrap_or(0),
-                    reasoning_tokens: 0,
-                    cache_creation_5m_tokens: 0,
-                    cache_creation_1h_tokens: 0,
-                    web_search_requests: 0,
-                    web_fetch_requests: 0,
-                    reported_total_tokens: mapped.reported_total_tokens,
-                    cost_usd: metrics.cost,
-                    // Message ids are unique within a session; pairing with the
-                    // session id keeps the dedup hash unique across sessions.
-                    message_id: match (is_aggregate, msg.id.as_deref()) {
-                        (false, id) => id.map(String::from),
-                        (true, Some(id)) => Some(format!("{id}#usageBefore")),
-                        (true, None) => Some(format!("@{index}#usageBefore")),
-                    },
-                    request_id: request_id.clone(),
-                    source: Some("cline".into()),
-                    provider,
-                    project: project.clone(),
-                });
+            let mapped = map_tokens(&metrics);
+            if mapped.drifted {
+                drifted += 1;
             }
+
+            entries.push(UsageEntry {
+                fast_speed: false,
+                timestamp,
+                model,
+                input_tokens: mapped.input_tokens,
+                output_tokens: metrics.output_tokens.unwrap_or(0),
+                cache_read_tokens: metrics.cache_read_tokens.unwrap_or(0),
+                cache_creation_tokens: metrics.cache_write_tokens.unwrap_or(0),
+                reasoning_tokens: 0,
+                cache_creation_5m_tokens: 0,
+                cache_creation_1h_tokens: 0,
+                web_search_requests: 0,
+                web_fetch_requests: 0,
+                reported_total_tokens: mapped.reported_total_tokens,
+                cost_usd: metrics.cost,
+                // Message ids are unique within a session; pairing with the
+                // session id keeps the dedup hash unique across sessions.
+                message_id: msg.id.as_deref().map(String::from),
+                request_id: request_id.clone(),
+                source: Some("cline".into()),
+                provider,
+                project: project.clone(),
+            });
         }
 
         if drifted > 0 {
@@ -593,9 +535,6 @@ mod tests {
                 "1793300000000_eeeee.messages.json",
                 "1793400000000_fffff.messages.json",
                 "1793500000000_ggggg.messages.json",
-                "1793600000000_hhhhh.messages.json",
-                "1793700000000_iiiii.messages.json",
-                "1793800000000_jjjjj.messages.json",
                 "1793900000000_kkkkk.messages.json",
                 "agent_abc.messages.json",
             ],
@@ -753,7 +692,7 @@ mod tests {
             .parse_file(&session_file("1793200000000_ddddd"))
             .is_err());
         let entries = parser().parse_all().unwrap();
-        assert_eq!(entries.len(), 17);
+        assert_eq!(entries.len(), 13);
     }
 
     #[test]
@@ -797,7 +736,7 @@ mod tests {
 
         let files = parser().collect_files();
         let doubled: Vec<PathBuf> = files.iter().chain(files.iter()).cloned().collect();
-        assert_eq!(parser().parse_and_dedup(&doubled).unwrap().len(), 17);
+        assert_eq!(parser().parse_and_dedup(&doubled).unwrap().len(), 13);
     }
 
     /// Numbers from disk are untrusted: extreme values must not panic inside
@@ -912,86 +851,30 @@ mod tests {
         (entries, temp)
     }
 
-    /// Compaction strips every message's `metrics` and keeps the totals in the
-    /// first message's `metadata.usageBefore`; that aggregate is the usage.
+    /// Compaction folds earlier messages' usage into `metadata.usageBefore`
+    /// with no per-day split. Those calls were already counted on their own
+    /// days, and the daily cache cannot tell which, so the aggregate is a
+    /// known gap rather than a source of permanent double counting.
     #[test]
-    fn test_compaction_usage_before_becomes_one_entry() {
-        let entries = parser()
-            .parse_file(&session_file("1793600000000_hhhhh"))
-            .unwrap();
-        assert_eq!(entries.len(), 1);
-        let e = &entries[0];
-        // inputTokens nests cache: 1000 - 400 - 100.
-        assert_eq!(e.input_tokens, 500);
-        assert_eq!(e.output_tokens, 100);
-        assert_eq!(e.cache_read_tokens, 400);
-        assert_eq!(e.cache_creation_tokens, 100);
-        assert_eq!(e.reported_total_tokens, Some(1100));
-        assert_eq!(e.cost_usd, Some(0.5));
-        assert_eq!(e.model.as_deref(), Some("claude-opus-4.8"));
-        assert_eq!(e.provider.as_deref(), Some("cline"));
-        assert_eq!(e.project.as_deref(), Some("/home/me/proj-compacted"));
-        assert_eq!(e.message_id.as_deref(), Some("msg_compact01#usageBefore"));
-        assert_eq!(e.request_id.as_deref(), Some("1793600000000_hhhhh"));
-        // One aggregate has no per-day split: it is dated at the session start.
-        assert_eq!(
-            e.timestamp,
-            DateTime::parse_from_rfc3339("2026-11-02T06:13:20.000Z")
-                .unwrap()
-                .with_timezone(&Utc)
-        );
-    }
-
-    /// Without a session record the compaction message's own `ts` is used.
-    #[test]
-    fn test_usage_before_without_record_uses_message_ts() {
+    fn test_compaction_usage_before_is_not_counted() {
         let (entries, _t) = parse_inline(
-            r#"{"messages":[{"id":"c","ts":1793000000000,"metadata":{"kind":"compaction","usageBefore":{"inputTokens":10,"outputTokens":1}}}]}"#,
-        );
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].timestamp.timestamp_millis(), 1793000000000);
-        assert_eq!(entries[0].message_id.as_deref(), Some("c#usageBefore"));
-    }
-
-    #[test]
-    fn test_usage_before_all_zero_or_missing_is_ignored() {
-        let (entries, _t) = parse_inline(
-            r#"{"messages":[
-{"id":"a","ts":1793000000000,"metadata":{"kind":"compaction","usageBefore":{"inputTokens":0,"cost":0}}},
-{"id":"b","ts":1793000000000,"metadata":{"kind":"compaction"}},
-{"id":"c","ts":1793000000000,"metadata":{"usageBefore":"oops"}}]}"#,
+            r#"{"messages":[{"id":"c","ts":1793000000000,"metadata":{"kind":"compaction","usageBefore":{"inputTokens":1000,"outputTokens":100,"cacheReadTokens":400,"cacheWriteTokens":100,"cost":0.5}}}]}"#,
         );
         assert!(entries.is_empty());
     }
 
-    /// A partially compacted session keeps metrics on surviving messages;
-    /// upstream strips what it folds into `usageBefore`, so both are added
-    /// and neither is counted twice.
+    /// Messages that keep their `metrics` after a compaction are still
+    /// counted; only the folded aggregate is ignored.
     #[test]
-    fn test_partial_compaction_counts_aggregate_and_survivors_once() {
-        let entries = parser()
-            .parse_file(&session_file("1793700000000_iiiii"))
-            .unwrap();
-        assert_eq!(entries.len(), 2);
-        assert_eq!(
-            by_id(&entries, "msg_partial_c#usageBefore").input_tokens,
-            2000
+    fn test_partial_compaction_counts_only_surviving_metrics() {
+        let (entries, _t) = parse_inline(
+            r#"{"messages":[
+{"id":"c","ts":1793000000000,"metadata":{"kind":"compaction","usageBefore":{"inputTokens":2000,"outputTokens":200}}},
+{"id":"a","ts":1793000100000,"metrics":{"inputTokens":300,"outputTokens":30,"cost":0.03}}]}"#,
         );
-        assert_eq!(by_id(&entries, "msg_partial_a").input_tokens, 300);
-        let hashes: std::collections::HashSet<_> =
-            entries.iter().filter_map(|e| e.dedup_hash()).collect();
-        assert_eq!(hashes.len(), 2);
-    }
-
-    /// A fork copies the parent's compaction message along with its
-    /// `usageBefore`; stamped before `forkedAt`, it is the parent's usage.
-    #[test]
-    fn test_forked_session_skips_copied_compaction_aggregate() {
-        let entries = parser()
-            .parse_file(&session_file("1793800000000_jjjjj"))
-            .unwrap();
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].message_id.as_deref(), Some("msg_jnew01"));
+        assert_eq!(entries[0].message_id.as_deref(), Some("a"));
+        assert_eq!(entries[0].input_tokens, 300);
     }
 
     fn subagent_file() -> PathBuf {
@@ -1115,15 +998,6 @@ mod tests {
         assert_eq!(entries[0].message_id.as_deref(), Some("new"));
         assert_eq!(entries[0].project.as_deref(), Some("/p"));
         assert_eq!(entries[0].request_id.as_deref(), Some("123"));
-    }
-
-    /// No id on the compaction message: the index keeps the entry's id stable.
-    #[test]
-    fn test_usage_before_without_message_id_uses_index() {
-        let (entries, _t) = parse_inline(
-            r#"{"messages":[{"ts":1793000000000,"metadata":{"usageBefore":{"inputTokens":10}}}]}"#,
-        );
-        assert_eq!(entries[0].message_id.as_deref(), Some("@0#usageBefore"));
     }
 
     /// One bad value must not drop the whole file.
