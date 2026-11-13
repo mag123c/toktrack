@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.18.0](https://github.com/mag123c/toktrack/compare/v2.17.5...v2.18.0) (2026-11-03)
+
+
+### Features
+
+* **services:** fold git worktrees into their main repo's starred root ([#285](https://github.com/mag123c/toktrack/issues/285)) ([f65f80a](https://github.com/mag123c/toktrack/commit/f65f80a763b99615ee1f249650aed05da8cba649))
+* **tui:** scope the Projects tab to today, this week or this month ([#284](https://github.com/mag123c/toktrack/issues/284)) ([6a81d54](https://github.com/mag123c/toktrack/commit/6a81d54fb1376efe727c83d3b2254458563d43ad))
+* **tui:** select overview total to drill into all sources ([#279](https://github.com/mag123c/toktrack/issues/279)) ([f689780](https://github.com/mag123c/toktrack/commit/f689780a4e57a11e5e831e0cdb070c13b0b6b6c7))
+* **tui:** star project root folders to fold subfolders ([#278](https://github.com/mag123c/toktrack/issues/278)) ([0f99051](https://github.com/mag123c/toktrack/commit/0f99051def36394898ec264e1fe10279c219bc08))
+
+
+### Bug Fixes
+
+* **services:** keep config comments on save and use an ASCII root marker ([#283](https://github.com/mag123c/toktrack/issues/283)) ([996ddbe](https://github.com/mag123c/toktrack/commit/996ddbebe2923f2eac4f9a27a927f67b75c3cdc9))
+
 ## [2.17.5](https://github.com/mag123c/toktrack/compare/v2.17.4...v2.17.5) (2026-10-20)
 
 
