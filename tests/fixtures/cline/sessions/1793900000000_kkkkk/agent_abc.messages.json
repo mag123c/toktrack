@@ -1,0 +1,4 @@
+{"version":1,"agent":"subagent","sessionId":"1793900000000_kkkkk__agent_abc","messages":[
+{"id":"msg_same0001","role":"assistant","ts":1793900200000,"modelInfo":{"id":"claude-sonnet-5.5","provider":"anthropic"},"metrics":{"inputTokens":200,"outputTokens":20,"cacheReadTokens":0,"cacheWriteTokens":0,"cost":0.02}},
+{"id":"msg_subnots","role":"assistant","metrics":{"inputTokens":40,"outputTokens":4,"cacheReadTokens":0,"cacheWriteTokens":0,"cost":0.004}}
+]}

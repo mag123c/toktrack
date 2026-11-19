@@ -1,0 +1,5 @@
+{"version":1,"messages":[
+{"id":"msg_imp0001","role":"assistant","ts":1792996792728,"modelInfo":{"id":"claude-sonnet-5.5","provider":"anthropic"},"metrics":{"inputTokens":1000,"outputTokens":100,"cacheReadTokens":0,"cacheWriteTokens":0,"cost":0}},
+{"id":"msg_imp0002","role":"assistant","ts":1792996800000,"modelInfo":{"id":"claude-sonnet-5.5","provider":"anthropic"},"metrics":{"inputTokens":2000,"outputTokens":200,"cacheReadTokens":1000,"cacheWriteTokens":0,"cost":0}},
+{"id":"msg_impnew01","role":"assistant","ts":1793600000000,"modelInfo":{"id":"claude-sonnet-5.5","provider":"anthropic"},"metrics":{"inputTokens":500,"outputTokens":50,"cacheReadTokens":0,"cacheWriteTokens":0,"cost":0.005}}
+]}
