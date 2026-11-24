@@ -23,7 +23,15 @@
 //!     - 10 `response_output_tokens` (visible output)
 //!     - 11 `response_id`           (string; unique per generation)
 //! - field 9  `chat_start_metadata` → field 4 `Timestamp {1 seconds, 2 nanos}`
+//!   (no longer written by agy 1.5.12+, see below)
 //! - field 19 `response_model`      (string model id, e.g. `gemini-3-flash-a`)
+//! - field 20 `custom_metadata`     (`map<string,string>`; `last_step_index`)
+//!
+//! When `created_at` is absent, the generation is dated from the `steps` table:
+//! its response is step `last_step_index + 1`, whose `metadata`
+//! (`CortexStepMetadata`) field 1 is `created_at`. Step `last_step_index` is the
+//! fallback, then the DB mtime. Live DBs run in WAL mode, so "modified" means
+//! the later of `<db>` and `<db>-wal`.
 //!
 //! The session's working directory (used as the project key) is stored once per
 //! DB in `trajectory_metadata_blob` (field 7, or field 1→1) as a `file://` URI.
@@ -41,7 +49,7 @@ use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OpenFlags};
 
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::CLIParser;
 
@@ -149,6 +157,14 @@ mod proto {
     pub fn string(buf: &[u8], field: u64) -> Option<&str> {
         bytes(buf, field).and_then(|b| std::str::from_utf8(b).ok())
     }
+
+    /// Every length-delimited value for a repeated `field` (e.g. map entries).
+    pub fn all_bytes(buf: &[u8], field: u64) -> impl Iterator<Item = &[u8]> {
+        fields(buf).filter_map(move |(f, v)| match v {
+            Wire::Bytes(b) if f == field => Some(b),
+            _ => None,
+        })
+    }
 }
 
 /// Parser for Antigravity IDE/CLI usage data.
@@ -201,6 +217,7 @@ impl AntigravityParser {
         let project = read_project(&conn);
         let trajectory_id = read_trajectory_id(&conn);
         let fallback_ts = file_mtime(path);
+        let mut steps = StepTimes::new(&conn);
 
         read_gen_metadata(&conn)
             .into_iter()
@@ -209,11 +226,35 @@ impl AntigravityParser {
                     &data,
                     project.as_deref(),
                     trajectory_id.as_deref(),
+                    |idx| steps.created_at(idx),
                     fallback_ts,
                     self.source,
                 )
             })
             .collect()
+    }
+}
+
+/// `steps.metadata` (`CortexStepMetadata`) `created_at` lookups by step index.
+/// A missing `steps` table, row, or field yields `None`.
+struct StepTimes<'c> {
+    stmt: Option<rusqlite::Statement<'c>>,
+}
+
+impl<'c> StepTimes<'c> {
+    fn new(conn: &'c Connection) -> Self {
+        Self {
+            stmt: conn
+                .prepare("SELECT metadata FROM steps WHERE idx = ?1")
+                .ok(),
+        }
+    }
+
+    /// `CortexStepMetadata.created_at(1) = Timestamp {1 seconds, 2 nanos}`.
+    fn created_at(&mut self, idx: u64) -> Option<DateTime<Utc>> {
+        let idx = i64::try_from(idx).ok()?;
+        let meta: Vec<u8> = self.stmt.as_mut()?.query_row([idx], |r| r.get(0)).ok()?;
+        decode_proto_timestamp(proto::bytes(&meta, 1)?)
     }
 }
 
@@ -223,6 +264,7 @@ fn decode_entry(
     data: &[u8],
     project: Option<&str>,
     trajectory_id: Option<&str>,
+    mut step_created_at: impl FnMut(u64) -> Option<DateTime<Utc>>,
     fallback_ts: DateTime<Utc>,
     source: &'static str,
 ) -> Option<UsageEntry> {
@@ -256,7 +298,20 @@ fn decode_entry(
     let raw_model = proto::string(cmm, 19)
         .map(String::from)
         .filter(|s| !s.is_empty());
-    let timestamp = decode_timestamp(cmm).unwrap_or(fallback_ts);
+    // agy 1.5.12+ no longer writes `chat_start_metadata.created_at`. The
+    // generation's response is step `last_step_index + 1` (its input ends at
+    // `last_step_index`), so date it from that step's `created_at`. Failed or
+    // in-flight generations have no response step yet; their input step is at
+    // most a few seconds earlier (once a later parse sees the response step the
+    // date may shift, which only matters across midnight).
+    let timestamp = decode_timestamp(cmm)
+        .or_else(|| {
+            let last = last_step_index(cmm)?;
+            last.checked_add(1)
+                .and_then(&mut step_created_at)
+                .or_else(|| step_created_at(last))
+        })
+        .unwrap_or(fallback_ts);
 
     // `gemini-default` (and a missing model) is Antigravity's placeholder for
     // whatever the default Gemini was at the time — not a fixed model id.
@@ -319,10 +374,22 @@ fn resolve_gemini_default(ts: i64) -> &'static str {
 /// `ChatModelMetadata.chat_start_metadata(9).timestamp(4) = {seconds(1), nanos(2)}`.
 fn decode_timestamp(cmm: &[u8]) -> Option<DateTime<Utc>> {
     let start = proto::bytes(cmm, 9)?;
-    let ts = proto::bytes(start, 4)?;
+    decode_proto_timestamp(proto::bytes(start, 4)?)
+}
+
+/// `google.protobuf.Timestamp {1 seconds, 2 nanos}`.
+fn decode_proto_timestamp(ts: &[u8]) -> Option<DateTime<Utc>> {
     let seconds = i64::try_from(proto::varint(ts, 1)?).ok()?;
     let nanos = u32::try_from(proto::varint(ts, 2).unwrap_or(0)).unwrap_or(0);
     DateTime::from_timestamp(seconds, nanos)
+}
+
+/// `last_step_index` from `ChatModelMetadata.custom_metadata` (f20,
+/// `map<string, string>`: entry key f1, value f2).
+fn last_step_index(cmm: &[u8]) -> Option<u64> {
+    proto::all_bytes(cmm, 20)
+        .find(|entry| proto::string(entry, 1) == Some("last_step_index"))
+        .and_then(|entry| proto::string(entry, 2)?.parse().ok())
 }
 
 /// Workspace folder URI from `trajectory_metadata_blob` (field 7, or field 1→1),
@@ -401,12 +468,20 @@ fn workspace_path(uri: &str) -> String {
     }
 }
 
-/// DB file mtime as a UTC datetime; falls back to `now` if unavailable. Used only
-/// when a row's embedded timestamp is missing.
+/// Last write to a conversation DB: the later of `<db>` and `<db>-wal`. Live
+/// conversations append to the WAL, so the main file's mtime only moves on a
+/// checkpoint. `None` if neither mtime is readable.
+fn db_mtime(path: &Path) -> Option<SystemTime> {
+    let mtime = |p: &Path| p.metadata().and_then(|m| m.modified()).ok();
+    let mut wal = path.as_os_str().to_owned();
+    wal.push("-wal");
+    mtime(path).max(mtime(Path::new(&wal)))
+}
+
+/// DB mtime (see [`db_mtime`]) as a UTC datetime; falls back to `now` if
+/// unavailable. Used only when a row carries no timestamp at all.
 fn file_mtime(path: &Path) -> DateTime<Utc> {
-    path.metadata()
-        .and_then(|m| m.modified())
-        .ok()
+    db_mtime(path)
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .and_then(|d| i64::try_from(d.as_secs()).ok())
         .and_then(|secs| DateTime::from_timestamp(secs, 0))
@@ -445,6 +520,17 @@ impl CLIParser for AntigravityParser {
 
     fn parse_file(&self, path: &Path) -> Result<Vec<UsageEntry>> {
         Ok(self.parse_db(path))
+    }
+
+    /// Like the default, but a DB counts as recent when its `-wal` changed too
+    /// (see [`db_mtime`]); otherwise new rows in a live conversation are skipped.
+    fn parse_recent_files(&self, since: SystemTime) -> Result<Vec<UsageEntry>> {
+        let recent: Vec<PathBuf> = self
+            .collect_files()
+            .into_iter()
+            .filter(|f| db_mtime(f).is_none_or(|t| t >= since))
+            .collect();
+        self.parse_and_dedup(&recent)
     }
 }
 
@@ -1123,5 +1209,189 @@ mod tests {
         let entries = parser.parse_all().unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].input_tokens, u64::MAX);
+    }
+
+    /// agy 1.5.12+ layout: no `chat_start_metadata.created_at`, but the
+    /// generation's `custom_metadata` (f20) carries `last_step_index`.
+    fn gen_row_with_last_step(idx: i64, last_step_index: u64, response_id: &str) -> Row {
+        let usage = model_usage_stats(100, 20, 5, 0, 0, response_id);
+        let mut start = Vec::new();
+        field_varint(&mut start, 2, u64::MAX); // checkpoint_index = -1, as in real 1.5.12 rows
+        let mut cmm = Vec::new();
+        field_bytes(&mut cmm, 4, &usage);
+        field_bytes(&mut cmm, 9, &start);
+        field_bytes(&mut cmm, 19, b"gemini-4-neon");
+        for (k, v) in [
+            ("trajectory_id", "traj-1".to_string()),
+            ("last_step_index", last_step_index.to_string()),
+        ] {
+            let mut entry = Vec::new();
+            field_bytes(&mut entry, 1, k.as_bytes());
+            field_bytes(&mut entry, 2, v.as_bytes());
+            field_bytes(&mut cmm, 20, &entry);
+        }
+        Row {
+            idx,
+            data: gen_blob(&cmm, &format!("uuid-{idx}")),
+        }
+    }
+
+    /// Add a `steps` table whose rows carry `CortexStepMetadata.created_at` (f1).
+    fn seed_steps(db: &Path, steps: &[(i64, u64)]) {
+        let conn = Connection::open(db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, \
+               metadata BLOB);",
+        )
+        .unwrap();
+        for (idx, secs) in steps {
+            let mut ts = Vec::new();
+            field_varint(&mut ts, 1, *secs);
+            let mut meta = Vec::new();
+            field_bytes(&mut meta, 1, &ts);
+            conn.execute(
+                "INSERT INTO steps (idx, metadata) VALUES (?, ?)",
+                params![idx, meta],
+            )
+            .unwrap();
+        }
+    }
+
+    fn conv_db(root: &Path, variant: &str, name: &str) -> PathBuf {
+        root.join(variant).join("conversations").join(name)
+    }
+
+    #[test]
+    fn test_timestamp_from_response_step_when_created_at_missing() {
+        let tmp = TempDir::new().unwrap();
+        seed_db(
+            tmp.path(),
+            "antigravity-cli",
+            "t.db",
+            "file:///work/x",
+            "traj-1",
+            &[
+                gen_row_with_last_step(0, 0, "r0"),
+                gen_row_with_last_step(1, 3, "r1"),
+            ],
+        );
+        // Step N is the input the generation saw; step N+1 is its response.
+        seed_steps(
+            &conv_db(tmp.path(), "antigravity-cli", "t.db"),
+            &[
+                (0, 1_795_000_000),
+                (1, 1_795_000_010),
+                (3, 1_795_086_000),
+                (4, 1_795_086_400),
+            ],
+        );
+        let parser = AntigravityParser::with_data_dir(tmp.path().to_path_buf());
+        let mut entries = parser.parse_all().unwrap();
+        entries.sort_by_key(|e| e.timestamp);
+        let secs: Vec<i64> = entries.iter().map(|e| e.timestamp.timestamp()).collect();
+        assert_eq!(secs, vec![1_795_000_010, 1_795_086_400]);
+    }
+
+    #[test]
+    fn test_timestamp_falls_back_to_last_step_when_response_step_missing() {
+        let tmp = TempDir::new().unwrap();
+        seed_db(
+            tmp.path(),
+            "antigravity-cli",
+            "t.db",
+            "file:///work/x",
+            "traj-1",
+            &[gen_row_with_last_step(0, 7, "r0")],
+        );
+        seed_steps(
+            &conv_db(tmp.path(), "antigravity-cli", "t.db"),
+            &[(7, 1_795_100_000)],
+        );
+        let parser = AntigravityParser::with_data_dir(tmp.path().to_path_buf());
+        let entries = parser.parse_all().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].timestamp.timestamp(), 1_795_100_000);
+    }
+
+    #[test]
+    fn test_last_step_index_without_steps_table_falls_back_to_mtime() {
+        let tmp = TempDir::new().unwrap();
+        seed_db(
+            tmp.path(),
+            "antigravity-cli",
+            "t.db",
+            "file:///work/x",
+            "traj-1",
+            &[gen_row_with_last_step(0, 3, "r0")],
+        );
+        let db = conv_db(tmp.path(), "antigravity-cli", "t.db");
+        let parser = AntigravityParser::with_data_dir(tmp.path().to_path_buf());
+        let entries = parser.parse_all().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].timestamp, file_mtime(&db));
+    }
+
+    #[test]
+    fn test_legacy_created_at_wins_over_steps() {
+        let tmp = TempDir::new().unwrap();
+        // usage_row carries chat_start.created_at = 1_782_298_884 + idx.
+        seed_db(
+            tmp.path(),
+            "antigravity-ide",
+            "t.db",
+            "file:///work/x",
+            "traj-1",
+            &[usage_row(1, 10, 5, 0, 0, 0, "r")],
+        );
+        seed_steps(
+            &conv_db(tmp.path(), "antigravity-ide", "t.db"),
+            &[(0, 1_795_000_000), (1, 1_795_000_000), (2, 1_795_000_000)],
+        );
+        let parser = AntigravityParser::with_data_dir(tmp.path().to_path_buf());
+        let entries = parser.parse_all().unwrap();
+        assert_eq!(entries[0].timestamp.timestamp(), 1_782_298_885);
+    }
+
+    #[test]
+    fn test_recent_files_counts_wal_mtime() {
+        use std::time::{Duration, SystemTime};
+        let tmp = TempDir::new().unwrap();
+        for name in ["live.db", "idle.db"] {
+            seed_db(
+                tmp.path(),
+                "antigravity-cli",
+                name,
+                "file:///work/x",
+                &format!("traj-{name}"),
+                &[usage_row(1, 10, 5, 0, 0, 0, name)],
+            );
+        }
+        let old = SystemTime::now() - Duration::from_secs(10 * 86_400);
+        let set_mtime = |p: &Path, t: SystemTime| {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(p)
+                .unwrap()
+                .set_modified(t)
+                .unwrap();
+        };
+        // Both DB files were last checkpointed long ago; only `live` has a fresh WAL.
+        for name in ["live.db", "idle.db"] {
+            set_mtime(&conv_db(tmp.path(), "antigravity-cli", name), old);
+        }
+        let live_wal = conv_db(tmp.path(), "antigravity-cli", "live.db-wal");
+        std::fs::write(&live_wal, b"").unwrap();
+        let idle_wal = conv_db(tmp.path(), "antigravity-cli", "idle.db-wal");
+        std::fs::write(&idle_wal, b"").unwrap();
+        set_mtime(&idle_wal, old);
+
+        let parser = AntigravityParser::with_data_dir(tmp.path().to_path_buf());
+        let since = SystemTime::now() - Duration::from_secs(86_400);
+        let entries = parser.parse_recent_files(since).unwrap();
+        let ids: Vec<_> = entries
+            .iter()
+            .filter_map(|e| e.message_id.clone())
+            .collect();
+        assert_eq!(ids, vec!["live.db".to_string()]);
     }
 }
