@@ -151,7 +151,7 @@ zsh/bash/fish 몇 줄이면 됩니다 — **[셸 통합 가이드](docs/shell-in
 | Qwen Code | ✅ | `~/.qwen/tmp/*/chats/` |
 | OpenCode | ✅ | `~/.local/share/opencode/storage/message/` |
 | PI Agent | ✅ | `~/.pi/agent/sessions/` |
-| Antigravity | ✅ | `~/.gemini/antigravity-{ide,cli}/conversations/*.db` |
+| Antigravity | ✅ | `~/.gemini/antigravity{,-ide,-cli}/conversations/*.db` |
 | Grok CLI | ✅ | `~/.grok/sessions/*/*/updates.jsonl` |
 
 > 자체 비용을 기록하지 않는 소스(Gemini, Qwen, Codex, Antigravity, GitHub Copilot, 최신 Claude 로그)의 비용은

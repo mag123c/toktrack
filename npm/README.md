@@ -54,7 +54,7 @@ brew install toktrack
 | Qwen Code | `~/.qwen/tmp/*/chats/` |
 | OpenCode | `~/.local/share/opencode/storage/message/` |
 | PI Agent | `~/.pi/agent/sessions/` |
-| Antigravity | `~/.gemini/antigravity-{ide,cli}/conversations/*.db` |
+| Antigravity | `~/.gemini/antigravity{,-ide,-cli}/conversations/*.db` |
 | Grok CLI | `~/.grok/sessions/*/*/updates.jsonl` |
 
 ## Supported Platforms
