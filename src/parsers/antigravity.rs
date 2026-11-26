@@ -3,7 +3,9 @@
 //! Antigravity (Google's agentic IDE, built on Codeium/Windsurf tech) persists
 //! agent token usage locally in **per-conversation SQLite databases**, as
 //! **protobuf blobs** — not JSON. One DB per trajectory:
-//! - IDE: `~/.gemini/antigravity-ide/conversations/<trajectory_id>.db`
+//! - IDE: `~/.gemini/antigravity/conversations/<trajectory_id>.db` (current
+//!   builds) or `~/.gemini/antigravity-ide/conversations/<trajectory_id>.db`
+//!   (earlier builds)
 //! - CLI: `~/.gemini/antigravity-cli/conversations/<trajectory_id>.db`
 //!
 //! Token usage lives in the `gen_metadata` table (one row per model
@@ -152,7 +154,8 @@ mod proto {
 /// Parser for Antigravity IDE/CLI usage data.
 pub struct AntigravityParser {
     /// `~/.gemini` root (honors `GEMINI_CLI_HOME`). Conversation DBs live under
-    /// `antigravity-ide/conversations/` and `antigravity-cli/conversations/`.
+    /// `antigravity/conversations/`, `antigravity-ide/conversations/` and
+    /// `antigravity-cli/conversations/`.
     data_dir: PathBuf,
     source: &'static str,
 }
@@ -171,7 +174,8 @@ impl AntigravityParser {
     }
 
     /// Create a parser rooted at a custom `.gemini`-style directory (the dir that
-    /// directly contains `antigravity-ide/` and/or `antigravity-cli/`).
+    /// directly contains `antigravity/`, `antigravity-ide/` and/or
+    /// `antigravity-cli/`).
     pub fn with_data_dir(data_dir: PathBuf) -> Self {
         Self {
             data_dir,
@@ -424,14 +428,15 @@ impl CLIParser for AntigravityParser {
         &self.data_dir
     }
 
-    /// Representative pattern. Actual collection globs both the IDE and CLI
-    /// `conversations/` directories via `collect_files`.
+    /// Representative pattern. Actual collection globs the current and earlier
+    /// IDE layouts plus the CLI `conversations/` directories via `collect_files`.
     fn file_pattern(&self) -> &str {
-        "antigravity-ide/conversations/*.db"
+        "antigravity/conversations/*.db"
     }
 
     fn collect_files(&self) -> Vec<PathBuf> {
         let patterns = [
+            "antigravity/conversations/*.db",
             "antigravity-ide/conversations/*.db",
             "antigravity-cli/conversations/*.db",
         ];
@@ -852,6 +857,25 @@ mod tests {
         assert_eq!(files.len(), 2, "got: {files:?}");
         assert!(files.iter().any(|f| f.to_string_lossy().contains("ide")));
         assert!(files.iter().any(|f| f.to_string_lossy().contains("cli")));
+    }
+
+    #[test]
+    fn test_collect_files_finds_current_ide_layout() {
+        // Newer Antigravity IDE builds store conversation DBs directly under
+        // `~/.gemini/antigravity/conversations/`.
+        let tmp = TempDir::new().unwrap();
+        seed_db(
+            tmp.path(),
+            "antigravity",
+            "current.db",
+            "file:///work/z",
+            "traj-current",
+            &[usage_row(1, 10, 5, 0, 0, 0, "z")],
+        );
+        let parser = AntigravityParser::with_data_dir(tmp.path().to_path_buf());
+        let files = parser.collect_files();
+        assert_eq!(files.len(), 1, "got: {files:?}");
+        assert_eq!(parser.parse_all().unwrap().len(), 1);
     }
 
     #[test]
