@@ -721,18 +721,21 @@ impl PricingService {
         }
 
         let lower = normalized.to_lowercase();
-        let mut best: Option<(&str, &ModelPricing)> = None;
+        // Ranked by (matched name length, shorter raw key) so the longest match
+        // wins and, on a tie, the unprefixed key beats its `gemini/` twin.
+        let mut best: Option<((usize, std::cmp::Reverse<usize>), &ModelPricing)> = None;
         for (key, pricing) in &self.cache.models {
             let key_lower = key.to_lowercase();
-            // Skip provider-prefixed keys (azure/, openrouter/, etc.)
-            if key_lower.contains('/') {
+            // Skip provider-prefixed keys (azure/, openrouter/, etc.), except
+            // Google's first-party `gemini/` keys: LiteLLM lists newer Gemini
+            // models (e.g. `gemini/gemini-4-neon`) only under that prefix.
+            let name = key_lower.strip_prefix("gemini/").unwrap_or(&key_lower);
+            if name.contains('/') {
                 continue;
             }
-            if !key_lower.is_empty()
-                && lower.contains(&key_lower)
-                && best.is_none_or(|(k, _)| key.len() > k.len())
-            {
-                best = Some((key, pricing));
+            let rank = (name.len(), std::cmp::Reverse(key.len()));
+            if !name.is_empty() && lower.contains(name) && best.is_none_or(|(r, _)| rank > r) {
+                best = Some((rank, pricing));
             }
         }
         best.map(|(_, p)| p)
@@ -1140,6 +1143,69 @@ mod tests {
         let p = pricing.unwrap();
         // Should be "gpt-5" pricing ($0.00001), not "azure/gpt-5" ($0.00002)
         assert!((p.input_cost_per_token.unwrap() - 0.00001).abs() < 1e-10);
+    }
+
+    fn service_with_input_rates(rates: &[(&str, f64)]) -> PricingService {
+        let models = rates
+            .iter()
+            .map(|(key, rate)| {
+                (
+                    key.to_string(),
+                    ModelPricing {
+                        input_cost_per_token: Some(*rate),
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect();
+        PricingService {
+            cache: PricingCache {
+                fetched_at: 0,
+                models,
+            },
+            cache_path: PathBuf::from("/dev/null"),
+            custom: None,
+        }
+    }
+
+    fn input_rate(service: &PricingService, model: &str) -> Option<f64> {
+        service
+            .get_pricing(model)
+            .and_then(|p| p.input_cost_per_token)
+    }
+
+    /// LiteLLM lists Gemini 4 models only under provider-prefixed keys
+    /// (`gemini/gemini-4-neon`, `vertex_ai/gemini-4-neon`, ...). Bare ids such as
+    /// the ones Antigravity records must resolve to Google's first-party
+    /// `gemini/` entry, including variant suffixes like `-tiered-high`.
+    #[test]
+    fn test_bare_gemini_id_resolves_to_gemini_prefixed_key() {
+        let service = service_with_input_rates(&[
+            ("gemini/gemini-4-neon", 0.000003),
+            ("vertex_ai/gemini-4-neon", 0.000009),
+            ("gemini/gemini-4-hydrogen", 0.0000015),
+            ("openrouter/google/gemini-4-hydrogen", 0.000009),
+        ]);
+
+        assert_eq!(input_rate(&service, "gemini-4-neon"), Some(0.000003));
+        assert_eq!(
+            input_rate(&service, "gemini-4-hydrogen-tiered-high"),
+            Some(0.0000015)
+        );
+    }
+
+    #[test]
+    fn test_bare_key_preferred_over_gemini_prefixed_key() {
+        let service = service_with_input_rates(&[
+            ("gemini-4-carbon", 0.000002),
+            ("gemini/gemini-4-carbon", 0.000004),
+        ]);
+
+        assert_eq!(input_rate(&service, "gemini-4-carbon"), Some(0.000002));
+        assert_eq!(
+            input_rate(&service, "gemini-4-carbon-tiered-high"),
+            Some(0.000002)
+        );
     }
 
     #[test]
