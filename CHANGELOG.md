@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.18.1](https://github.com/mag123c/toktrack/compare/v2.18.0...v2.18.1) (2026-11-26)
+
+
+### Bug Fixes
+
+* **parser:** date Antigravity usage correctly on agy 1.5.12+ ([#295](https://github.com/mag123c/toktrack/issues/295)) ([ac1a7ea](https://github.com/mag123c/toktrack/commit/ac1a7eab28fb520b25086b8aa236969a80900dce))
+* **parser:** read Antigravity conversations from current IDE directory ([#293](https://github.com/mag123c/toktrack/issues/293)) ([d79160f](https://github.com/mag123c/toktrack/commit/d79160f6bc8b98bc7751d7ca7e5c9d60940cbf62))
+* **services:** resolve bare Gemini ids against gemini/ pricing keys ([#294](https://github.com/mag123c/toktrack/issues/294)) ([401a3bc](https://github.com/mag123c/toktrack/commit/401a3bc36c43c577c091c4bc10e44400db5639c7))
+
 ## [2.18.0](https://github.com/mag123c/toktrack/compare/v2.17.5...v2.18.0) (2026-11-03)
 
 
