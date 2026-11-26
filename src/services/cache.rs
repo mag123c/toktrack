@@ -74,8 +74,9 @@ fn normalize_model_keys(models: HashMap<String, ModelUsage>) -> HashMap<String, 
 /// backfills OpenCode v2 compaction-request usage. v21 folds Claude Code
 /// worktree cwds (`<repo>/.claude/worktrees/<name>`) into their repo's project.
 /// v22 attributes Claude Code entries to the session's launch directory, with
-/// subagents inheriting their parent session's.
-const CACHE_VERSION: u32 = 22;
+/// subagents inheriting their parent session's. v23 re-dates Antigravity
+/// (agy 1.5.12+) generations from their steps instead of the DB mtime.
+const CACHE_VERSION: u32 = 23;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DailySummaryCache {
